@@ -6,7 +6,7 @@
 
 - `EntityId` identifies an immutable `WorldId`, slot and generation. Equality includes all three fields. A stale, foreign-world or retired slot never aliases a live entity. A generation overflow permanently retires the slot; world IDs are not recycled while stale references may remain.
 - The L3A API must distinguish `MissingComponent`, `StaleEntity`, `WrongWorld` and `WorldDisposed` without returning writable live references.
-- Borrowed read leases carry world identity and an epoch. Lease acquisition and disposal are explicit; dereference after disposal or after the next synchronization barrier fails. A barrier cannot invalidate an active lease: it must await bounded completion or cancel/stop the owning work under the host shutdown policy. A lease cannot be retained by a job scheduled across barriers.
+- Borrowed read leases carry world identity and an epoch. Lease acquisition and disposal are explicit; dereference after disposal or after the next synchronization barrier fails. A barrier MUST NOT advance while an active borrowed lease can still be dereferenced. The scheduler admits only barrier-bounded borrowed-read jobs, waits for their completion within a configured finite budget, and on timeout cancels the jobs and stops/pauses the world if lease release cannot be proven. Cancellation alone does not revoke an in-flight memory reference; the barrier MUST NOT proceed until release is confirmed. A lease cannot be retained by a job scheduled across barriers.
 - Long-lived work copies a **bounded immutable subset** and records the source world, epoch, targeted entity/component and expected version. At commit, the writer validates identity and version again. An expired or changed target rejects the result; no implicit rebase.
 - **Review choice:** Select concrete public types, numeric widths, allocator and lifetime enforcement technique. Do not expose an unsafe ref that can outlive the lease.
 
@@ -16,9 +16,9 @@
 - Resource keys must distinguish world-wide resources, component type and entity/partition scope. Wildcard keys conflict with narrower keys they cover. An undeclared read or intended command target is invalid; the scheduler cannot silently broaden permissions.
 - Dependency IDs form an acyclic graph. Validate unknown IDs and cycles before dispatch. Jobs with independent read-only or disjoint scopes may execute concurrently. Queues and worker counts remain bounded.
 - Workers only publish private result buffers. Each result is a **batch** with source identity, ordered sequence, expected versions and commands. Commands cannot be applied incrementally before validation.
-- The writer validates each complete batch for permissions, world identity, generations, target versions, dependency success and conflict rules before applying it. Conflicting unordered writes to the same entity/component (or overlapping structural targets) reject all implicated batches atomically, leaving their target state unchanged. Unrelated validated batches may commit only if they do not depend on rejected work.
+- The writer validates each complete batch for permissions, world identity, generations, target versions, dependency success and conflict rules before applying it. Conflicting unordered writes to the same entity/component (or overlapping structural targets) reject all implicated batches atomically, leaving their target state unchanged. Conflict detection MUST run across the entire barrier candidate set before applying any batch; a sequential first-writer commit cannot be used to discover later conflicts. Unrelated validated batches may commit only if they do not depend on rejected work.
 - Commit order is independent of job completion order: sort by stable `(tick, phase ordinal, system ordinal, partition ordinal, source sequence)` plus a unique deterministic tie-breaker. Duplicate keys are a validation error, not an implicit race winner. Declare phase ordinals at composition time.
-- **Review choice:** Freeze resource-key representation, batch grouping and exact structural-conflict overlap rules. Confirm preflight is complete enough to guarantee no partial commit; otherwise a partial failure is fatal to that world.
+- **Review choice:** Freeze resource-key representation, batch grouping and exact structural-conflict overlap rules. Confirm preflight is complete enough to guarantee no partial commit, and use a staging/transactional strategy where commit operations could otherwise throw after partial mutation. If atomicity cannot be guaranteed, stop the world and report it unsafe rather than continuing.
 
 ## 3. Barriers and tick visibility
 
@@ -47,3 +47,13 @@ The proposed signatures are intentionally **not** represented as compiled C# API
 Required future tests: stale/cross-world IDs, generation exhaustion, lease invalidation, late versioned results, undeclared accesses, DAG cycles, deterministic ordering under randomized completion, conflict rejection without partial mutation, supervisor continue/pause/stop, cancellation and shutdown, and stable 60/20-Hz phase visibility.
 
 **No sign-off, executable implementation or passing test is asserted by this document.**
+
+## 6. Technical review findings (2026-11-03)
+
+This review compares the proposal against the merged WP01 runtime, ownership and ADR-0002 through ADR-0005 policies. It is a **document-level technical review**, not a substitute for independent owner sign-off or executable verification.
+
+- **Resolved in this revision — lease safety:** cancellation does not itself invalidate a borrowed pointer. Barrier advancement now requires proven lease release; timeout is a world safety fault, not permission to proceed.
+- **Resolved in this revision — cross-batch conflict detection:** evaluate the full candidate set before committing, so deterministic order cannot silently turn a late conflicting writer into a stale-version rejection after an earlier write was applied.
+- **Resolved in this revision — atomicity:** prevalidation alone does not guarantee atomic commit if application can fail mid-batch; implementation must use an infallible post-validation commit path or transactional staging, otherwise stop the world.
+- **Still blocking contract freeze:** exact resource-key overlap semantics (especially wildcard, structural destroy and partition overlap), deterministic unique ordering key, lease/version token types, supervisor decision interface and the intra-tick visibility/barrier matrix require joint L2/L3A/L3B/L5 owner sign-off. These are not proven by this document.
+- **Evidence absent:** no implementation, compile check, automated tests, independent owner approvals or cross-repository consumer validation has been established by this review. Do not mark Issue #1 accepted until its review gates are satisfied.
