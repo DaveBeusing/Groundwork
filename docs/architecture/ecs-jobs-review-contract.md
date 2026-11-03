@@ -57,3 +57,50 @@ This review compares the proposal against the merged WP01 runtime, ownership and
 - **Resolved in this revision — atomicity:** prevalidation alone does not guarantee atomic commit if application can fail mid-batch; implementation must use an infallible post-validation commit path or transactional staging, otherwise stop the world.
 - **Still blocking contract freeze:** exact resource-key overlap semantics (especially wildcard, structural destroy and partition overlap), deterministic unique ordering key, lease/version token types, supervisor decision interface and the intra-tick visibility/barrier matrix require joint L2/L3A/L3B/L5 owner sign-off. These are not proven by this document.
 - **Evidence absent:** no implementation, compile check, automated tests, independent owner approvals or cross-repository consumer validation has been established by this review. Do not mark Issue #1 accepted until its review gates are satisfied.
+
+## 7. Concrete cross-lane interface proposal (review required)
+
+These definitions are normative **proposals** for L2/L3A/L3B/L5 review, not accepted APIs. Numeric widths and C# signatures below are conceptual; no executable contract or approval is implied.
+
+### 7.1 Resource keys and conflict domains
+
+A canonical resource key contains `WorldId`, `ComponentTypeId` (or the reserved structural/world resource), `ScopeKind` and `ScopeId`. Scope kinds are `World`, `Partition` and `Entity`. A key is valid only if its entity/partition belongs to the declared world and its component type is registered. Normalize and deduplicate keys before dispatch; invalid or ambiguous partitions are rejected, never assumed disjoint.
+
+Two accesses overlap if their world IDs match, their component domains match (including world/structural wildcard coverage), and their scopes intersect. A world scope intersects all scopes in that world. Partition scopes intersect according to a stable, versioned partition membership map; an entity intersects its containing partition. When partition membership cannot be proven for the scheduled epoch, conservatively treat the accesses as overlapping or reject the descriptor. Read/read overlap is permitted; any read/write overlap creates a scheduling dependency or exclusion. Worker writes are to private buffers only; declared command targets are validated again at commit.
+
+`DestroyEntity(e)` conflicts with every pending component read/write or structural command targeting `e` in the same barrier candidate set. `CreateEntity` allocates IDs only at the world-writer barrier and cannot be referenced by an unrelated batch before publication. `AddComponent`/`RemoveComponent` conflict with commands or reads targeting that entity/component and with overlapping structural operations. Explicitly ordered dependencies may serialize otherwise conflicting batches; unordered conflicting batches are **all rejected** before any candidate is applied. No implicit last-writer-wins.
+
+### 7.2 Stable job and batch identity
+
+At schedule admission, the owning simulation scheduler allocates a monotonic per-world `SourceOrdinal` for the declared tick and phase. A job descriptor contains `(WorldId, TickId, PhaseOrdinal, SystemOrdinal, PartitionOrdinal, SourceOrdinal, JobId)`; these values are immutable, and duplicate full identities are invalid. `SourceOrdinal` is allocated from deterministic system/partition enumeration, **not** thread arrival order; otherwise the scheduler must reject deterministic-mode admission. Each source emits increasing `BatchSequence` and `CommandSequence` values with bounded sizes.
+
+Sort validated batches by `(TickId, PhaseOrdinal, SystemOrdinal, PartitionOrdinal, SourceOrdinal, BatchSequence)`, then commands by `CommandSequence`. Any duplicate ordering tuple is an error, not a tie resolved by completion timing. Check dependency DAG, declared permissions, identities, versions and the **entire** barrier candidate-set conflict graph before committing. Reject conflicting batches and recursively reject dependent batches; stage all accepted changes against a coherent candidate state and publish atomically. A failed stage leaves the prior state intact. If an implementation cannot provide atomic publication, classify it `UnsafePartialCommit` and stop/pause without publishing a partially changed state.
+
+### 7.3 Lease, epoch and version tokens
+
+`WorldId` is an opaque non-reused identity; `WorldEpoch` increases at each storage-invalidating barrier without wraparound; `ComponentVersion` is a per-target opaque monotonic token, never silently reused. A borrowed `ReadLease<T>` is an explicitly disposable, non-copyable logical capability bound to world, epoch and a declared read scope. The implementation tracks active leases and ensures no mutable storage is reclaimed or changed while any lease may still dereference it. A cancelled worker must acknowledge completion and release before the barrier advances; a timeout causes a fail-safe world pause/stop, not lease invalidation by fiat. Do not expose an escaping `ref`/`Span` whose lifetime cannot be enforced.
+
+Cross-barrier jobs use independently owned immutable, bounded snapshots. Result batches carry source world/epoch, target entity identity, expected component versions and ownership metadata. The single writer rejects missing, stale, foreign-world or version-mismatched targets before applying any part of a batch. Token widths, allocator, lease enforcement and memory reclamation are L3A/L3B review items; overflow must fail explicitly rather than alias.
+
+### 7.4 Tick visibility matrix
+
+| Boundary | Input and state visible | Mutations allowed | Visibility guarantee |
+| --- | --- | --- | --- |
+| `AcquireInput` | Previous published world; bounded next-tick host input | Freeze immutable input snapshot | Input becomes available to this tick only |
+| `BeginTick` | Input snapshot and previous committed state | Single writer applies previously accepted structural commands | All subsequent systems see completed structural changes |
+| `Gameplay20` (eligible ticks) | State after `BeginTick` | Systems compute; commands/results are buffered | No buffered job result is visible to another system yet |
+| `Base60` | Same committed state plus explicitly documented synchronous owner-local updates | Owner-local nonstructural updates only if ordered by system contract | No worker buffer becomes visible before `CommitResults` |
+| `CommitResults` | Whole eligible candidate set | Validate, resolve conflicts, atomically publish accepted batches | Results visible after successful commit, never retroactively |
+| `PublishState` | Final committed state of this tick | Publish immutable previous/current observer snapshots | Renderer reads only published snapshots |
+
+There is **no implicit additional barrier** between `Gameplay20` and `Base60`. If same-tick gameplay-to-base visibility is required, L2 must introduce a named intermediate commit barrier and update dependency/lease rules first. Deferred structural changes produced this tick are applied at the next `BeginTick`; async results are eligible only at a future `CommitResults` after version checks. The established 60/20 Hz cadence, five-step catch-up limit and 250 ms debt cap remain unchanged.
+
+### 7.5 Supervisor protocol and diagnostics
+
+Proposed request: `FaultReport(FaultClass, Severity, WorldId, TickId, PhaseOrdinal, JobId?, AffectedTargets, CorrelationId, PrimaryError, CleanupErrors, WorldCoherenceEvidence)`. Proposed response: `SupervisorDecision(ContinueAtSafeBarrier | PauseForRecovery | StopWorld, CorrelationId, Reason)`. L5 owns bounded, nonblocking diagnostic publication; critical fault evidence must have a guaranteed fallback channel if the regular queue is full. Workers report faults but never decide world continuation.
+
+`Cancelled`, `DependencyFailed`, `StaleResult` and `WriteConflict` may continue only after rejected buffers/dependents are isolated and the single writer proves world coherence. `InvalidAccess` and `RecoverableJobFault` default to pause pending explicit supervisor classification. `UnsafePartialCommit` and `UnknownCritical` prohibit continuation and require stop or safe pause without further mutations. A supervisor timeout, diagnostic failure that loses required safety evidence, or incomplete lease drain fails closed. Shutdown cancels admission, drains/releases bounded work, reports unreleased leases and never waits indefinitely while claiming successful cleanup.
+
+### 7.6 Required review evidence
+
+L3A: approve identity, lease, version and structural conflict semantics. L3B: approve key overlap, DAG, deterministic admission and batch validation. L2: approve the phase visibility matrix, barriers and bounded stop behavior. L5: approve fault payload, backpressure and supervisor decision path. C00/integration: verify public boundary consistency and record the approved revision and owner sign-offs in Issue #1. These approvals are **pending**, not represented by this proposal. Implementation tests remain required in their delivery lanes.
