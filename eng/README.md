@@ -61,15 +61,17 @@ release process. Once reviewed and merged to `master`, it can be manually
 dispatched from `master` with confirmation `ARCHIVE-41920122570`.
 Its job targets the `groundwork-archive` environment; configure **required
 reviewers** and suitable environment protections before running. It requires
-an approved top-level `LICENSE` file because publishing a GitHub Release
-would distribute package bytes publicly. Do not create a license file without
-an explicit license decision.
+a top-level `LICENSE` file because publishing a GitHub Release distributes
+package bytes publicly. The owner selected Apache-2.0 and B00 PR #12 now
+includes the official LICENSE and NuGet PackageLicenseExpression. The archive
+workflow must run only after that B00 content reaches master; its public
+archive includes a copy of LICENSE along with the package bytes.
 
 Before writing a GitHub Release, the workflow checks the exact producer
 run/head/attempt and manifest SHA-256, verifies all six finished nupkg hashes
 and sizes, checks for an existing archive tag, and creates an audit record.
 It then attempts to create a prerelease GitHub Release with the six packages,
-the original manifest and the archive record. The archive asset should not
+the original manifest, archive record and the Apache-2.0 LICENSE. The archive asset should not
 have automatic CI expiration. Nevertheless, maintainers can still delete or
 replace ordinary GitHub Release assets unless immutable-release controls are
 enabled, so **enable GitHub Release immutability / restrict maintainers** where
@@ -77,7 +79,7 @@ available and audit the archive before asserting immutable provenance.
 The GitHub Release is not itself a signed/supply-chain attestation.
 
 **This archive is NOT yet published.** The current PR is a draft stacked on
-B00; a license decision, review, merge, environment review protection and
+B00; review, merged Apache-2.0 license, environment review protection and
 successful manual archive run are prerequisites. After archiving, change WYU
 consumer retrieval to use the durable archive or add a verified fallback so
 a clean checkout does not depend exclusively on the expiring original run.
