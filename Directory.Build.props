@@ -16,6 +16,7 @@
     <RestoreLockedMode Condition="'$(CI)' == 'true'">true</RestoreLockedMode>
     <NuGetAudit>true</NuGetAudit>
     <RepositoryUrl>https://github.com/DaveBeusing/Groundwork</RepositoryUrl>
+    <PackageLicenseExpression>Apache-2.0</PackageLicenseExpression>
     <IsPackable>false</IsPackable>
   </PropertyGroup>
 </Project>
