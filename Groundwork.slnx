@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Groundwork.Core/Groundwork.Core.csproj" />
+    <Project Path="src/Groundwork.Platform.Windows/Groundwork.Platform.Windows.csproj" />
+    <Project Path="src/Groundwork.Simulation/Groundwork.Simulation.csproj" />
+    <Project Path="src/Groundwork.Ecs/Groundwork.Ecs.csproj" />
+    <Project Path="src/Groundwork.Jobs/Groundwork.Jobs.csproj" />
+    <Project Path="src/Groundwork.Diagnostics/Groundwork.Diagnostics.csproj" />
+  </Folder>
+</Solution>

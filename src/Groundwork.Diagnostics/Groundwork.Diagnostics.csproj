@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Diagnostics</AssemblyName>
+    <RootNamespace>Groundwork.Diagnostics</RootNamespace>
+    <PackageId>Groundwork.Diagnostics</PackageId>
+    <Description>Groundwork Diagnostics module, WP01-L5 ownership.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP01-L5" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+  </ItemGroup>
+</Project>

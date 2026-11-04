@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Core</AssemblyName>
+    <RootNamespace>Groundwork.Core</RootNamespace>
+    <PackageId>Groundwork.Core</PackageId>
+    <Description>Groundwork Core module, WP01-B00 ownership.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP01-B00" />
+  </ItemGroup>
+</Project>

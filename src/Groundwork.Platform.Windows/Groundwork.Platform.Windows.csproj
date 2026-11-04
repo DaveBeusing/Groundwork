@@ -1,0 +1,14 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Platform.Windows</AssemblyName>
+    <RootNamespace>Groundwork.Platform.Windows</RootNamespace>
+    <PackageId>Groundwork.Platform.Windows</PackageId>
+    <Description>Groundwork Platform.Windows module, WP01-L1 ownership.</Description>
+    <IsPackable>true</IsPackable>
+    <TargetFramework>net10.0-windows</TargetFramework>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP01-L1" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+  </ItemGroup>
+</Project>

@@ -1,7 +1,17 @@
 # Groundwork
 
-Groundwork is a standalone, reusable game engine written primarily in C# and .NET 10.
+Groundwork is a reusable C# / .NET 10 game engine, independent from Worlds Yet
+Unseen. Windows is the initial target; Direct3D 12 and gameplay are later work.
 
-The engine is developed independently from game projects, including Worlds Yet Unseen (WYU). Initial target: Windows with Direct3D 12. Native C++ components are reserved for measured performance-critical workloads.
+The current WP01-B00 branch contains **build-only scaffolding**, not an engine
+implementation. The six approved modules and their dependency boundaries are
+documented in docs/architecture/module-boundaries.md.
 
-Source architecture and project workflows will be established through versioned work packages and reviewed changes.
+See docs/build-bootstrap.md for prerequisites, build commands, package
+identity/provenance policy, ownership boundaries and verification limitations.
+Changes are made through scoped PRs targeting master.
+
+## License
+
+Groundwork is licensed under the [Apache License, Version 2.0](LICENSE)
+(SPDX identifier: `Apache-2.0`). See the root LICENSE for the complete terms.

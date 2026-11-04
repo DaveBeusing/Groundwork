@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Jobs</AssemblyName>
+    <RootNamespace>Groundwork.Jobs</RootNamespace>
+    <PackageId>Groundwork.Jobs</PackageId>
+    <Description>Groundwork Jobs module, WP01-L3B ownership.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP01-L3B" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+  </ItemGroup>
+</Project>
