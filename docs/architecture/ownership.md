@@ -2,6 +2,8 @@
 
 **Status:** Proposed implementation coordination plan for [Groundwork WP01-C00](https://github.com/DaveBeusing/Groundwork/issues/1). **No owner sign-offs or enforcement are claimed by this document.**
 
+**Solo-owner review exception (2026-11-04):** [ADR-0007](../adr/ADR-0007-solo-review-governance.md) defines the owner-approved process of **four isolated AI specialist passes**, followed sequentially by one integrator pass and explicit final owner acceptance on the reviewed SHA. Review roles below are not automatically distinct human GitHub accounts. The exception replaces the requirement for a separate human GitHub `APPROVE` where the project has a sole owner, but does **not** waive mandatory configured branch protections, CI gates, actual review evidence or blocking finding resolution. **Maximum four concurrent agents.**
+
 ## Work lanes and exclusive write scopes
 
 | Lane / issue | Owned scope | Interfaces and handover requirements |
@@ -21,7 +23,7 @@ A lane MUST NOT edit another lane's exclusive paths without a coordinated scoped
 
 ## Review gates
 
-1. **C00 (this PR):** architecture reviewers and affected lane owners review module boundaries, lifecycle, time, ECS/jobs, input, errors, package and ownership contracts. Record unresolved API decisions with explicit owner and decision gate. Merging without review does not count as approved sign-off.
+1. **C00 (this PR):** apply ADR-0007: freeze the head SHA; perform four separate L3A/L3B/L2/L5 AI specialist reviews (maximum four concurrent), then a sequential integration review including L1/B00/L4/WYU boundary checks. Record each real report, findings/fixes and current reviewed SHA. The single owner must explicitly accept that revision. Merging without review evidence is prohibited.
 2. **B00:** only after C00 approval, establish reproducible project skeletons, supported .NET 10 SDK pin, root versions `0.1.0`, warning/analyzer policy and build commands. No per-commit SemVer bump.
 3. **L1–L5 and WYU L6:** only after interfaces are frozen and B00 foundation is ready, implement in parallel according to exclusive scopes. Integrator coordinates shared contract changes.
 4. **L4/G00 compatibility:** independent clean Windows build/test; package provenance, SHA-256 manifest, fresh-cache WYU locked restore, negative tests and no engine source link. Document provider retention limits, benchmark evidence, diagnostics.
@@ -39,16 +41,20 @@ A lane MUST NOT edit another lane's exclusive paths without a coordinated scoped
 | Timing | **User-approved** 60/20 Hz, 5 catch-up steps, 250-ms debt cap, slowdown fallback | L2: metrics, input/commit phase boundaries, synthetic-clock tests |
 | Packaging | **User-approved** local NuGet + SHA-256 trusted manifest, exact pins/lockfile, 90-day dev retention, durable releases | B00/L4/WYU L6: configs, scripts, CI, source mapping, reproducibility |
 
-Other explicitly deferred topics: Direct3D 12 provider implementation (WP02), voxel world representation/physics/persistence (later packages), GitHub Packages release distribution and branch protection enforcement. None blocks **opening** the architecture PR; missing review sign-offs block **approving/merging** it as an authoritative baseline.
+Other explicitly deferred topics: Direct3D 12 provider implementation (WP02), voxel world representation/physics/persistence (later packages), GitHub Packages release distribution and branch protection enforcement. None blocks **opening** the architecture PR; absent ADR-0007 specialist/integration review evidence or explicit final owner acceptance blocks **merging** it as an authoritative baseline.
 
 ## Architecture PR acceptance checklist
 
 - [ ] All nine requested documentation files exist with clear `proposed` vs `approved decision` semantics.
 - [ ] Reviewers confirm no circular module dependencies or Groundwork reference to WYU.
-- [ ] C00 and L1/L2/L3A/L3B/L4/L5/WYU L6 approve relevant contract sections and register any blocking design gaps.
+- [ ] Four isolated L3A/L3B/L2/L5 AI review reports plus one subsequent integration report cover all affected lanes (including L1/B00/L4/WYU interfaces), document findings, and identify the reviewed head SHA according to ADR-0007.
 - [ ] Contract examples are expressly conceptual unless built and tested.
 - [ ] Local package consumer pathway and failure cases are auditable without relying on an existing feed.
 - [ ] No generated files, engine code or root build version changes are introduced by C00.
-- [ ] Integrator records signed-off revision, affected owners and notification before parallel implementation.
+- [ ] Integrator reports review evidence and fix dispositions, and the sole owner explicitly accepts the final head SHA; notify affected work lanes before parallel implementation.
 
 **Evidence:** Checklist remains unchecked until reviewers actually complete it. C00 issue stays open until reviewed contract PR and supporting sign-off are recorded.
+
+## Review evidence standard and execution limit
+
+For a solo-owner repository, references above to 'component owner review', 'reviewer sign-off' and 'approved revision' require genuine specialist review artifacts + integration analysis + explicit owner acceptance as described in [ADR-0007](../adr/ADR-0007-solo-review-governance.md); they do not imply independent human GitHub approvals. A review plan, checklist or single author's own commentary is insufficient proof. If technical reviewers are unavailable, leave the architecture issue open rather than recording fabricated evidence. Never run more than four agents concurrently, including nested tasks. Code changes retain risk-based tests and required GitHub checks; no fixed coverage quota is imposed.
