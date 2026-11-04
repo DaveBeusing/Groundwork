@@ -32,3 +32,15 @@ The actual CI workflow/trusted manifest channel, automated negative test suite,
 independent clean WYU consumer tests with locked restore and source mapping,
 retention safeguards and release archival are outstanding Issue #7 gates.
 No execution or CI success is claimed for these newly authored scripts.
+
+## Repeatable local negative tests
+
+After the producer and positive staging pass, run `eng/Test-PackageIntegrity.ps1`
+with `-ManifestPath`, `-PackageDirectory`, `-ExpectedManifestSha256` and
+`-ExpectedSourceCommit`. The test isolates input copies under the system temp
+folder and requires rejection of modified/missing/untrusted manifests, wrong
+source SHA, tampered/missing/wrong-version package and immutable feed coordinate
+collision. It first requires a positive staging baseline. A negative test that
+unexpectedly succeeds makes the harness fail. No source artifacts are modified.
+The harness does not authenticate locally supplied hashes and does not test
+NuGet lockfiles, caches, cross-repository restoration or CI provenance.
