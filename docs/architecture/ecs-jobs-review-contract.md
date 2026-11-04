@@ -14,7 +14,7 @@
 
 - Before dispatch, each job submits an immutable descriptor containing a unique job identity, scheduled tick/phase/system, world and partition scope, exact read resource keys, intended command-target keys, dependency IDs, cancellation scope and an upper bound on result size.
 - Resource keys must distinguish world-wide resources, component type and entity/partition scope. Wildcard keys conflict with narrower keys they cover. An undeclared read or intended command target is invalid; the scheduler cannot silently broaden permissions.
-- Dependency IDs form an acyclic graph. Validate unknown IDs and cycles before dispatch. Jobs with independent read-only or disjoint scopes may execute concurrently. Queues and worker counts remain bounded.
+- Dependency IDs form an acyclic graph. Validate unknown IDs and cycles before dispatch. A descriptor declares execution-only versus commit-gated dependencies; upstream ECS effects are not considered successful merely because a worker finished (§11.1). Jobs with independent read-only or disjoint scopes may execute concurrently. Queues and worker counts remain bounded.
 - Workers only publish private result buffers. Each result is a **batch** with source identity, ordered sequence, expected versions and commands. Commands cannot be applied incrementally before validation.
 - The writer validates each complete batch for permissions, world identity, generations, target versions, dependency success and conflict rules before applying it. Conflicting unordered writes to the same entity/component (or overlapping structural targets) reject all implicated batches atomically, leaving their target state unchanged. Conflict detection MUST run across the entire barrier candidate set before applying any batch; a sequential first-writer commit cannot be used to discover later conflicts. Unrelated validated batches may commit only if they do not depend on rejected work.
 - Commit order is independent of job completion order: sort by stable `(tick, phase ordinal, system ordinal, partition ordinal, source sequence)` plus a unique deterministic tie-breaker. Duplicate keys are a validation error, not an implicit race winner. Declare phase ordinals at composition time.
@@ -35,7 +35,7 @@ No command produced after a barrier is visible retroactively in that barrier. As
 ## 4. Fault isolation and supervisor protocol
 
 - Every failure report includes fault class, severity, tick/phase, world, job/source, affected targets, correlation ID and primary error; cleanup errors are separate. At minimum distinguish `Cancelled`, `DependencyFailed`, `InvalidAccess`, `StaleResult`, `WriteConflict`, `RecoverableJobFault`, `UnsafePartialCommit` and `UnknownCritical`.
-- A failed, cancelled or invalid job publishes no commands; dependent jobs are cancelled/failed explicitly. Unrelated work may finish but only commit into a coherent world.
+- A failed, cancelled or invalid job publishes no commands; commit-dependent jobs remain blocked until all upstream batches have actually committed, and failed upstream commits invalidate transitive uncommitted dependents (§11.1). Unrelated work may finish but only commit into a coherent world.
 - The supervisor decides among `ContinueAtSafeBarrier`, `PauseForRecovery` and `StopWorld` semantics. Continue requires proof of a coherent world, no unresolved required dependencies and no partial writes. Unknown critical or unsafe partial commit forbids continuation; pause/stop is mandatory.
 - Supervisor decisions are serialized at a safe barrier, recorded with correlation and never made implicitly by a worker. Timeouts/cancellation of the supervisor path fail safe to pause/stop. No automatic retry, priority overwrite or last-writer-wins.
 - **Review choice:** Freeze the supervisor interface and which fault classes are eligible for continuation; confirm bounded shutdown and diagnostic backpressure behavior.
@@ -72,13 +72,13 @@ Two accesses overlap if their world IDs match, their component domains match (in
 
 ### 7.2 Stable job and batch identity
 
-At schedule admission, the owning simulation scheduler allocates a monotonic per-world `SourceOrdinal` for the declared tick and phase. A job descriptor contains `(WorldId, TickId, PhaseOrdinal, SystemOrdinal, PartitionOrdinal, SourceOrdinal, JobId)`; these values are immutable, and duplicate full identities are invalid. `SourceOrdinal` is allocated from deterministic system/partition enumeration, **not** thread arrival order; otherwise the scheduler must reject deterministic-mode admission. Each source emits increasing `BatchSequence` and `CommandSequence` values with bounded sizes.
+At schedule admission, the owning simulation scheduler allocates a monotonic per-world `SourceOrdinal` for the declared tick and phase. A job descriptor contains `(WorldId, TickId, PhaseOrdinal, SystemOrdinal, PartitionOrdinal, SourceOrdinal, JobId)`; these values are immutable, and duplicate full identities are invalid. `SourceOrdinal` is allocated from deterministic system/partition enumeration, **not** thread arrival order; WP01 requires stable admission by default; non-canonical job discovery must be ordered by the tick owner or rejected (§11.5). Each source emits increasing `BatchSequence` and `CommandSequence` values with bounded sizes.
 
 Sort validated batches by `(TickId, PhaseOrdinal, SystemOrdinal, PartitionOrdinal, SourceOrdinal, BatchSequence)`, then commands by `CommandSequence`. Any duplicate ordering tuple is an error, not a tie resolved by completion timing. Check dependency DAG, declared permissions, identities, versions and the **entire** barrier candidate-set conflict graph before committing. A dependency edge controls execution order, not same-barrier visibility or write priority; any same-barrier overlapping writes are rejected. Version checks use the committed state at barrier entry, with atomic staging of nonconflicting batches. Reject conflicting batches and recursively reject dependent batches; stage all accepted changes against a coherent candidate state and publish atomically. A failed stage leaves the prior state intact. If atomic publication cannot be established, classify it `UnsafePartialCommit`, require `StopWorld`, prohibit further writes, and retain protected memory until outstanding read leases are confirmed released. Never report a successful rollback without evidence.
 
 ### 7.3 Lease, epoch and version tokens
 
-`WorldId` is an opaque non-reused identity; `WorldEpoch` increases at each storage-invalidating barrier without wraparound; `ComponentVersion` is a per-target opaque monotonic token, never silently reused. A borrowed `ReadLease<T>` is an explicitly disposable, non-copyable logical capability bound to world, epoch and a declared read scope. The implementation tracks active leases and ensures no mutable storage is reclaimed or changed while any lease may still dereference it. A cancelled worker must acknowledge completion and release before the barrier advances; a timeout causes a fail-safe world pause/stop, not lease invalidation by fiat. Do not expose an escaping `ref`/`Span` whose lifetime cannot be enforced.
+`WorldId` is an opaque non-reused identity; `BarrierEpoch` increases at every declared ECS synchronization/commit barrier, even a no-op or in-place component commit, without wraparound; optional `StorageEpoch` tracks physical relocation separately; `ComponentVersion` is a per-target opaque monotonic token, never silently reused. A borrowed `ReadLease<T>` is an explicitly disposable, non-copyable logical capability bound to world, epoch and a declared read scope. The implementation tracks active leases and ensures no mutable storage is reclaimed or changed while any lease may still dereference it. A cancelled worker must acknowledge completion and release before the barrier advances; a timeout causes a fail-safe world pause/stop, not lease invalidation by fiat. Do not expose an escaping `ref`/`Span` whose lifetime cannot be enforced.
 
 Cross-barrier jobs use independently owned immutable, bounded snapshots. Result batches carry source world/epoch, target entity identity, expected component versions and ownership metadata. The single writer rejects missing, stale, foreign-world or version-mismatched targets before applying any part of a batch. Token widths, allocator, lease enforcement and memory reclamation are L3A/L3B review items; overflow must fail explicitly rather than alias.
 
@@ -97,9 +97,9 @@ There is **no implicit additional barrier** between `Gameplay20` and `Base60`, a
 
 ### 7.5 Supervisor protocol and diagnostics
 
-Proposed request: `FaultReport(FaultClass, Severity, WorldId, TickId, PhaseOrdinal, JobId?, AffectedTargets, CorrelationId, PrimaryError, CleanupErrors, WorldCoherenceEvidence)`. Proposed response: `SupervisorDecision(ContinueAtSafeBarrier | PauseForRecovery | StopWorld, CorrelationId, Reason)`. L5 owns bounded, nonblocking diagnostic publication; critical fault evidence must have a guaranteed fallback channel if the regular queue is full. Workers report faults but never decide world continuation.
+Proposed worker request: `FaultReport(FaultClass, Severity, WorldId, TickId, PhaseOrdinal, JobId?, AffectedTargets, CorrelationId, PrimaryError, CleanupErrors)`. Authoritative `WorldCoherenceProof` is issued separately by the logical world writer and validated by the supervisor (§11.3); workers cannot supply it. Proposed response: `SupervisorDecision(ContinueAtSafeBarrier | PauseForRecovery | StopWorld, CorrelationId, Reason)`. L5 owns bounded, nonblocking diagnostic publication; critical fault evidence must have a guaranteed fallback channel if the regular queue is full. Workers report faults but never decide world continuation.
 
-`Cancelled`, `DependencyFailed`, `StaleResult` and `WriteConflict` may continue only after rejected buffers/dependents are isolated and the single writer proves world coherence. `InvalidAccess` and `RecoverableJobFault` default to pause pending explicit supervisor classification. `UnsafePartialCommit` requires `StopWorld` and prohibits any further mutation; `UnknownCritical` also defaults to `StopWorld` unless coherence has been independently established and a reviewed recovery policy explicitly permits a safe pause. A supervisor timeout, diagnostic failure that loses required safety evidence, or incomplete lease drain fails closed. Shutdown cancels admission, drains/releases bounded work, reports unreleased leases and never waits indefinitely while claiming successful cleanup.
+`Cancelled`, `DependencyFailed`, `StaleResult` and `WriteConflict` may continue only after rejected buffers/dependents are isolated and the single writer proves world coherence. `InvalidAccess` and `RecoverableJobFault` default to pause pending explicit supervisor classification. `UnsafePartialCommit` requires `StopWorld` and prohibits any further mutation; `UnknownCritical` also defaults to `StopWorld` unless coherence has been independently established and a reviewed recovery policy explicitly permits a safe pause. A supervisor timeout, diagnostic failure that loses required safety evidence, or incomplete lease drain fails closed. Shutdown cancels admission and attempts bounded draining. If a borrower never releases, the world enters terminal quarantine, retains referenced storage, and reports incomplete disposal instead of falsely claiming successful cleanup (§11.2).
 
 ### 7.6 Required review evidence
 
@@ -122,3 +122,56 @@ The six issues from the cross-document consistency review are addressed as **pro
 ## 10. Solo-owner acceptance amendment (2026-11-04)
 
 The product owner selected **ADR-0007 variant B**: independent *AI execution contexts* supply review evidence; a subsequent integration reviewer reconciles the reports; the sole owner supplies final acceptance. No extra human reviewer or fake GitHub approval is required by project governance, although any real GitHub branch-protection requirements remain binding until transparently changed. At the time of this amendment no four isolated specialist reports or integration report have been executed in this workflow. No independent review is claimed complete.
+
+## 11. Technical review corrections — 2026-11-04 (proposed)
+
+This section resolves the three P1 and two P2 findings recorded in the single-context pre-review of prior candidate `686a5ff48a3f68a6a311f79fa39600632da1166f`. It takes precedence over shorter *illustrative* descriptions in sections 1–10 where more precise. These are **proposed architecture contracts**, not implemented features, passed tests or independent ADR-0007 reviews.
+
+### 11.1 P1-01: distinguish job execution from world commit
+
+A job's private computation and its ECS result publication are different operations. Record separate, observable outcomes:
+- `ExecutionCompleted`: the worker finished successfully; **no shared-state change is asserted**.
+- `CommandAccepted`: the world writer validated/admitted a batch or placed it into the deferred queue; **this is not a commit**.
+- `CommitSucceeded(world, barrier, revision, batchId)`: the writer atomically published the **whole** batch and produced a stable commit receipt.
+- `CommitRejected(reason)`: its entire batch was rejected before publication (including conflicts, stale versions, faults or dependency failures).
+- `CommitNotApplicable`: a commandless, read-only result; cancellations and faults are separate outcomes, never counted as success.
+
+The descriptor must declare `ExecutionDependency` versus `CommitDependency` before admission. A downstream job that observes or derives world-state effects from an upstream command-producing job **requires a commit dependency by default**. Execution-only dependencies are permitted for upstream jobs that produce **no world commands**; all other exceptions require a separate reviewed independence contract. A commit-dependent job MUST NOT dispatch against uncommitted upstream state, and a downstream result cannot publish until all required upstream commit receipts are valid. Receiving a successful worker result or accepting a deferred command queue entry does not satisfy this gate.
+
+Keep dependency records alive across ticks for deferred/mixed/structural batches. At `CommitResults(T)`, a mixed batch A may become `CommandAccepted` but cannot emit `CommitSucceeded` until the writer completes atomic `BeginTick(T+1)` publication. If A is rejected at T+1, transitive dependent jobs and their uncommitted result buffers are cancelled/rejected, not silently committed. Independent jobs may proceed only after coherence validation. Verify prerequisites at dispatch **and at batch publication**; issue commit receipts only after successful publication, never from the worker. A commit-dependent B may run after A's T+1 commit and publish only at a later eligible barrier.
+
+**Required tests:** A mixed batch queued at T fails at T+1; dependent B cannot publish at T and is rejected with A, with world unchanged. Positive A commit permits B afterward. Include three-level dependencies, cancellation, stale async outcomes and randomized finish order.
+
+### 11.2 P1-02: terminal quarantine and finite truthful disposal
+
+Before a commit barrier or shutdown, close admissions of new borrowed leases, request cancellation and wait within a **bounded** policy for active jobs to terminate and release all borrowed references. A cancellation token does not revoke a memory reference. Never advance a mutating barrier or reclaim/relocate storage until quiescence is proven.
+
+If a borrower fails to release by the deadline, enter a terminal `Quarantined/StopWorld` state, reject new work and all world mutations, and retain strong ownership of every potentially referenced managed, pinned or native buffer in a process-owned quarantine custodian. The custodian may reclaim only after provable release; unreleased memory remains owned and quarantined until safe process termination. Bounded stop returns a visible **incomplete-cleanup** fault; it must not pretend all resources were disposed.
+
+`DisposeAsync` must return/throw an explicit incomplete-disposal result rather than silently succeed while storage is quarantined; repeated stop/dispose attempts must be idempotent, must never double-free, and may complete reclamation only when the worker acknowledges release. The host can terminate after an observable unsuccessful graceful shutdown without hanging indefinitely. Do not use unsafe thread abortion or revoke a borrowed view by fiat.
+
+**Required tests:** noncooperative worker, timeout while holding a lease, no freed storage observed by borrower, quarantine ownership across Dispose, later release, repeated cleanup and separate original/cleanup error reporting.
+
+### 11.3 P1-03: writer-issued coherence certification
+
+A worker's `FaultReport` carries only observational error metadata; it cannot contain authoritative `WorldCoherenceEvidence`. Only the single logical world writer or a separately approved barrier verifier under the writer's authority may issue a non-forgeable-in-API, immutable `WorldCoherenceProof(WorldId, BarrierEpoch, CommittedRevision, BarrierId, ValidationResult)` through an **internal writer-owned channel**. Its issuance follows verification of the actual committed world, not a worker assertion or preflight. A partially applied/unsafe commit cannot produce a valid proof.
+
+The supervisor independently checks the trusted issuer, exact world, current barrier/epoch and committed revision, and confirms that all required dependencies have succeeded or been conclusively isolated before `ContinueAtSafeBarrier`. Proofs become invalid after the next barrier or revision; user-provided matching field values are not proof. Missing, forged, mismatched or stale evidence is fail-closed: pause only if coherence is independently known, otherwise `StopWorld`. `UnsafePartialCommit` always means `StopWorld`; a correlation ID is not proof.
+
+**Required tests:** forged worker certificate, stale barrier proof, wrong world/revision, failed commit without proof, timeout and only current trusted proof permitting continuation.
+
+### 11.4 P2-04: barrier epoch is independent of physical storage changes
+
+The borrowed-view lifetime token is `BarrierEpoch`, advanced without wrap at **every** declared ECS synchronization/commit barrier, including no-op barriers and in-place component commits. The barrier must stop new lease admission, wait for all active leases, then advance the token. An optional `StorageEpoch` captures physical storage relocation but cannot extend a borrowed view. `ComponentVersion` changes only for a target actually mutated by a successful commit, and is solely a conflict/version-check token, not a lease extension. Counter exhaustion fails explicitly.
+
+**Required tests:** views invalid after in-place `CommitResults` and no-op barriers, live lease blocks epoch advance, new lease uses the advanced epoch.
+
+### 11.5 P2-05: deterministic admission is the WP01 default
+
+Normal WP01 scheduling MUST allocate stable source ordinals from a canonical tick-owner enumeration of world, phase, system, partition and declared spawn key. OS thread ID, task arrival time, dynamic `JobId` assignment or worker completion timing MUST NOT break ordering within a barrier. A dynamically discovered job with no stable key must be canonically ordered by the owning scheduler or explicitly rejected; there is no unannounced nondeterministic fallback mode.
+
+The bounded guarantee is reproducible command order for identical input snapshots, declared DAG and **identical sets of eligible batches at each barrier** under permuted worker completion. Asynchronous completion may change a result's *eligible tick*, so this is not a promise of globally deterministic physics or identical results across arbitrary hardware. Deterministic replay across changing eligibility requires a separately reviewed policy. Tests randomize completion and admission timing and check stable ordering/rejection for the supported input/eligible set.
+
+### Acceptance
+
+This amendment addresses the pre-review findings at the **contract-documentation level only**. The prior review was a single-context analysis, not one of the four isolated specialist AI reviews. A change to PR head requires fresh ADR-0007 reviews at the final frozen SHA and a sequential integration review, followed by explicit owner acceptance. Do not record formal approval, executable tests or a successful CI run without evidence.
