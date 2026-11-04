@@ -37,6 +37,7 @@ jobs:
           test '${{ inputs.confirmation }}' = 'ARCHIVE-41920122570'
           test "$GITHUB_REF" = 'refs/heads/master'
           test "$GITHUB_REPOSITORY" = 'DaveBeusing/Groundwork'
+          test -f LICENSE || { echo 'Public package archive requires an approved repository LICENSE file' >&2; exit 1; }
           gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" > "$RUNNER_TEMP/run.json"
           jq -e --arg sha "$EXPECTED_HEAD" --argjson id 41920122570 \
             '.id == $id and .run_attempt == 1 and .status == "completed" and .conclusion == "success" and .head_sha == $sha and .head_branch == "build/wp01-l4-package-integrity" and .name == "Groundwork Windows CI" and .event == "pull_request"' \
