@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Ecs</AssemblyName>
+    <RootNamespace>Groundwork.Ecs</RootNamespace>
+    <PackageId>Groundwork.Ecs</PackageId>
+    <Description>Groundwork Ecs module, WP01-L3A ownership.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP01-L3A" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+  </ItemGroup>
+</Project>

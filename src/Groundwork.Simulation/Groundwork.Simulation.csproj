@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Simulation</AssemblyName>
+    <RootNamespace>Groundwork.Simulation</RootNamespace>
+    <PackageId>Groundwork.Simulation</PackageId>
+    <Description>Groundwork Simulation module, WP01-L2 ownership.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP01-L2" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+  </ItemGroup>
+</Project>
