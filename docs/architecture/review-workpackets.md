@@ -55,5 +55,7 @@ These are **review prompts and future implementation tests**, not reports of exe
 | P1-03 coherence forgery/staleness | L3A, L5 | Worker fabricates proof or reuses writer proof after another commit; supervisor must reject it and cannot choose safe continuation |
 | P2-04 in-place/no-op barrier | L3A, L2 | A lease acquired before a no-op or non-relocating component commit is invalidated at the next declared barrier |
 | P2-05 deterministic admission | L3B, L2 | Randomize arrival/finish order with identical eligible batches and verify stable ordering; reject unstable spawn identity and do not claim full cross-tick replay |
+| L2-1 ordinary-barrier drain scope | L2, L3A, L3B, L5 | Snapshot-only work spans several ordinary barriers while borrowed readers drain; shutdown cancels all work and retains buffers held by noncooperative snapshot/emergency producers without late publication |
+| L5-01 emergency diagnostics | L5, L2 | Full normal/emergency capacities plus throwing/reentrant sinks and oversized payloads remain bounded/nonrecursive, preserve primary versus cleanup errors and expose host-visible evidence loss with fail-closed continuation |
 
 All four isolated reviewer agents must analyze the same **updated frozen commit** after corrective edits and write separate evidence. A reviewer reading this matrix is **not** considered to have executed a test; the sequential integration review validates the cross-lane dependencies. Subsequent changes require corresponding delta-reviews.
