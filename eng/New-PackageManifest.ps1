@@ -14,6 +14,7 @@ $ids = @('Groundwork.Core','Groundwork.Platform.Windows','Groundwork.Simulation'
 $files = @(Get-ChildItem -LiteralPath $PackageDirectory -Filter '*.nupkg' -File)
 if ($files.Count -ne 6) { throw "Expected six packages, found $($files.Count)." }
 Add-Type -AssemblyName System.IO.Compression
+Add-Type -AssemblyName System.IO.Compression.FileSystem
 $entries = @()
 foreach ($id in $ids) {
  $filename = "$id.$Version.nupkg"
