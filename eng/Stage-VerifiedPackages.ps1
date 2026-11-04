@@ -59,9 +59,9 @@ foreach ($item in $plan) {
  Add-Type -AssemblyName System.IO.Compression
  Add-Type -AssemblyName System.IO.Compression.FileSystem
  $packageName = [System.IO.Path]::GetFileNameWithoutExtension($item.target)
- $id = ($packageName -replace '\.0\.1\.0-dev\..*}
-Write-Host 'PASS: six package hashes and immutable feed coordinates verified.'
-, '')
+ $cut = $packageName.IndexOf('.0.1.0-dev.', [System.StringComparison]::OrdinalIgnoreCase)
+ if ($cut -lt 1) { throw 'Invalid canonical package filename.' }
+ $id = $packageName.Substring(0, $cut)
  $nuspecTarget = Join-Path $item.folder "$id.nuspec"
  $shaTarget = "$($item.target).sha512"
  $zip = [System.IO.Compression.ZipFile]::OpenRead($item.target)
