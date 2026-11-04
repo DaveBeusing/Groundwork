@@ -44,3 +44,42 @@ collision. It first requires a positive staging baseline. A negative test that
 unexpectedly succeeds makes the harness fail. No source artifacts are modified.
 The harness does not authenticate locally supplied hashes and does not test
 NuGet lockfiles, caches, cross-repository restoration or CI provenance.
+
+## Pinned-package archive preservation
+
+WYU has pinned exact Groundwork package version
+`0.1.0-dev.41920122570.1`, built by successful GitHub Actions run
+`41920122570` (attempt 1). Its reviewed manifest SHA-256 is
+`E07D23C78F922E8EBB193E03E5B7F5C2A8FDD4EF50C081B914B183D4017296F9`.
+Ordinary CI artifacts may expire after the requested 90-day retention period,
+and the effective retention could be shorter due to repository/org limits.
+Do not assume that the version is durable merely because WYU pins it.
+
+The opt-in `.github/workflows/archive-pinned-package.yml` workflow is a
+single-candidate archive operation, not an automated publication or general
+release process. Once reviewed and merged to `master`, it can be manually
+dispatched from `master` with confirmation `ARCHIVE-41920122570`.
+Its job targets the `groundwork-archive` environment; configure **required
+reviewers** and suitable environment protections before running. It requires
+an approved top-level `LICENSE` file because publishing a GitHub Release
+would distribute package bytes publicly. Do not create a license file without
+an explicit license decision.
+
+Before writing a GitHub Release, the workflow checks the exact producer
+run/head/attempt and manifest SHA-256, verifies all six finished nupkg hashes
+and sizes, checks for an existing archive tag, and creates an audit record.
+It then attempts to create a prerelease GitHub Release with the six packages,
+the original manifest and the archive record. The archive asset should not
+have automatic CI expiration. Nevertheless, maintainers can still delete or
+replace ordinary GitHub Release assets unless immutable-release controls are
+enabled, so **enable GitHub Release immutability / restrict maintainers** where
+available and audit the archive before asserting immutable provenance.
+The GitHub Release is not itself a signed/supply-chain attestation.
+
+**This archive is NOT yet published.** The current PR is a draft stacked on
+B00; a license decision, review, merge, environment review protection and
+successful manual archive run are prerequisites. After archiving, change WYU
+consumer retrieval to use the durable archive or add a verified fallback so
+a clean checkout does not depend exclusively on the expiring original run.
+
+See GitHub Actions run 41920122570 and WYU PR #3 for the exact pinned consumer.
