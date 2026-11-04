@@ -54,5 +54,36 @@ foreach ($item in $plan) {
    }
  }
  if ((Get-FileHash -LiteralPath $item.target -Algorithm SHA256).Hash -ine $item.hash) { throw 'Final feed validation failed.' }
+ # NuGet hierarchical feeds need the expanded nuspec and SHA512 index beside nupkg.
+ # Derive both exclusively from the verified package bytes; never trust mutable sidecars.
+ Add-Type -AssemblyName System.IO.Compression
+ Add-Type -AssemblyName System.IO.Compression.FileSystem
+ $packageName = [System.IO.Path]::GetFileNameWithoutExtension($item.target)
+ $id = ($packageName -replace '\.0\.1\.0-dev\..*}
+Write-Host 'PASS: six package hashes and immutable feed coordinates verified.'
+, '')
+ $nuspecTarget = Join-Path $item.folder "$id.nuspec"
+ $shaTarget = "$($item.target).sha512"
+ $zip = [System.IO.Compression.ZipFile]::OpenRead($item.target)
+ try {
+   $nuspec = @($zip.Entries | Where-Object { $_.Name -ieq "$id.nuspec" })
+   if ($nuspec.Count -ne 1) { throw 'Verified archive lacks exactly one expected nuspec.' }
+   $reader = [System.IO.StreamReader]::new($nuspec[0].Open())
+   try { $nuspecText = $reader.ReadToEnd() } finally { $reader.Dispose() }
+ } finally { $zip.Dispose() }
+ $hasher = [System.Security.Cryptography.SHA512]::Create()
+ try {
+   $sha512 = [Convert]::ToBase64String($hasher.ComputeHash([System.IO.File]::ReadAllBytes($item.target)))
+ } finally { $hasher.Dispose() }
+ if (Test-Path -LiteralPath $nuspecTarget) {
+   if ([System.IO.File]::ReadAllText($nuspecTarget) -cne $nuspecText) { throw 'Existing nuspec conflict.' }
+ } else {
+   [System.IO.File]::WriteAllText($nuspecTarget, $nuspecText, [System.Text.UTF8Encoding]::new($false))
+ }
+ if (Test-Path -LiteralPath $shaTarget) {
+   if ([System.IO.File]::ReadAllText($shaTarget).Trim() -cne $sha512) { throw 'Existing SHA512 sidecar conflict.' }
+ } else {
+   [System.IO.File]::WriteAllText($shaTarget, $sha512, [System.Text.Encoding]::ASCII)
+ }
 }
 Write-Host 'PASS: six package hashes and immutable feed coordinates verified.'
