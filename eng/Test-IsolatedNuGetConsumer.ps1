@@ -66,6 +66,7 @@ try {
  [System.IO.File]::WriteAllText($nugetConfig,$config.Replace($escapedFeed,[System.Security.SecurityElement]::Escape($empty)))
  & dotnet restore $project --configfile $nugetConfig --locked-mode --force-evaluate
  if ($LASTEXITCODE -eq 0) { throw 'Missing feed was accepted.' }
+ $global:LASTEXITCODE = 0
  Write-Host 'PASS: isolated consumer, locked restore, stale lock and missing feed rejected.'
 } finally {
  $env:NUGET_PACKAGES = $oldCache
