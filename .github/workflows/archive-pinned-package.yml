@@ -1,0 +1,140 @@
+name: Archive pinned Groundwork package
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: 'Type ARCHIVE-41920122570 after release/license review'
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+jobs:
+  archive-pinned:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: groundwork-archive
+    env:
+      GH_TOKEN: ${{ github.token }}
+      EXPECTED_RUN_ID: '41920122570'
+      EXPECTED_ATTEMPT: '1'
+      EXPECTED_HEAD: '6930d66d383fb26427cf927115efe5cf9fc9b74b'
+      EXPECTED_VERSION: '0.1.0-dev.41920122570.1'
+      EXPECTED_MANIFEST_SHA256: 'E07D23C78F922E8EBB193E03E5B7F5C2A8FDD4EF50C081B914B183D4017296F9'
+      ARCHIVE_TAG: 'archive-groundwork-0.1.0-dev.41920122570.1'
+    steps:
+      - name: Checkout reviewed archive workflow
+        uses: actions/checkout@v4
+
+      - name: Verify manual archive authorization and producer identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test '${{ inputs.confirmation }}' = 'ARCHIVE-41920122570'
+          test "$GITHUB_REF" = 'refs/heads/master'
+          test "$GITHUB_REPOSITORY" = 'DaveBeusing/Groundwork'
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$EXPECTED_RUN_ID" > "$RUNNER_TEMP/run.json"
+          jq -e --arg sha "$EXPECTED_HEAD" --argjson id 41920122570 \
+            '.id == $id and .run_attempt == 1 and .status == "completed" and .conclusion == "success" and .head_sha == $sha and .head_branch == "build/wp01-l4-package-integrity" and .name == "Groundwork Windows CI" and .event == "pull_request"' \
+            "$RUNNER_TEMP/run.json"
+          if gh release view "$ARCHIVE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo 'Refusing overwrite: archived release tag already exists' >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$ARCHIVE_TAG" >/dev/null 2>&1; then
+            echo 'Refusing existing archive tag' >&2
+            exit 1
+          fi
+
+      - name: Download exact CI package artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/verified"
+          gh run download "$EXPECTED_RUN_ID" --repo "$GITHUB_REPOSITORY" \
+            --name groundwork-packages --dir "$RUNNER_TEMP/verified"
+
+      - name: Validate reviewed manifest and every package byte
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $dir = Join-Path $env:RUNNER_TEMP 'verified'
+          $manifestPath = Join-Path $dir 'manifest.json'
+          if (-not (Test-Path -LiteralPath $manifestPath -PathType Leaf)) { throw 'No manifest in CI artifact.' }
+          $manifestHash = (Get-FileHash -LiteralPath $manifestPath -Algorithm SHA256).Hash
+          if ($manifestHash -ine $env:EXPECTED_MANIFEST_SHA256) { throw 'Manifest does not match reviewed SHA-256.' }
+          $m = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+          if ($m.schemaVersion -ne 1 -or [string]$m.buildId -ne "$env:EXPECTED_RUN_ID.$env:EXPECTED_ATTEMPT") { throw 'Manifest build identity mismatch.' }
+          $commit = gh api "repos/$env:GITHUB_REPOSITORY/commits/$($m.sourceCommit)" | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0 -or $null -eq $commit) { throw 'Unknown manifest source commit.' }
+          $parents = @($commit.parents | ForEach-Object { $_.sha })
+          if ($m.sourceCommit -ine $env:EXPECTED_HEAD -and $parents -notcontains $env:EXPECTED_HEAD) { throw 'Manifest commit not tied to approved PR head.' }
+          $ids = @('Groundwork.Core','Groundwork.Platform.Windows','Groundwork.Simulation','Groundwork.Ecs','Groundwork.Jobs','Groundwork.Diagnostics')
+          $packages = @($m.packages)
+          if ($packages.Count -ne 6) { throw 'Expected six package entries.' }
+          foreach ($id in $ids) {
+            $entries = @($packages | Where-Object { $_.packageId -ceq $id })
+            if ($entries.Count -ne 1) { throw "Missing or duplicate package $id" }
+            $p = $entries[0]
+            if ($p.packageVersion -cne $env:EXPECTED_VERSION) { throw 'Version mismatch.' }
+            $filename = "$id.$env:EXPECTED_VERSION.nupkg"
+            if ($p.filename -cne $filename -or [string]$p.sha256 -notmatch '^[a-fA-F0-9]{64}$') { throw 'Bad identity or digest.' }
+            $path = Join-Path $dir $filename
+            if (-not (Test-Path -LiteralPath $path -PathType Leaf)) { throw "Missing $filename" }
+            if ((Get-Item -LiteralPath $path).Length -ne [long]$p.sizeBytes) { throw "Bad package size: $id" }
+            if ((Get-FileHash -LiteralPath $path -Algorithm SHA256).Hash -ine [string]$p.sha256) { throw "Package digest mismatch: $id" }
+          }
+          if (@(Get-ChildItem -LiteralPath $dir -Filter '*.nupkg' -File).Count -ne 6) { throw 'Unapproved extra package.' }
+          $record = [ordered]@{
+            schemaVersion = 1
+            archiveType = 'pinned-development-package'
+            sourceRepository = $env:GITHUB_REPOSITORY
+            producerRunId = $env:EXPECTED_RUN_ID
+            producerRunAttempt = $env:EXPECTED_ATTEMPT
+            producerHeadSha = $env:EXPECTED_HEAD
+            packagedCommitSha = [string]$m.sourceCommit
+            packageVersion = $env:EXPECTED_VERSION
+            manifestSha256 = $manifestHash
+            archiveWorkflowCommit = $env:GITHUB_SHA
+            archiveRunId = $env:GITHUB_RUN_ID
+            archivedAtUtc = [DateTime]::UtcNow.ToString('o')
+            packages = $packages
+          }
+          $recordFile = Join-Path $dir 'archive-record.json'
+          [System.IO.File]::WriteAllText($recordFile,(ConvertTo-Json -InputObject $record -Depth 10),[System.Text.UTF8Encoding]::new($false))
+          Write-Host 'PASS: pinned CI package archive independently validated.'
+
+      - name: Create non-expiring GitHub Release archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/verified"
+          cat > archive-notes.md <<'NOTES'
+          This is a durable archive of a **pinned development package** required
+          for WYU reproducibility. It is not a functional engine release, not a
+          public stable API, and not a code-signing or provenance attestation.
+
+          Groundwork package version: 0.1.0-dev.41920122570.1
+          Producer CI run: https://github.com/DaveBeusing/Groundwork/actions/runs/41920122570
+          Producer PR head: 6930d66d383fb26427cf927115efe5cf9fc9b74b
+          Reviewed manifest SHA-256: E07D23C78F922E8EBB193E03E5B7F5C2A8FDD4EF50C081B914B183D4017296F9
+
+          Individual SHA-256 hashes, source commit, build and archive metadata
+          are captured in manifest.json and archive-record.json. This archive
+          must remain available while any consumer pins this package.
+          NOTES
+          gh release create "$ARCHIVE_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$EXPECTED_HEAD" \
+            --title "Groundwork pinned package archive $EXPECTED_VERSION" \
+            --notes-file archive-notes.md \
+            --prerelease \
+            --latest=false \
+            ./*.nupkg ./manifest.json ./archive-record.json
+          gh release view "$ARCHIVE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '[.assets[].name] | length == 8' | grep -qx true
+          echo 'PASS: eight immutable archive assets uploaded.'
