@@ -24,3 +24,9 @@ Rejected: unbounded catch-up, variable physics steps and unreported time skippin
 ## Required tests
 
 A synthetic-clock second produces exactly 60 base and 20 gameplay steps; cover jitter, 250-ms stalls, overload, pause/resume, cancellation, interpolation bounds, stable phase ordering and metrics. This ADR does not claim the scheduler or tests exist.
+
+### 2026-11-04 deterministic-admission clarification (proposed)
+
+Within each fixed 60-Hz base tick and eligible 20-Hz gameplay phase, WP01's default scheduler orders jobs using stable tick-owner-assigned keys (world, tick, phase, system, partition, spawn ordinal), not worker arrival or completion timing. For the same clock/input trace, declared DAG and **the same eligible batches at each synchronization barrier**, commit ordering is reproducible. A delayed asynchronous result may become eligible on another tick; this is a scheduling input difference and does not establish a promise of globally bit-identical physics or result timing across arbitrary hardware. Ambiguous dynamically discovered jobs are canonically admitted by the tick owner or explicitly rejected. Test randomized worker completion order, stable phase boundaries and dynamic admission-key failures in addition to fake-clock scenarios.
+
+See [ECS/job contract §11.5](../architecture/ecs-jobs-review-contract.md). This is a proposed contract rule, not executable scheduler behavior or a completed independent review.
