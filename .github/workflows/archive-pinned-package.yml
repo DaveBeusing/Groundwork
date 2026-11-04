@@ -128,6 +128,7 @@ jobs:
           are captured in manifest.json and archive-record.json. This archive
           must remain available while any consumer pins this package.
           NOTES
+          cp "$GITHUB_WORKSPACE/LICENSE" ./LICENSE
           gh release create "$ARCHIVE_TAG" \
             --repo "$GITHUB_REPOSITORY" \
             --target "$EXPECTED_HEAD" \
@@ -135,7 +136,7 @@ jobs:
             --notes-file archive-notes.md \
             --prerelease \
             --latest=false \
-            ./*.nupkg ./manifest.json ./archive-record.json
+            ./*.nupkg ./manifest.json ./archive-record.json ./LICENSE
           gh release view "$ARCHIVE_TAG" --repo "$GITHUB_REPOSITORY" --json assets \
-            --jq '[.assets[].name] | length == 8' | grep -qx true
-          echo 'PASS: eight immutable archive assets uploaded.'
+            --jq '[.assets[].name] | length == 9' | grep -qx true
+          echo 'PASS: nine archive assets uploaded (packages, manifest, provenance, license).'
