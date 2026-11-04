@@ -43,3 +43,17 @@ After obtaining all four frozen-SHA specialist reports, inspect them together an
 The owner writes a final comment on the PR or Issue #1 along the lines of `I approve Groundwork WP01-C00 architecture revision <HEAD_SHA>, having reviewed the linked four specialist reports and integration review; all blocking findings are closed.` This is a **solo owner acceptance record**, not a GitHub `APPROVE` event. Do not add this comment on the owner's behalf before the reports actually exist and are reviewed.
 
 Then verify any real configured GitHub checks/protections, merge PR #11 only when permitted, record merge SHA and handover into Issue #1, and close with `completed`. No implementation tests or packages should be falsely claimed as WP01-C00 outputs.
+
+## Required follow-up scenarios after 2026-11-04 corrections
+
+These are **review prompts and future implementation tests**, not reports of executed test runs.
+
+| Finding | Specialist(s) | Required adversarial review / later test |
+| --- | --- | --- |
+| P1-01 deferred commit dependencies | L3A, L3B, L2 | A mixed batch queues at tick T, fails validation at T+1; its three-level dependent chain cannot publish at T and is rejected transitively |
+| P1-02 incomplete cleanup/quarantine | L3A, L2, L5 | A cancelled non-cooperative worker still holds a borrowed pointer when Stop/Dispose times out; storage remains owned/quarantined and incomplete cleanup is observable |
+| P1-03 coherence forgery/staleness | L3A, L5 | Worker fabricates proof or reuses writer proof after another commit; supervisor must reject it and cannot choose safe continuation |
+| P2-04 in-place/no-op barrier | L3A, L2 | A lease acquired before a no-op or non-relocating component commit is invalidated at the next declared barrier |
+| P2-05 deterministic admission | L3B, L2 | Randomize arrival/finish order with identical eligible batches and verify stable ordering; reject unstable spawn identity and do not claim full cross-tick replay |
+
+All four isolated reviewer agents must analyze the same **updated frozen commit** after corrective edits and write separate evidence. A reviewer reading this matrix is **not** considered to have executed a test; the sequential integration review validates the cross-lane dependencies. Subsequent changes require corresponding delta-reviews.
