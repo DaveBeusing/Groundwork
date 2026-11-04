@@ -16,7 +16,7 @@ Windows window handling, simulation state and asynchronous jobs have incompatibl
 - Preserve the original startup failure while separately reporting cleanup failures. No production service may silently resolve to a no-op fallback; capability validation must fail clearly.
 - The Windows message pump and native window live on the host UI thread; it must not perform synchronous disk/network operations or be blocked by worker completion. Host shutdown and focus/resize input remain responsive.
 - ECS mutations are applied by **one logical world writer** at documented barriers; this need not be one permanently pinned operating-system thread. Workers read immutable views/snapshots and write their own result buffers. Rendering consumers never mutate the live world.
-- Shutdown signals cancellation; bounded draining/cancellation completes before resource disposal. Deadlocking waits across the simulation barrier/UI thread are forbidden.
+- Shutdown signals cancellation and uses bounded drain, **but cancellation alone does not prove borrowed readers released memory**. If the deadline expires with a live lease, enter terminal quarantine, stop new world mutations, retain strong ownership of referenced buffers and return an explicit incomplete-cleanup fault; do not free those buffers or report a successful `DisposeAsync`. Reclamation is permitted only after proven quiescence or safe process termination. Deadlocking waits across the simulation barrier/UI thread are forbidden. Repeated stop/dispose is idempotent and cannot double-free.
 
 ## Alternatives / consequences
 
@@ -25,3 +25,7 @@ Rejected: unmanaged mutable world writes from any job, blocking message pump, fo
 ## Review and verification
 
 Owners must finalize interface signatures, finite timeout policy, invalid-state transitions and partial-initialization cleanup. Tests must cover startup faults, shutdown during queued work, repeated stop/dispose, cancellation and window close/focus behavior. See [runtime-contracts](../architecture/runtime-contracts.md).
+
+### 2026-11-04 review correction (proposed)
+
+The lifecycle promise to dispose all resources on failed startup is **conditional on safe quiescence**. On a permanently non-cooperative borrower, the host finishes its bounded wait with an observable incomplete-shutdown result and the process-owned quarantine custodian retains any referenced managed/native storage. This makes cleanup truthfully incomplete rather than unsafe; the primary fault and cleanup fault must be reported separately. See [ECS/job contract §11.2](../architecture/ecs-jobs-review-contract.md) for the proposed implementation contract and fault-injection tests. No resource cleanup has been executed by this documentation PR.
