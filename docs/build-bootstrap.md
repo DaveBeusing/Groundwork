@@ -49,9 +49,12 @@ Development artifacts: 90-day retention, except still-pinned versions must
 be preserved before cleanup. Release archives and manifests: durable retention
 until explicit removal. L4/release automation owns enforcement.
 
-No software license is inferred from public GitHub visibility. A license
-must be chosen before external redistribution. Review all external
-dependencies for security and licensing before addition.
+Groundwork is licensed under Apache License, Version 2.0 (SPDX: Apache-2.0).
+The root LICENSE contains the complete license text; Directory.Build.props
+sets PackageLicenseExpression=Apache-2.0 for newly built NuGet packages.
+This license decision does not retroactively modify already-built packages.
+Review third-party dependencies for security, license obligations and required
+NOTICE attribution before any redistribution.
 This PR does not claim an installed SDK, successful Windows build, CI checks,
 executable tests, package trust verification or release automation.
 
