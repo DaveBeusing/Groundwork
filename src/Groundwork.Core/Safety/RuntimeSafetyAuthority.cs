@@ -68,10 +68,11 @@ public sealed class RuntimeSafetyAuthority
     private StopRequest? _stopRequest;
     private RuntimeDeadline? _deadline;
     private long _fallbackTimestamp = long.MaxValue;
+    private long _fallbackWatchdogOrigin = long.MaxValue;
     private int _contendedEvidenceLoss;
     private int _outstandingOperations;
+    private int _runtimeCustody;
     private bool _settling;
-    private bool _inCustody;
     private bool _released;
 
     private RuntimeSafetyAuthority(
@@ -151,9 +152,21 @@ public sealed class RuntimeSafetyAuthority
     internal bool HasContendedEvidenceLoss => Volatile.Read(ref _contendedEvidenceLoss) != 0;
     internal bool IsPublicationFenced => Volatile.Read(ref _stopRequest) is not null || HasContendedEvidenceLoss || !Clock.IsValid;
 
-    internal SafetyCondition InheritedConditions => HasContendedEvidenceLoss
-        ? SafetyCondition.TerminalStop | SafetyCondition.RequiredEvidenceLost
-        : IsPublicationFenced ? SafetyCondition.TerminalStop : SafetyCondition.None;
+    internal SafetyCondition InheritedConditions
+    {
+        get
+        {
+            var conditions = IsPublicationFenced ? SafetyCondition.TerminalStop : SafetyCondition.None;
+            if (HasContendedEvidenceLoss)
+            {
+                conditions |= SafetyCondition.RequiredEvidenceLost;
+            }
+
+            return Volatile.Read(ref _runtimeCustody) != 0
+                ? conditions | SafetyCondition.IncompleteCleanup
+                : conditions;
+        }
+    }
 
     // The fences are monotonic. If all checks pass, the first interlocked
     // read is the publication linearization point. Ledger changes stay under Gate.
@@ -166,6 +179,7 @@ public sealed class RuntimeSafetyAuthority
         // If the gate is contended, use the last trusted clock sample. This can
         // shorten draining, but never allows a contended fault to extend cleanup.
         Interlocked.CompareExchange(ref _fallbackTimestamp, Clock.LastTimestamp, long.MaxValue);
+        Interlocked.CompareExchange(ref _fallbackWatchdogOrigin, TimeProvider.System.GetTimestamp(), long.MaxValue);
         Interlocked.Exchange(ref _contendedEvidenceLoss, 1);
         SignalStop();
     }
@@ -276,39 +290,106 @@ public sealed class RuntimeSafetyAuthority
 
     public ShutdownSettlement SettleStop()
     {
-        lock (Gate)
+        if (Volatile.Read(ref _released))
         {
-            if (_released)
+            return ShutdownSettlement.Released;
+        }
+
+        if (!IsPublicationFenced)
+        {
+            return ShutdownSettlement.InvalidScope;
+        }
+
+        var deadline = BeginStop();
+        if (!Monitor.TryEnter(Gate))
+        {
+            return deadline.IsExpiredForSettlement()
+                ? EnterRuntimeCustody(reconcileLater: true)
+                : ShutdownSettlement.Pending;
+        }
+
+        try
+        {
+            return SettleStopCore();
+        }
+        finally
+        {
+            Monitor.Exit(Gate);
+        }
+    }
+
+    private ShutdownSettlement SettleStopCore()
+    {
+        if (_released)
+        {
+            return ShutdownSettlement.Released;
+        }
+
+        _settling = true;
+        var deadline = StopCore();
+        foreach (var world in _worlds.Values)
+        {
+            SettleWorldCore(world);
+        }
+
+        if (TryReleaseStoppedRuntime())
+        {
+            return ShutdownSettlement.Released;
+        }
+
+        return deadline.IsExpiredForSettlement()
+            ? EnterRuntimeCustody(reconcileLater: false)
+            : ShutdownSettlement.Pending;
+    }
+
+    private ShutdownSettlement EnterRuntimeCustody(bool reconcileLater)
+    {
+        bool entered;
+        lock (CustodianGate)
+        {
+            if (Volatile.Read(ref _released))
             {
                 return ShutdownSettlement.Released;
             }
 
-            if (!IsPublicationFenced)
+            entered = _runtimeCustody == 0;
+            if (entered)
             {
-                return ShutdownSettlement.InvalidScope;
+                Volatile.Write(ref _runtimeCustody, 1);
+                Custodian.Add(this);
+            }
+        }
+
+        if (entered && reconcileLater)
+        {
+            _ = ReconcileCustodyAsync();
+        }
+
+        return ShutdownSettlement.Custody;
+    }
+
+    private async Task ReconcileCustodyAsync()
+    {
+        // Custody is already rooted. Reconcile without occupying a worker
+        // while a producer still holds the gate.
+        while (!Volatile.Read(ref _released))
+        {
+            await Task.Delay(TimeSpan.FromMilliseconds(10)).ConfigureAwait(false);
+            if (!Monitor.TryEnter(Gate))
+            {
+                continue;
             }
 
-            var deadline = StopCore();
-            _settling = true;
-            foreach (var world in _worlds.Values)
+            try
             {
-                SettleWorldCore(world);
+                SettleStopCore();
+            }
+            finally
+            {
+                Monitor.Exit(Gate);
             }
 
-            if (TryReleaseStoppedRuntime())
-            {
-                return ShutdownSettlement.Released;
-            }
-
-            if (!deadline.IsExpired(Clock.Provider))
-            {
-                return ShutdownSettlement.Pending;
-            }
-
-            _inCustody = true;
-            _ledger.MarkIncomplete();
-            UpdateCustodian();
-            return ShutdownSettlement.Custody;
+            return;
         }
     }
 
@@ -326,6 +407,12 @@ public sealed class RuntimeSafetyAuthority
     internal void ReleaseOperation(WorldControl? world)
     {
         _outstandingOperations--;
+        if (!_settling && Volatile.Read(ref _runtimeCustody) != 0)
+        {
+            SettleStopCore();
+            return;
+        }
+
         if (world is { Settling: true, IsStopping: false, OwnerCount: 0 })
         {
             ReleaseWorld(world);
@@ -348,7 +435,7 @@ public sealed class RuntimeSafetyAuthority
             return ShutdownSettlement.Released;
         }
 
-        if (!deadline.IsExpired(Clock.Provider))
+        if (!deadline.IsExpiredForSettlement())
         {
             return ShutdownSettlement.Pending;
         }
@@ -373,13 +460,15 @@ public sealed class RuntimeSafetyAuthority
     {
         if (!_released && _settling && _worlds.Count == 0 && _outstandingOperations == 0)
         {
-            _released = true;
-            _inCustody = false;
             _ledger.ReleaseStorage();
             UiWake.Close();
             SimulationWake.Close();
             _reservation.ReleaseAdopted();
-            UpdateCustodian();
+            lock (CustodianGate)
+            {
+                Volatile.Write(ref _released, true);
+                Custodian.Remove(this);
+            }
         }
 
         return _released;
@@ -389,7 +478,7 @@ public sealed class RuntimeSafetyAuthority
     {
         lock (CustodianGate)
         {
-            if (_inCustody || _worlds.Values.Any(world => world.InCustody))
+            if (!_released && (_runtimeCustody != 0 || _worlds.Values.Any(world => world.InCustody)))
             {
                 Custodian.Add(this);
             }
@@ -415,7 +504,9 @@ public sealed class RuntimeSafetyAuthority
             ? TimeProvider.System.GetTimestamp()
             : Clock.LastTimestamp;
         var origin = Math.Min(now, Volatile.Read(ref _fallbackTimestamp));
-        var request = new StopRequest(Clock.At(origin, ShutdownDuration, Clock.IsValid));
+        var watchdogOrigin = Volatile.Read(ref _fallbackWatchdogOrigin);
+        var request = new StopRequest(Clock.At(
+            origin, ShutdownDuration, Clock.IsValid, watchdogOrigin == long.MaxValue ? null : watchdogOrigin));
         if (Interlocked.CompareExchange(ref _stopRequest, request, null) is { } previous)
         {
             return previous.Deadline;

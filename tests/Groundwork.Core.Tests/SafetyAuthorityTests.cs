@@ -68,6 +68,43 @@ public sealed class SafetyAuthorityTests
     }
 
     [TestMethod]
+    public async Task ShutdownTransfersToCustodyWhileTheInjectedClockStillHoldsTheGate()
+    {
+        var clock = new BlockingClock();
+        var shutdown = TimeSpan.FromMilliseconds(100);
+        var otherDeadline = TimeSpan.FromSeconds(2);
+        using var fixture = new CoreRuntimeFixture(clock, timing: new RuntimeTimingLimits(shutdown, otherDeadline, otherDeadline));
+        var world = fixture.OpenWorld();
+        var runtime = fixture.Runtime;
+        using var owner = runtime.RuntimeOwnership.TryTrack(new object());
+        Assert.IsNotNull(owner);
+
+        clock.BlockNextSample();
+        var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
+        try
+        {
+            await clock.SampleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Run(() => runtime.StopControl.RequestStop(HostStopReason.WindowClose)).WaitAsync(TimeSpan.FromSeconds(5));
+            await Task.Delay(shutdown * 2);
+
+            var outcome = await Task.Run(runtime.SettleStop).WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(ShutdownSettlement.Custody, outcome);
+            Assert.IsFalse(gateOwner.IsCompleted);
+            Assert.IsNull(fixture.Budget.TryReserveRuntime(CoreRuntimeFixture.Quota));
+        }
+        finally
+        {
+            clock.SampleReleased.TrySetResult();
+            await gateOwner.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        owner.Dispose();
+        Assert.IsTrue(SpinWait.SpinUntil(() => runtime.SettleStop() == ShutdownSettlement.Released, TimeSpan.FromSeconds(5)));
+        using var next = fixture.Budget.TryReserveRuntime(CoreRuntimeFixture.Quota);
+        Assert.IsNotNull(next);
+    }
+
+    [TestMethod]
     public void DeadlineRejectsAnotherClockAndExpiresOnClockRollback()
     {
         using var fixture = new CoreRuntimeFixture();
@@ -90,9 +127,10 @@ public sealed class SafetyAuthorityTests
         Assert.IsNotNull(hostLease);
         Assert.IsNotNull(worldLease);
 
-        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
         Assert.AreEqual(ShutdownSettlement.Pending, fixture.Runtime.SettleStop());
         fixture.Clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.IsTrue(deadline.IsExpired(fixture.Clock));
         Assert.AreEqual(ShutdownSettlement.Custody, fixture.Runtime.SettleStop());
         Assert.IsNull(fixture.Budget.TryReserveRuntime(CoreRuntimeFixture.Quota));
 

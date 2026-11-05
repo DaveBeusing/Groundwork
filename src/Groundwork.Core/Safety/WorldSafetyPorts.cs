@@ -309,7 +309,5 @@ internal sealed class WorldControl
         => ReferenceEquals(_request, request) && CanReview(request.Proof.Stamp, request.Proof.FaultGeneration);
 
     private static RuntimeDeadline Earlier(RuntimeDeadline candidate, RuntimeDeadline? current)
-        => current is { } existing && (existing.ForcedExpired ||
-            (!candidate.ForcedExpired && existing.Timestamp <= candidate.Timestamp))
-            ? existing : candidate;
+        => current is { } existing ? candidate.RestrictTo(existing) : candidate;
 }

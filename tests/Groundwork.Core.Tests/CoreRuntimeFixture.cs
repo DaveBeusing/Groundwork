@@ -16,7 +16,7 @@ internal sealed class CoreRuntimeFixture : IDisposable
         Diagnostics = Quota.Diagnostics with { EmergencyRecords = 9, EmergencyBytes = 28672 },
     };
 
-    public CoreRuntimeFixture(TestClock? clock = null, ResourceQuota? runtimeQuota = null)
+    public CoreRuntimeFixture(TestClock? clock = null, ResourceQuota? runtimeQuota = null, RuntimeTimingLimits? timing = null)
     {
         Clock = clock ?? new TestClock();
         var quota = runtimeQuota ?? Quota;
@@ -24,7 +24,7 @@ internal sealed class CoreRuntimeFixture : IDisposable
         var reservation = Budget.TryReserveRuntime(quota);
         Assert.IsNotNull(reservation);
         var interval = TimeSpan.FromSeconds(2);
-        Runtime = RuntimeSafetyAuthority.Create(Clock, new RuntimeTimingLimits(interval, interval, interval), reservation);
+        Runtime = RuntimeSafetyAuthority.Create(Clock, timing ?? new RuntimeTimingLimits(interval, interval, interval), reservation);
     }
 
     public TestClock Clock { get; }
@@ -86,8 +86,9 @@ internal sealed class CoreRuntimeFixture : IDisposable
 
     public void Dispose()
     {
-        Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        var deadline = Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
         Clock.Advance(TimeSpan.FromSeconds(2));
+        _ = deadline.IsExpired(Clock);
         Runtime.SettleStop();
     }
 

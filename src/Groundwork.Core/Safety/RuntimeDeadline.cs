@@ -4,9 +4,10 @@ public readonly struct RuntimeDeadline
 {
     private readonly DeadlineClock? _clock;
     private readonly bool _expired;
+    private readonly long _watchdogTimestamp;
 
-    internal RuntimeDeadline(DeadlineClock clock, long timestamp, bool expired = false)
-        => (_clock, Timestamp, _expired) = (clock, timestamp, expired);
+    internal RuntimeDeadline(DeadlineClock clock, long timestamp, long watchdogTimestamp, bool expired = false)
+        => (_clock, Timestamp, _watchdogTimestamp, _expired) = (clock, timestamp, watchdogTimestamp, expired);
 
     public long Timestamp { get; }
 
@@ -29,6 +30,22 @@ public readonly struct RuntimeDeadline
     }
 
     internal bool ForcedExpired => _expired;
+
+    internal bool IsExpiredForSettlement()
+        => _expired || _clock is null || !_clock.IsValid || _clock.LastTimestamp >= Timestamp ||
+           TimeProvider.System.GetTimestamp() >= _watchdogTimestamp;
+
+    internal RuntimeDeadline RestrictTo(RuntimeDeadline other)
+    {
+        if (_clock is null || !ReferenceEquals(_clock, other._clock))
+        {
+            throw new ArgumentException("Deadlines must share their clock domain.", nameof(other));
+        }
+
+        return new RuntimeDeadline(
+            _clock, Math.Min(Timestamp, other.Timestamp), Math.Min(_watchdogTimestamp, other._watchdogTimestamp),
+            _expired || other._expired);
+    }
 
     private DeadlineClock ValidateClock(TimeProvider clock)
     {
@@ -78,10 +95,28 @@ internal sealed class DeadlineClock
         return At(now, duration, valid);
     }
 
-    internal RuntimeDeadline At(long now, long duration, bool valid = true)
-        => !valid || now > long.MaxValue - duration
-            ? new RuntimeDeadline(this, now, expired: true)
-            : new RuntimeDeadline(this, now + duration);
+    internal RuntimeDeadline At(long now, long duration, bool valid = true, long? watchdogOrigin = null)
+    {
+        var watchdog = TimeProvider.System;
+        var watchdogNow = watchdogOrigin ?? watchdog.GetTimestamp();
+        if (!valid || now > long.MaxValue - duration)
+        {
+            return new RuntimeDeadline(this, now, watchdogNow, expired: true);
+        }
+
+        var timestamp = now + duration;
+        // Floor rather than round up: the real-time cap cannot extend the
+        // remaining budget at the last trusted injected-clock observation.
+        var remaining = Int128.Max(0, (Int128)timestamp - Math.Max(now, LastTimestamp));
+        var watchdogDuration = remaining * watchdog.TimestampFrequency / Frequency;
+        var watchdogDeadline = (long)Int128.Min(long.MaxValue, (Int128)watchdogNow + watchdogDuration);
+        if (ReferenceEquals(Provider, watchdog))
+        {
+            watchdogDeadline = Math.Min(timestamp, watchdogDeadline);
+        }
+
+        return new RuntimeDeadline(this, timestamp, watchdogDeadline);
+    }
 
     internal bool TryRead(out long now)
     {
