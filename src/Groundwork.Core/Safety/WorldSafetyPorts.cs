@@ -146,7 +146,11 @@ internal sealed class WorldControl
             return;
         }
 
-        var deadline = _runtime.Clock.Start(_runtime.ShutdownDuration);
+        var clock = _runtime.Clock;
+        var now = ReferenceEquals(clock.Provider, TimeProvider.System)
+            ? TimeProvider.System.GetTimestamp()
+            : clock.LastTimestamp;
+        var deadline = clock.At(now, _runtime.ShutdownDuration, clock.IsValid);
         StopForRuntime(deadline);
     }
 
