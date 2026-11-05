@@ -11,6 +11,7 @@
     <Project Path="tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj" />
     <Project Path="tests/Groundwork.Ecs.Tests/Groundwork.Ecs.Tests.csproj" />
     <Project Path="tests/Groundwork.Jobs.Tests/Groundwork.Jobs.Tests.csproj" />
+    <Project Path="tests/Groundwork.Platform.Windows.Tests/Groundwork.Platform.Windows.Tests.csproj" />
     <Project Path="tests/Groundwork.Simulation.Tests/Groundwork.Simulation.Tests.csproj" />
   </Folder>
 </Solution>
