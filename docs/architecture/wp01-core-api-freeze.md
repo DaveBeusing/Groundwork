@@ -35,7 +35,7 @@ The host validates the context before handing it to a module. Inject typed modul
 
 The lifecycle coordinator serializes transitions from created through initialized and running to stopping and disposed. Failed startup enters the same terminal cleanup path. An individual module cannot transition back to initialized or running once terminal intent is latched. Initialization and startup cancellation tokens signal cooperative interruption. The stop operation receives a coordinator token constrained by the common shutdown deadline. Cancellation of a caller's wait does not cancel the shared shutdown operation or change the deadline. Dispose remains idempotent, including after failed initialization. Report incomplete cleanup through the safety contract.
 
-The first `RequestStop` records terminal intent, starts the shared deadline, closes the publication authority and wakes the host independently of pending startup and the lifecycle serialization gate. It runs no arbitrary callbacks and performs no join. The host dispatches cooperative cancellation outside the UI and simulation hot paths. The Windows module owns the native wake path and UI-thread cleanup. UI-affine resources reachable after the deadline remain under custody until safe release. Duplicate requests return the original deadline and cannot clear a stronger safety classification.
+The first `RequestStop` records terminal intent, starts the shared deadline, closes publication and signals the separate retained UI and Simulation wakes from `RuntimeSafetyAuthority`. It runs no arbitrary callbacks and performs no join. The host dispatches cooperative cancellation outside the UI and simulation hot paths. The Windows module owns the native wait integration and UI-thread cleanup. UI-affine resources reachable after the deadline remain under custody until safe release. Duplicate requests return the original deadline and cannot clear a stronger safety classification.
 
 In the composition root, build the shared clock and safety authority before module initialization. Establish Diagnostics reporting capacity and ECS capture/writer capabilities before enabling their consumers. Windows readiness depends on its UI and input setup and does not wait for Simulation. Jobs readiness depends on its capture capability and does not wait for a tick. The host enables the simulation loop after its required input, pipeline and reporting providers reach readiness. Stop and dispose in reverse dependency order.
 
@@ -165,8 +165,13 @@ public enum SimulationState { Running = 1, Paused, Stopped }
 public readonly record struct SimulationIteration(
     ulong CompletedTick,
     int AppliedSteps,
+    Int128 DebtBeforeScaledTime,
+    Int128 ElapsedScaledTime,
     Int128 RemainingScaledTime,
     Int128 DroppedScaledTime,
+    ulong OverloadEpisodeCount,
+    bool OverloadActive,
+    bool MetricsSaturated,
     double Interpolation,
     SimulationState State,
     long? NextWakeTimestamp);
@@ -186,3 +191,5 @@ The scheduler captures input once per tick, calls `BeginTickAsync`, runs gamepla
 The successful observer swap settles the tick and its debit without an intervening cancellation point. Terminal close immediately competes with each publication, including mid-tick. If interrupted after a completed barrier, the first implementation stops without replay, preserves the prior observer snapshot and reports the last actual writer revision. User and recovery pauses are independent. Resume clears only a user pause, and the clock origin resets only after both pause causes clear. Concurrent advance and callback reentry fail explicitly.
 
 `RemainingScaledTime` and `DroppedScaledTime` use units of `elapsedClockUnits * BaseRateHz * TimeSpan.TicksPerSecond`. A step debits `Clock.TimestampFrequency * TimeSpan.TicksPerSecond`. Preserve exact cap-before-service accounting and clamp the rounded interpolation value below one. `NextWakeTimestamp` is absent while paused or terminal, immediately due if debt funds a complete step, or the last sample plus the checked ceiling of the time still needed for a step. Host control changes also wake the coordinator. Runtime limits, external shutdown and operation faults travel through the safety contract.
+
+`DebtBeforeScaledTime` is retained debt before admitting the iteration's elapsed time. It and `ElapsedScaledTime` use the same units as remaining and dropped time. Include the final running sample when pause becomes effective, with no step applied for that sample. While already paused, elapsed and dropped values are zero. An overload episode starts on the first cap discard or on a discard after a running sample without a discard. The count saturates explicitly, and resume starts a fresh episode boundary without clearing the cumulative count. Use the retained Simulation wake for user controls and recovery so an already-signaled notification survives the transition into a paused wait.

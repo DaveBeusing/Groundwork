@@ -72,7 +72,8 @@ public readonly record struct JobAdmissionResult(JobAdmissionStatus Status, IJob
 
 public interface IJobScheduler
 {
-    JobAdmissionResult TrySubmit(JobSubmission submission);
+    JobAdmissionResult TrySubmit(JobSubmission submission, JobDispatchPhase phase);
+    ValueTask DispatchReadyAsync(JobDispatchPhase phase, CancellationToken cancellationToken);
 }
 
 public interface IJobHandle : IDisposable
@@ -152,6 +153,7 @@ public sealed class JobDispatchPermit
     public JobId Job { get; }
     public SourceKey Source { get; }
     public BarrierStamp DispatchStamp { get; }
+    public TickPhase DispatchPhase { get; }
     public JobInputKind InputKind { get; }
     public IAdmittedJobScope Scope => throw new NotSupportedException();
     public ImmutableArray<ComponentTarget> SnapshotTargets { get; }
@@ -161,11 +163,18 @@ public sealed class JobDispatchPermit
 public enum JobDispatchStatus : byte { Authorized = 1, NotReady, InvalidJob, InvalidBarrier, InvalidAccess, Closed }
 public readonly record struct JobDispatchResult(JobDispatchStatus Status, JobDispatchPermit? Permit);
 
-public enum JobCapturePermitStatus : byte { Authorized = 1, InvalidPermit, Expired, AlreadyConsumed }
+public enum JobCapturePermitStatus : byte { Authorized = 1, InvalidPermit, Expired, AlreadyConsumed, CapacityExceeded }
+
+public interface IJobCaptureLease : IDisposable
+{
+    CommittedWorldView World { get; }
+}
+
+public readonly record struct JobCapturePermitResult(JobCapturePermitStatus Status, IJobCaptureLease? Lease);
 
 public interface IJobCaptureAuthority
 {
-    JobCapturePermitStatus TryConsume(JobDispatchPermit permit);
+    JobCapturePermitResult TryAcquire(JobDispatchPermit permit);
 }
 ```
 
@@ -183,7 +192,7 @@ public interface ITargetVersionIssuer
 
 Only approved, explicitly registered copy-out types are eligible. `unmanaged` is necessary but does not permit pointers, handles or a value that aliases mutable storage. Admission selects a registered trusted handler and copies all externally supplied buffers. Argument and dependency readers copy into caller-owned storage without exposing their backing arrays. If the destination is short, report the required size without writing. A handler never receives an authority object. The scheduler passes a non-disposable worker reader facade. Only the scheduler retains the disposable `IJobInput`. A borrowed reader tracks in-flight copies through disposal races and may not span a barrier. A snapshot copies only the declared `SnapshotTargets` and their versions, including valid absence, within its reservation. Commandless `None` uses a null reader. A structural create with no read input can also use `None` if its explicit structural grant covers the destination.
 
-`JobDispatchPermit` is an opaque Core reference whose scope projections are normalized and bound to admitted membership. Admission records the access grant and dependencies in the configured authority. The authority issues a single capture permit only when prerequisites and current scope are valid. ECS consumes it through `IJobCaptureAuthority` before copying or borrowing. If capture cannot proceed after consumption, the scheduler settles the failed dispatch without invoking the handler or automatically retrying. A commit-dependent input comes from the first eligible phase after every requisite batch commits. A pre-captured snapshot cannot substitute for it. Preserve the original source key when dispatch happens on a later tick. `JobHandler` cancellation is linked to owner cancellation and runtime shutdown. Returning completes the worker operation but does not settle publication.
+`JobDispatchPermit` is opaque and carries the normalized scope and admitted membership. `TryAcquire` consumes the permit, checks the exact active phase and dispatch stamp, pins that committed root and registers the live-resource lease in one transition. ECS reads only that root. Successful capture has `CapturedAt == DispatchStamp`. An owned snapshot releases its pin after copying. A borrowed input retains the pin through its last in-flight copy. On failure release any acquired pin and settle the failed dispatch without invoking the handler or retrying. Capture state for a commit-dependent job only in its first eligible phase after every required commit. Preserve the original source key across ticks. Link worker cancellation to owner cancellation and shutdown. Returning from the handler settles execution separately from publication.
 
 Each prerequisite must be active, previously admitted and in the same world. Forward or self references cannot form a cycle. Execution prerequisites target declared commandless jobs and expose bounded immutable output through a copy into the caller's buffer. Commit prerequisites require all trusted commit receipts for a nonempty sealed batch set. The scheduler never rents a worker slot or borrowed lease to a job waiting on dependencies. Admission reserves bounded storage and retention before taking ownership. Aggregate limits come from the runtime budget contract. A zero per-job limit disallows that category, and no descriptor may declare capacity above its aggregate quota. The owner handle retains its record. `Dispose` releases that retention and does not request cancellation. Other dependents retain their own references. After disposal, `Observe` and `CopyReceipts` throw `ObjectDisposedException`; cancellation reports `Released`. `CopyReceipts` copies the current ordered prefix that fits and returns the number copied. It exposes copies of receipt projections, not authority.
 
@@ -215,7 +224,8 @@ public interface IJobCommandWriter
 public enum BatchReceiptStatus : byte { Committed = 1, Rejected }
 public enum BatchRejection : byte
 {
-    None = 0, Cancelled, DependencyFailed, StaleTarget, InvalidAccess, WriteConflict, InvalidBatch, Stopped
+    None = 0, Cancelled, DependencyFailed, StaleTarget, InvalidAccess, WriteConflict, InvalidBatch, Stopped,
+    BarrierInvalidated
 }
 
 public readonly record struct BatchReceipt(
@@ -227,13 +237,30 @@ public sealed record JobExecutionCompletion(
     ImmutableArray<byte> CommandlessOutput);
 
 public enum ExecutionSettlementStatus : byte { Settled = 1, Cancelled, InvalidCompletion, AlreadySettled, Stopped }
+public enum JobPhaseOpenStatus : byte { Opened = 1, InvalidPhase, AlreadyOpen, Closed }
+
+public sealed class JobDispatchPhase
+{
+    private JobDispatchPhase() { }
+    public BarrierStamp Stamp { get; }
+    public TickPhase Phase { get; }
+}
+
+public readonly record struct JobPhaseOpenResult(JobPhaseOpenStatus Status, JobDispatchPhase? Phase);
+
+public interface IJobPhaseControl
+{
+    JobPhaseOpenResult TryOpen(BarrierStamp stamp, TickPhase phase);
+    void Close(JobDispatchPhase phase);
+}
 
 public interface IJobExecutionAuthority
 {
-    JobAdmissionStatus TryAdmit(JobId job, JobSubmission submission, BarrierStamp admittedAt);
-    JobDispatchResult TryAuthorizeDispatch(JobId job, BarrierStamp dispatchStamp);
+    JobAdmissionResult TryAdmit(JobId job, JobSubmission submission, JobDispatchPhase phase);
+    JobDispatchResult TryAuthorizeDispatch(JobId job, JobDispatchPhase phase);
     JobCancellationStatus RequestCancellation(JobId job);
     ExecutionSettlementStatus TrySettle(JobExecutionCompletion completion);
+    ExecutionSettlementStatus TrySettleFault(JobDispatchPermit permit, scoped in FaultObservation fault);
 }
 
 public sealed record CandidateBatch(
@@ -308,7 +335,11 @@ public interface IBarrierPreparationSource
 public interface IBarrierPublicationAuthority
 {
     BarrierOutcome TryFinalize(PreparedBarrierPublication publication);
+    BarrierAbortStatus TryAbort(CandidateSet candidates, BarrierAbortReason reason);
 }
+
+public enum BarrierAbortReason : byte { PreparationFailed = 1, Cancelled, Faulted }
+public enum BarrierAbortStatus : byte { Stopped = 1, AlreadySettled, InvalidCandidate }
 
 public interface IWorldObserverState
 {
@@ -323,30 +354,52 @@ public interface IObserverPublicationAuthority
     ObserverPublication TryPublish(in ObserverPublicationDraft draft);
 }
 
+public readonly record struct ObserverFrame(BarrierStamp Stamp, IWorldObserverState State);
+
+public interface IObserverSnapshotLease : IDisposable
+{
+    ObserverFrame? Previous { get; }
+    ObserverFrame Current { get; }
+}
+
+public enum ObserverReadStatus : byte { Acquired = 1, Empty, CapacityExceeded, Closed }
+public readonly record struct ObserverReadResult(ObserverReadStatus Status, IObserverSnapshotLease? Lease);
+
+public interface IObserverSnapshotSource
+{
+    ObserverReadResult TryAcquire();
+}
+
 public sealed class WorldPublicationPorts
 {
     internal WorldPublicationPorts() { }
 
     public IJobExecutionAuthority Execution => throw new NotSupportedException();
+    public IJobPhaseControl Phases => throw new NotSupportedException();
     public IJobCaptureAuthority Capture => throw new NotSupportedException();
     public ITargetVersionIssuer VersionIssuer => throw new NotSupportedException();
     public IJobPublicationSource Candidates => throw new NotSupportedException();
     public IBarrierPreparationSource Preparation => throw new NotSupportedException();
     public IBarrierPublicationAuthority Finalization => throw new NotSupportedException();
     public IObserverPublicationAuthority Observer => throw new NotSupportedException();
+    public IObserverSnapshotSource ObserverSnapshots => throw new NotSupportedException();
     public ICommittedWorldSource Committed => throw new NotSupportedException();
 }
 ```
 
 - A `CreateEntity` command defines a nonzero batch-local provisional target, with an explicit world or destination partition structural grant. No existing entity or expected version is supplied. `DestroyEntity` targets an existing entity, requires an entity-wide token and conflicts with any other batch's operation on that entity. Both use component zero. `AddComponent`, `ReplaceComponent` and `RemoveComponent` require a nonzero registered component. On an existing entity, they require the captured target token. Add requires absence at the point of staged application. Replace and remove require presence. A provisional component target must refer to an earlier create in the same batch and carries no prior version. Add and replace carry bytes of the registered bounded encoding. Create, destroy and remove have no payload. Only create specifies a destination. Reject invalid combinations before staging and never expose a provisional ID outside its batch.
 - Accepting an append or output copies data into scheduler-owned reservations. Rejection does not retain caller data. `TrySetOutput` is available once for a commandless handler. Appending commands is available only to command-producing handlers. Result append closes on cancellation or successful worker completion. Successful completion seals the batch-ID set and validates commandless output before releasing an execution prerequisite. Commit dependencies remain pending while any sealed batch is deferred. A rejected unpublished batch makes the aggregate fail and blocks downstream uncommitted work. A zero-batch result has `NotApplicable` and cannot satisfy a commit dependency. A batch committed earlier remains settled even if a sibling later fails. Owner cancellation competes with the final publication and cannot reclaim a live capability.
-- Jobs receives the execution authority. `TryAdmit` validates the descriptor, live references, reservations and scope against the configured ECS membership before publishing admission. The composition root supplies the ECS-owned `IJobScopePolicy`. It returns normalized scopes bound to an immutable admitted membership view, and checks effective scope and exclusion at dispatch. Policy calls run outside the control transition. The authority compares the exact world stamp used for validation before accepting the result. Uncertain overlap excludes dispatch. `TryAuthorizeDispatch` also checks the settled dependency ledger. `RequestCancellation` records intent before callback dispatch. `TrySettle` accepts one completion from the exact dispatch permit with `Succeeded`, `Cancelled` or `Faulted`. Only success can transfer a batch set or output bytes. A rejected transfer stays with Jobs. All these transitions share the world authority used for finalization.
+- Jobs receives the execution authority. The coordinator opens one phase under the last successful `BeginTick` stamp and passes the capability to Jobs. It opens Gameplay only when eligible and closes it before opening Base. Close fences new dispatch and capture without revoking existing leases. `TryAdmit` validates the descriptor, live references, reservations and scope, then returns a Core-backed retained handle whose observation, receipt reads and disposal operate on the authoritative ledger. The ECS-owned `IJobScopePolicy` validates the effective scope and exclusion outside the gate. The authority rechecks the world stamp, active phase and active-grant generation at admission or dispatch. If any has changed, reject the prepared decision. Dispatch requires matching declared phase and settled prerequisites. Cancellation records intent before invoking callbacks. `TrySettle` accepts one successful or cancelled completion from the exact permit. Only success can transfer batch or output ownership. `TrySettleFault` atomically settles a fault and registers its required evidence or latches required evidence loss. Faulted jobs publish no outputs, and the original exception stays on the operational path. All transitions share the world authority used for finalization.
 - `CandidateSet` and `PreparedBarrierPublication` are opaque Core objects. `WorldSafetyPorts.Publication` comes from the same world authority as safety, and composition holds the complete port bundle. Jobs receives `Execution`. The ECS owner receives `Capture`, `VersionIssuer`, `Candidates`, `Preparation` and `Committed`. The coordinator receives `Finalization` and `Observer`. The shared authority verifies that objects and permits originated from its configured channels and are current. It checks per-world identity, exact candidate-set identity and consume-once state. Field equality, a separate authority for the same world ID, and user-created implementations of a port confer no grant. Cross-assembly collaborators use the injected ports rather than constructors or friend assembly access. Private constructors and throwing member bodies in the declarations illustrate compile-checkable surfaces without implementation.
 - The coordinator closes borrowed admission through `IBorrowBarrierControl` and proves release before sealing. A coherent finalized barrier reopens borrowing only for the next eligible phase and current epoch. An ordinary borrow timeout terminally quarantines the world and retains reachable resources without changing the epoch, committed root or pending queue. `BeginTick` seals the whole due deferred set. `CommitResults` seals eligible completions, stages pure replacement batches and defers whole structural or mixed batches. Revalidate all grants, dependencies, versions and full candidate conflicts at both boundaries. A `Defer` records queue ownership but emits no terminal receipt. `BeginTick` cannot defer the same batch again. Reservations survive until a terminal outcome. Candidates that arrive after sealing wait for a later barrier.
 - Every candidate has one staged disposition. ECS prepares a non-mutating replacement root and records dispositions for one sealed set. The authority prepares matching queue and receipt changes before the final transition. It rechecks the entry revision, candidate, cancellation generations, dependency authority and current safety generation. Finalization publishes the world root, epoch, revision, deferred queue and terminal receipts in one transition, serialized with cancellation, stop and safety invalidation. `IWorldStateRoot` is an opaque ECS-owned object across the boundary. The authority validates the root before the final transition and installs its reference without calling arbitrary module code at the transition. `ICommittedWorldSource` is given only to the ECS owner and returns a coherent stamp and root. Borrowed reads may access that root only inside the lease acquisition protocol. Unrelated validated batches may commit only when safe policy and their prerequisites allow. A failed preflight leaves the old world visible. A stopped finalization does not expose staged mutation. Report an unverifiable partial commit as a terminal fault. Release rejected or quarantined staging only after producers quiesce.
 - The coordinator prepares immutable observer state outside the gate and calls `Observer.TryPublish` with the current completed `CommitResults` stamp. The authority rechecks that stamp, the expected safety generation and pause/stop fences in the same control transition as writer finalization. The winning transition swaps the observer state once for that tick. It runs no renderer or listener code. Publication failure preserves the previous observer state and follows the tick settlement contract.
 - L3A supplies explicit finite limits for live and staged ECS roots, entity/component allocation, partition count and membership bytes, and retained observer state. Validate the initial root and reserve the worst-case concurrently retained world data before opening admission. Each barrier charges the candidate list, staged root and maps, staged receipts and defer bookkeeping against validated staging and runtime quotas while the old root and ledger remain live. Reject work before allocation if the reservation cannot cover both views. Retained state remains charged until the last holder releases it, including deadline custody. These are lane-owned settings with no implicit defaults.
 - Receipt authority comes only from that terminal ledger, never from `BatchReceipt` values passed by workers or callbacks. Identical deliveries can be replayed without duplicate settlement. Foreign or mismatched identities cannot satisfy a prerequisite. The coordinator's logical barrier guard remains active through finalization, rejects reentry and defers notifications until exit. Listener failure cannot turn a committed receipt into a retry.
+- The coordinator owns settlement after sealing. Reserve settlement bookkeeping at seal. If preparation fails or control exits before finalization, `TryAbort` consumes the set exactly once and terminally fences the world. If a job-level cancellation invalidates a live preparation while the stamp and safety authorization remain current, finalize a reserved rejection-only outcome. Preserve world data and revision, consume the selected candidates with rejection receipts and advance the epoch. Mark other staged candidates invalidated by that barrier and report the outcome to supervision. If terminal close or a failed safety check wins, apply the terminal abort. Terminal settlement rejects unpublished batches and dependents through the reserved ledger, preserves the committed root and stamp and leaves the deferred queue inaccessible to dispatch until cleanup. Borrow admission stays closed. Foreign or already settled candidates have no effect.
+- Seal the replacement root and its reachable backing data before preparation. A rejected preparation leaves staging with ECS. Successful preparation transfers ownership to the authority for finalization or abort. Published and retained roots stay immutable. Release only after authorized holders quiesce, transferring still-reachable resources to custody if needed.
+- The observer reader gets a bounded lease over the coherent previous/current pair and their stamps, independently of the ECS writer view. Before first publication return `Empty`. Reserve retention before granting a lease. A successful swap rotates the old current to previous and installs the new current atomically. A blocked swap leaves both unchanged. Drop frame references before releasing the lease. Terminal close fences new leases, and outstanding buffers stay charged through custody.
+- The trusted pipeline passes the active phase to scheduler submissions and calls `DispatchReadyAsync` with the same capability before closing the phase. Jobs visits ready candidates in stable source order and schedules only within available worker and capture reservations. It may rescan on readiness while the phase remains open. The phase handoff does not wait for all workers or extend borrow lifetime. A job that cannot dispatch during that phase remains pending for its next eligible phase unless it reaches a terminal outcome.
 
 ## Freeze checks
 

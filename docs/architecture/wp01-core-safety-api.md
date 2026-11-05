@@ -130,6 +130,7 @@ public interface IBarrierReviewControl
     BarrierReviewRequest? TryBegin(WorldCoherenceProof proof);
     DecisionApplication TryApply(SupervisorDecision decision);
     DecisionApplication CompleteWithoutDecision(BarrierReviewRequest request);
+    DecisionApplication CompleteUnverified(ulong faultGeneration);
 }
 
 public interface ISafeBarrierSupervisor
@@ -154,6 +155,11 @@ public sealed class RuntimeSafetyAuthority
     public IRuntimeStopControl StopControl => throw new NotSupportedException();
     public IFaultReporter Reporter => throw new NotSupportedException();
     public IRuntimeSafetyState State => throw new NotSupportedException();
+    public RuntimeWakeSignal UiWake => throw new NotSupportedException();
+    public RuntimeWakeSignal SimulationWake => throw new NotSupportedException();
+    public IRuntimeOwnership RuntimeOwnership => throw new NotSupportedException();
+    public ShutdownSettlement SettleStop() => throw new NotSupportedException();
+    public ShutdownSettlement SettleWorld(WorldId world) => throw new NotSupportedException();
     public bool TryAllocateWorldId(out WorldId world) => throw new NotSupportedException();
     public bool TryAbandonWorldId(WorldId world) => throw new NotSupportedException();
     public WorldSafetyPorts OpenWorld(
@@ -172,6 +178,7 @@ public sealed class WorldSafetyPorts
     public IBarrierReviewControl Coordinator => throw new NotSupportedException();
     public ISafeBarrierSupervisor Supervisor => throw new NotSupportedException();
     public WorldPublicationPorts Publication => throw new NotSupportedException();
+    public IRuntimeOwnership Ownership => throw new NotSupportedException();
 }
 ```
 
@@ -180,6 +187,8 @@ Only the composition root holds `RuntimeSafetyAuthority` and the complete port b
 `TryAllocateWorldId` takes one pending world slot from the runtime and issues a never-reused process identity. When world capacity or identity space is exhausted, it returns false and a default ID. `TryAbandonWorldId` returns the pending slot once and permanently retires the ID, including after root construction fails. It returns false for a foreign, active or previously released ID. `OpenWorld` requires a pending ID issued to the same runtime, an initial root for that ID, and available quota. It moves the pending slot to active ownership only after validation and reservation. The returned safety and publication ports share one Core-owned world state initialized from that root, including the committed stamp, job and receipt ledger, and safety generation. The world never swaps a separately owned root after a safety call. Finalization in the publication port changes the authoritative root under the safety and terminal ordering described below.
 
 `TryBegin` issues one request for the current proof and an absolute deadline. Proof issuance and review require the issuing world's current named barrier, including the exact tick, kind, epoch and revision. The Core-owned supervisor channel validates the request before calling the configured policy outside the control gate and wraps the policy result in a decision bound to that request and authority. The policy can choose an action but cannot mint an authenticated decision. `TryApply` consumes the live request once and validates authority, world, committed barrier stamp, proof generation, current pending generation, deadline and safety conditions. `CompleteWithoutDecision` settles an unanswered live request with fail-closed pause or stop. It can run without waiting for the policy. Invalid, stale or consumed artifacts never authorize publication. Checked identity exhaustion stops the affected world.
+
+If no valid proof or request can be established, `CompleteUnverified` terminally stops the current unresolved generation. A stale generation returns `Rejected`, leaves the newer generation fenced and does not settle it. A valid live request uses its own completion path. The Jobs authority's fault settlement registers mandatory evidence or latches its loss in the same control transition that settles the job, even when normal diagnostic capacity is exhausted.
 
 Required evidence ingress, recovery/stop transitions and every writer or observer publication share a linearizable control order. Mandatory record capacity and the generation change are settled together. Hot-path ingress performs bounded nonblocking work and invokes no sink. If ingress cannot retain mandatory evidence, it sets `RequiredEvidenceLost` without waiting on record storage or depending on queue delivery. Sink failures disable the sink, use the reserved emergency summary, and never re-enter the sink or reporting pipeline. A continuation can settle covered evidence and clear recovery pause only while its generation is current. Finalization still validates the expected control generation and current conditions at the commit point. No success result or opaque artifact authorizes a later swap outside that gate. A fault or terminal close that wins before publication blocks the swap. Once the swap wins, subsequent faults govern later publications.
 
@@ -232,11 +241,31 @@ public interface IRuntimeStopControl
 {
     RuntimeDeadline RequestStop(HostStopReason reason);
 }
+
+public sealed class RuntimeWakeSignal
+{
+    private RuntimeWakeSignal() { }
+    public WaitHandle Handle => throw new NotSupportedException();
+    public void Signal() => throw new NotSupportedException();
+}
+
+public interface IRuntimeWorkLease : IDisposable { }
+
+public interface IRuntimeOwnership
+{
+    IRuntimeWorkLease? TryTrack(object retainedOwner);
+}
+
+public enum ShutdownSettlement : byte { Pending = 1, Released, Custody, InvalidScope }
 ```
 
 Composition supplies every duration, count and byte ceiling. Constructors or admission reject default and invalid values before resource acquisition. Require positive values, a positive clock frequency, and a representable duration in the shared timestamp domain. Treat shape limits such as maximum text length as local validation limits. Compare them with parent caps without adding them to reservation totals. Charge aggregate counters and capacities with checked arithmetic. Require `Workers` to fit the job capacity and per-record payload capacity to fit the normal and emergency backing limits. Emergency reservation must fit its required evidence ledger plus separate first-primary, cleanup and sink summaries and the control state. Reserve the complete configured record/byte capacity before accepting producers. L5 defines the retained record layout and checks the cost of every allocated record and backing buffer, including metadata and redacted copies, against these quotas. Mandatory capacity is distinct from optional queue capacity. Sink disablement does not release records still reachable by an in-flight sink.
 
 Create one process budget at composition and reuse it across runtime restarts. Runtime reservation atomically charges the process limits. A runtime claims its reservation once and opens worlds only from its remaining credit. World reservations and runtime-local use share that credit. Charge child use against its reserved share without double-counting the process allocation. A failed capacity reservation admits no work. Outstanding operations include pending lifecycle calls, drains, reviews, joins and cancellation dispatch. Custody retains the original reservations until all users acknowledge release. Disposing an unclaimed reservation returns capacity once. After runtime adoption, only its terminal release or custody protocol can return capacity. An abandoned reservation cannot increase admission capacity.
+
+An owning module registers a retention bundle before starting or exposing work that can outlive its caller. A null `TryTrack` rejects the operation. The issued lease identifies exactly one charged registration. The owner acknowledges release by disposing that lease once it proves the producer and all users have quiesced. The bundle holds late acquisitions and affinity-bound cleanup until acknowledgment. Worker cancellation alone does not dispose the lease. Terminal settlement validates the adopted scope, returns `Pending` before the deadline while tracked work remains, returns `Released` when all work and child reservations have settled, or transfers ownership to process custody and returns `Custody` at expiry. A world stop starts that world's finite deadline; a runtime stop fences all worlds and caps their deadlines by the shared runtime deadline. Duplicate settlement cannot return credits twice. A lease acknowledged after custody returns its share once and releases the scope only after its last owner and child are clear.
+
+Core owns distinct retained wake signals for the UI pump and simulation coordinator, with a single waiting consumer each. A signal persists until consumed and may coalesce repeated notifications. The first stop signals both independently of the startup or cleanup gate. Pause, resume and supervisor recovery signal the simulation endpoint. The host rechecks the control state after waking. Handles are borrowed by their trusted waiting owners and remain open until waiters have quiesced, including in custody. Only L1 bridges its handle into the native message wait.
 
 Deadlines are Core-issued values tied to the injected clock by identity. A default deadline or a different clock is invalid. Compute the absolute timestamp using widened checked arithmetic and ceiling-round positive durations to timestamp units. Remaining time clamps to zero and floor-rounds the conversion to `TimeSpan`. Expiry compares timestamps directly. If the clock rolls back or the deadline cannot be represented, latch stop and issue an already-expired deadline. The first terminal stop latches admission and publication closed and captures the single shutdown deadline before cancellation dispatch or an affinity-bound wait. Repeated requests return that deadline and cannot weaken terminal safety state. Barrier and review deadlines are separate finite budgets and never extend an active terminal deadline. A caller cancelling its wait does not cancel shared cleanup. At expiry, transfer reachable resources and reservations to process custody and surface `IncompleteCleanupException` while release continues under the original ownership and affinity rules.
 
