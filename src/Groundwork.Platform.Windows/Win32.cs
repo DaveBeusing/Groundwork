@@ -32,6 +32,8 @@ internal static partial class Win32
     internal const uint AuxiliaryUp = 0x020c;
     internal const uint AuxiliaryDoubleClick = 0x020d;
     internal const uint HorizontalWheel = 0x020e;
+    internal const uint EnterMenuLoop = 0x0211;
+    internal const uint ExitMenuLoop = 0x0212;
     internal const uint CaptureChanged = 0x0215;
     internal const uint EnterSizeMove = 0x0231;
     internal const uint ExitSizeMove = 0x0232;

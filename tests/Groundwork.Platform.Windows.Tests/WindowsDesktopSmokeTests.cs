@@ -105,7 +105,9 @@ public sealed partial class WindowsDesktopSmokeTests
 
     [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
-    public async Task RetainedRuntimeWakeExitsNativeResizeLoop()
+    [DataRow(0xf008, 0, 2)] // SC_SIZE bottom-right / GUI_INMOVESIZE
+    [DataRow(0xf100, 32, 8)] // SC_KEYMENU with space / GUI_SYSTEMMENUMODE
+    public async Task RetainedRuntimeWakeExitsNativeModalLoop(int command, int parameter, int flag)
     {
         RequireInteractiveDesktop();
         using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(20));
@@ -118,10 +120,10 @@ public sealed partial class WindowsDesktopSmokeTests
         var thread = GetWindowThreadProcessId(window, 0);
         await Task.Run(() => Focus(window, window), token).WaitAsync(token);
 
-        Assert.IsTrue(PostMessage(window, 0x0112, 0xf008, 0)); // WM_SYSCOMMAND / SC_SIZE bottom-right
+        Assert.IsTrue(PostMessage(window, 0x0112, (nuint)command, parameter)); // WM_SYSCOMMAND
         try
         {
-            await AwaitCondition(() => InMoveSize(thread), token);
+            await AwaitCondition(() => HasGuiFlag(thread, (uint)flag), token);
             fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
             await AwaitSnapshot(fixture.Host, state => state.Phase == HostWindowPhase.Closed, token);
             await fixture.Host.StopAsync(token);
@@ -188,10 +190,10 @@ public sealed partial class WindowsDesktopSmokeTests
         }
     }
 
-    private static unsafe bool InMoveSize(uint thread)
+    private static unsafe bool HasGuiFlag(uint thread, uint flag)
     {
         var info = new GuiThreadInfo { Size = (uint)sizeof(GuiThreadInfo) };
-        return GetGUIThreadInfo(thread, &info) && (info.Flags & 2) != 0;
+        return GetGUIThreadInfo(thread, &info) && (info.Flags & flag) != 0;
     }
 
     [StructLayout(LayoutKind.Sequential)]

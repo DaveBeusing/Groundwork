@@ -13,7 +13,7 @@ public sealed partial class WindowsHostModule
     [ThreadStatic] private static WindowsHostModule? s_uiHost;
     private nint _window;
     private bool _minimized;
-    private bool _inSizeMove;
+    private int _modalDepth;
 
     private void RunUiThread(object? state)
     {
@@ -242,7 +242,7 @@ public sealed partial class WindowsHostModule
         {
             RequestStop(HostStopReason.WindowClose);
             BeginClosing(window);
-            if (_inSizeMove)
+            if (_modalDepth != 0)
             {
                 Win32.DefWindowProc(window, Win32.CancelMode, 0, 0);
             }
@@ -250,12 +250,12 @@ public sealed partial class WindowsHostModule
             return 0;
         }
 
-        // The native move/size loop dispatches messages while the outer pump is paused.
+        // Native move/size and menu loops dispatch messages while the outer pump is paused.
         switch (message)
         {
+            case Win32.EnterMenuLoop:
             case Win32.EnterSizeMove:
-                _inSizeMove = true;
-                if (Win32.SetTimer(window, ModalStopTimer, ModalStopPollMilliseconds, 0) == 0)
+                if (_modalDepth++ == 0 && Win32.SetTimer(window, ModalStopTimer, ModalStopPollMilliseconds, 0) == 0)
                 {
                     var error = Win32.Error(nameof(Win32.SetTimer));
                     Win32.DefWindowProc(window, Win32.CancelMode, 0, 0);
@@ -263,12 +263,16 @@ public sealed partial class WindowsHostModule
                 }
 
                 return 0;
+            case Win32.ExitMenuLoop:
             case Win32.ExitSizeMove:
-                _inSizeMove = false;
-                Win32.KillTimer(window, ModalStopTimer);
+                if (_modalDepth > 0 && --_modalDepth == 0)
+                {
+                    Win32.KillTimer(window, ModalStopTimer);
+                }
+
                 return 0;
             case Win32.Timer when wParam == ModalStopTimer:
-                if (_inSizeMove && ObserveStop())
+                if (_modalDepth != 0 && ObserveStop())
                 {
                     Win32.DefWindowProc(window, Win32.CancelMode, 0, 0);
                 }

@@ -251,20 +251,26 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
         }
         catch (TimeoutException)
         {
-            if (_finished.Task.IsCompleted)
+            IncompleteCleanupException incomplete;
+            lock (_faults)
             {
-                return;
+                if (_finished.Task.IsCompleted)
+                {
+                    return;
+                }
+
+                if (_teardownTimeout is not null)
+                {
+                    throw _teardownTimeout;
+                }
+
+                // The owner remains registered until the UI thread actually tears down.
+                incomplete = new IncompleteCleanupException(FaultSubsystem.Platform);
+                _teardownTimeout = incomplete;
+                AddFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
             }
 
-            // The owner remains registered until the UI thread actually tears down.
-            var incomplete = new IncompleteCleanupException(FaultSubsystem.Platform);
-            var recorded = Interlocked.CompareExchange(ref _teardownTimeout, incomplete, null);
-            if (recorded is not null)
-            {
-                throw recorded;
-            }
-
-            RecordFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
+            ReportFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
             throw incomplete;
         }
     }
@@ -348,6 +354,11 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
             AddFailure(error, classification, origin);
         }
 
+        ReportFailure(error, classification, origin);
+    }
+
+    private void ReportFailure(Exception error, FaultClass classification, FaultOrigin origin)
+    {
         var context = Volatile.Read(ref _context);
         if (context is null)
         {
