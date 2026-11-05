@@ -123,8 +123,8 @@ jobs:
           set -euo pipefail
           cd "$RUNNER_TEMP/verified"
           cat > archive-notes.md <<'NOTES'
-          This is a replacement archive intended to be immutable of the **same pinned development package** required
-          for WYU reproducibility. It is not a functional engine release, not a
+          This is a new archive intended to be immutable. It preserves the
+          **same pinned development package bytes** required for WYU reproducibility. It is not a functional engine release, not a
           public stable API, and not a code-signing or provenance attestation.
 
           Groundwork package version: 0.1.0-dev.41920122570.1
