@@ -129,7 +129,7 @@ internal sealed class WorldControl
     {
         lock (Gate)
         {
-            var result = _runtime.Clock.Start(_runtime.BorrowedDrainDuration);
+            var result = _runtime.Clock.StartFromTrustedSample(_runtime.BorrowedDrainDuration);
             if (result.ForcedExpired)
             {
                 StopWorld();
@@ -146,11 +146,7 @@ internal sealed class WorldControl
             return;
         }
 
-        var clock = _runtime.Clock;
-        var now = ReferenceEquals(clock.Provider, TimeProvider.System)
-            ? TimeProvider.System.GetTimestamp()
-            : clock.LastTimestamp;
-        var deadline = clock.At(now, _runtime.ShutdownDuration, clock.IsValid);
+        var deadline = _runtime.Clock.StartFromTrustedSample(_runtime.ShutdownDuration);
         StopForRuntime(deadline);
     }
 

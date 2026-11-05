@@ -28,25 +28,25 @@ internal sealed partial class WorldPublicationAuthority
             if (_drain is null)
             {
                 // Validate the caller's clock before changing phase state.
-                _ = deadline.GetRemaining(_clock);
+                _ = deadline.GetRemainingForSettlement(_clock);
                 _drain = new BorrowDrain(request, deadline);
             }
 
             drain = _drain;
             if (_borrowed == 0)
                 drain.Completion.TrySetResult(BorrowDrainStatus.Drained);
-            else if (drain.Deadline.IsExpired(_clock))
+            else if (drain.Deadline.IsExpiredForSettlement())
                 TimeOutBorrowDrain(drain);
         }
 
         while (!drain.Completion.Task.IsCompleted)
         {
-            // Timers can round the interval. The absolute clock decides whether the drain expired.
-            var remaining = drain.Deadline.GetRemaining(_clock);
+            // The watchdog bounds the wait even if the injected clock cannot be sampled.
+            var remaining = drain.Deadline.GetRemainingForSettlement(_clock);
             var wait = TimeSpan.FromMilliseconds(Math.Clamp(remaining.TotalMilliseconds, 1, TimeSpan.FromDays(1).TotalMilliseconds));
             try
             {
-                return await drain.Completion.Task.WaitAsync(wait, _clock).ConfigureAwait(false);
+                return await drain.Completion.Task.WaitAsync(wait).ConfigureAwait(false);
             }
             catch (TimeoutException)
             {
@@ -54,7 +54,7 @@ internal sealed partial class WorldPublicationAuthority
                 {
                     if (_control.IsTerminal)
                         drain.Completion.TrySetResult(BorrowDrainStatus.Stopped);
-                    else if (drain.Deadline.IsExpired(_clock))
+                    else if (drain.Deadline.IsExpiredForSettlement())
                         TimeOutBorrowDrain(drain);
                 }
             }
@@ -71,7 +71,7 @@ internal sealed partial class WorldPublicationAuthority
 
         if (_control.IsTerminal)
             drain.Completion.TrySetResult(BorrowDrainStatus.Stopped);
-        else if (drain.Deadline.IsExpired(_clock))
+        else if (drain.Deadline.IsExpiredForSettlement())
             TimeOutBorrowDrain(drain);
         else
             drain.Completion.TrySetResult(BorrowDrainStatus.Drained);
