@@ -8,9 +8,12 @@ namespace Groundwork.Platform.Windows;
 public sealed partial class WindowsHostModule
 {
     private const int MessageBatchLimit = 64;
+    private const nuint ModalStopTimer = 1;
+    private const uint ModalStopPollMilliseconds = 25;
     [ThreadStatic] private static WindowsHostModule? s_uiHost;
     private nint _window;
     private bool _minimized;
+    private bool _inSizeMove;
 
     private void RunUiThread(object? state)
     {
@@ -239,7 +242,38 @@ public sealed partial class WindowsHostModule
         {
             RequestStop(HostStopReason.WindowClose);
             BeginClosing(window);
+            if (_inSizeMove)
+            {
+                Win32.DefWindowProc(window, Win32.CancelMode, 0, 0);
+            }
+
             return 0;
+        }
+
+        // The native move/size loop dispatches messages while the outer pump is paused.
+        switch (message)
+        {
+            case Win32.EnterSizeMove:
+                _inSizeMove = true;
+                if (Win32.SetTimer(window, ModalStopTimer, ModalStopPollMilliseconds, 0) == 0)
+                {
+                    var error = Win32.Error(nameof(Win32.SetTimer));
+                    Win32.DefWindowProc(window, Win32.CancelMode, 0, 0);
+                    throw error;
+                }
+
+                return 0;
+            case Win32.ExitSizeMove:
+                _inSizeMove = false;
+                Win32.KillTimer(window, ModalStopTimer);
+                return 0;
+            case Win32.Timer when wParam == ModalStopTimer:
+                if (_inSizeMove && ObserveStop())
+                {
+                    Win32.DefWindowProc(window, Win32.CancelMode, 0, 0);
+                }
+
+                return 0;
         }
 
         if (StopRequested)
@@ -273,7 +307,7 @@ public sealed partial class WindowsHostModule
                     WindowsInputTranslation.HighSigned(wParam), SampleTimestamp());
                 break;
             case Win32.CaptureChanged:
-                Input.ClearPointerButtons(SampleTimestamp());
+                Input.ClearPointerButtons(Volatile.Read(ref _lastClockTimestamp));
                 break;
             default:
                 if (HandleMouseButton(window, message, wParam) &&
@@ -330,22 +364,14 @@ public sealed partial class WindowsHostModule
             return;
         }
 
-        Publish(HostWindowPhase.Closing, current.ClientWidth, current.ClientHeight, false);
         ClearFocus(window);
+        Publish(HostWindowPhase.Closing, current.ClientWidth, current.ClientHeight, false);
     }
 
     private void ClearFocus(nint window)
     {
-        var timestamp = Volatile.Read(ref _lastClockTimestamp);
-        try
-        {
-            timestamp = SampleTimestamp();
-        }
-        finally
-        {
-            Input.ClearFocus(timestamp);
-            ReleaseCaptureIfOwned(window);
-        }
+        Input.ClearFocus(Volatile.Read(ref _lastClockTimestamp));
+        ReleaseCaptureIfOwned(window);
     }
 
     private static void ReleaseCaptureIfOwned(nint window)

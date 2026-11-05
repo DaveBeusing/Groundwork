@@ -24,6 +24,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
     private WindowState _windowState = new(new(HostWindowPhase.Starting, 0, 0, false, 0));
     private Stage _stage;
     private int _stopRequested;
+    private IncompleteCleanupException? _teardownTimeout;
     private long _stopWallTimestamp = long.MaxValue;
     private long _clockFrequency;
     private long _lastClockTimestamp;
@@ -248,7 +249,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
                 }
             }
         }
-        catch (Exception error) when (error is TimeoutException or OperationCanceledException)
+        catch (TimeoutException)
         {
             if (_finished.Task.IsCompleted)
             {
@@ -257,6 +258,12 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
 
             // The owner remains registered until the UI thread actually tears down.
             var incomplete = new IncompleteCleanupException(FaultSubsystem.Platform);
+            var recorded = Interlocked.CompareExchange(ref _teardownTimeout, incomplete, null);
+            if (recorded is not null)
+            {
+                throw recorded;
+            }
+
             RecordFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
             throw incomplete;
         }

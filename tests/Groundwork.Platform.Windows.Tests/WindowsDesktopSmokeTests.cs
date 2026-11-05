@@ -18,7 +18,8 @@ public sealed partial class WindowsDesktopSmokeTests
         var token = watchdog.Token;
         using var process = Process.GetCurrentProcess();
         var handleBaseline = process.HandleCount;
-        await using var fixture = new HostFixture();
+        var clock = new UiClock();
+        await using var fixture = new HostFixture(clock: clock);
         await fixture.InitializeAsync(token);
         await fixture.Host.StartAsync(token);
 
@@ -40,8 +41,16 @@ public sealed partial class WindowsDesktopSmokeTests
         Assert.IsTrue(PostMessage(window, Win32.KeyDown, 0x41, 0x001e0001));
         await AwaitCondition(() => fixture.Host.Capture().HeldControls.Contains(InputControl.A), token);
 
-        await Task.Run(() => Focus(window, 0), token).WaitAsync(token);
-        await AwaitSnapshot(fixture.Host, state => !state.Focused, token);
+        clock.AllowUiSamples = false;
+        try
+        {
+            await Task.Run(() => Focus(window, 0), token).WaitAsync(token);
+            await AwaitSnapshot(fixture.Host, state => !state.Focused, token);
+        }
+        finally
+        {
+            clock.AllowUiSamples = true;
+        }
         var cleared = fixture.Host.Capture();
         Assert.IsTrue(cleared.HeldControls.IsEmpty);
         Assert.IsNull(cleared.PointerPosition);
@@ -56,6 +65,7 @@ public sealed partial class WindowsDesktopSmokeTests
         Assert.IsTrue(ShowWindowAsync(window, 9)); // SW_RESTORE
         await AwaitSnapshot(fixture.Host, state => state.Phase == HostWindowPhase.Open, token);
 
+        clock.AllowUiSamples = false;
         Assert.IsTrue(PostMessage(window, Win32.Close, 0, 0));
         await AwaitCondition(() => fixture.Runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop), token);
         await fixture.Host.StopAsync(token);
@@ -91,6 +101,115 @@ public sealed partial class WindowsDesktopSmokeTests
         Assert.IsFalse(IsWindow(window));
         Assert.IsNull(fixture.Host.Failure);
         Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    public async Task RetainedRuntimeWakeExitsNativeResizeLoop()
+    {
+        RequireInteractiveDesktop();
+        using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var token = watchdog.Token;
+        await using var fixture = new HostFixture();
+        await fixture.InitializeAsync(token);
+        await fixture.Host.StartAsync(token);
+        var window = FindWindow(null, fixture.Options.Title);
+        Assert.AreNotEqual(nint.Zero, window);
+        var thread = GetWindowThreadProcessId(window, 0);
+        await Task.Run(() => Focus(window, window), token).WaitAsync(token);
+
+        Assert.IsTrue(PostMessage(window, 0x0112, 0xf008, 0)); // WM_SYSCOMMAND / SC_SIZE bottom-right
+        try
+        {
+            await AwaitCondition(() => InMoveSize(thread), token);
+            fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            await AwaitSnapshot(fixture.Host, state => state.Phase == HostWindowPhase.Closed, token);
+            await fixture.Host.StopAsync(token);
+            Assert.IsFalse(IsWindow(window));
+            Assert.IsNull(fixture.Host.Failure);
+            Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
+        }
+        finally
+        {
+            PostMessage(window, Win32.CancelMode, 0, 0);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    public async Task CancelledStopWaitLeavesOwnerFreeToFinish()
+    {
+        RequireInteractiveDesktop();
+        using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(20));
+        var token = watchdog.Token;
+        using var ownership = new PausedRelease();
+        await using var fixture = new HostFixture(ownership: ownership);
+        ownership.Inner = fixture.Runtime.RuntimeOwnership;
+        await fixture.InitializeAsync(token);
+        await fixture.Host.StartAsync(token);
+
+        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        try
+        {
+            await ownership.Releasing.Task.WaitAsync(token);
+            await Assert.ThrowsAsync<OperationCanceledException>(
+                () => fixture.Host.StopAsync(new CancellationToken(true)).AsTask());
+        }
+        finally
+        {
+            ownership.Resume.Set();
+        }
+
+        await fixture.Host.StopAsync(token);
+        Assert.IsNull(fixture.Host.Failure);
+        Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
+    }
+
+    private sealed class PausedRelease : IRuntimeOwnership, IDisposable
+    {
+        internal IRuntimeOwnership Inner { get; set; } = null!;
+        internal TaskCompletionSource Releasing { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        internal ManualResetEventSlim Resume { get; } = new();
+
+        public IRuntimeWorkLease? TryTrack(object retainedOwner) => Inner.TryTrack(retainedOwner) is { } lease
+            ? new Lease(this, lease)
+            : null;
+
+        public void Dispose() => Resume.Dispose();
+
+        private sealed class Lease(PausedRelease owner, IRuntimeWorkLease inner) : IRuntimeWorkLease
+        {
+            public void Dispose()
+            {
+                owner.Releasing.TrySetResult();
+                owner.Resume.Wait(TimeSpan.FromSeconds(5));
+                inner.Dispose();
+            }
+        }
+    }
+
+    private static unsafe bool InMoveSize(uint thread)
+    {
+        var info = new GuiThreadInfo { Size = (uint)sizeof(GuiThreadInfo) };
+        return GetGUIThreadInfo(thread, &info) && (info.Flags & 2) != 0;
+    }
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct GuiThreadInfo
+    {
+        internal uint Size;
+        internal uint Flags;
+        internal nint Active, Focus, Capture, MenuOwner, MoveSize, Caret;
+        internal Win32.Rectangle CaretRect;
+    }
+
+    private sealed class UiClock : TimeProvider
+    {
+        internal volatile bool AllowUiSamples = true;
+
+        public override long GetTimestamp() => AllowUiSamples || Thread.CurrentThread.Name != "Groundwork Win32 host"
+            ? TimeProvider.System.GetTimestamp()
+            : throw new InvalidOperationException("The UI clock is unavailable during the lifecycle transition.");
     }
 
     private static void RequireInteractiveDesktop()
@@ -213,6 +332,10 @@ public sealed partial class WindowsDesktopSmokeTests
 
     [LibraryImport("user32.dll")]
     private static partial uint GetWindowThreadProcessId(nint window, nint processId);
+
+    [LibraryImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static unsafe partial bool GetGUIThreadInfo(uint thread, GuiThreadInfo* info);
 
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]

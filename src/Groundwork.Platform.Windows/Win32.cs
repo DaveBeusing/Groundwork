@@ -6,6 +6,7 @@ namespace Groundwork.Platform.Windows;
 internal static partial class Win32
 {
     internal const uint Close = 0x0010;
+    internal const uint CancelMode = 0x001f;
     internal const uint Quit = 0x0012;
     internal const uint Size = 0x0005;
     internal const uint FocusGained = 0x0007;
@@ -15,6 +16,7 @@ internal static partial class Win32
     internal const uint KeyUp = 0x0101;
     internal const uint SystemKeyDown = 0x0104;
     internal const uint SystemKeyUp = 0x0105;
+    internal const uint Timer = 0x0113;
     internal const uint MouseMove = 0x0200;
     internal const uint LeftDown = 0x0201;
     internal const uint LeftUp = 0x0202;
@@ -31,6 +33,8 @@ internal static partial class Win32
     internal const uint AuxiliaryDoubleClick = 0x020d;
     internal const uint HorizontalWheel = 0x020e;
     internal const uint CaptureChanged = 0x0215;
+    internal const uint EnterSizeMove = 0x0231;
+    internal const uint ExitSizeMove = 0x0232;
     internal const nuint SizeMinimized = 1;
 
     internal const uint WindowStyle = 0x00cf0000; // WS_OVERLAPPEDWINDOW
@@ -118,6 +122,13 @@ internal static partial class Win32
     [LibraryImport("user32.dll", SetLastError = true)]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static partial bool ReleaseCapture();
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    internal static partial nuint SetTimer(nint window, nuint id, uint milliseconds, nint callback);
+
+    [LibraryImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static partial bool KillTimer(nint window, nuint id);
 
     [LibraryImport("user32.dll", EntryPoint = "DefWindowProcW")]
     internal static partial nint DefWindowProc(nint window, uint message, nuint wParam, nint lParam);
