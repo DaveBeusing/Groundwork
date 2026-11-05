@@ -157,6 +157,7 @@ public sealed class FixedStepSimulation : ISimulationDriver
                 if (!_stopped && !_paused && (conditions & SafetyCondition.RecoveryPaused) != 0)
                     EnterRecoveryPause(ref elapsed, ref dropped);
             }
+            UpdateOverload(dropped);
             return Result(debtBefore, elapsed, dropped, steps);
         }
         catch (OperationCanceledException cancellation) when (cancellationToken.IsCancellationRequested)
@@ -196,9 +197,7 @@ public sealed class FixedStepSimulation : ISimulationDriver
     {
         var available = _debt + elapsed;
         _debt = Int128.Min(available, _maxDebt);
-        var dropped = available - _debt;
-        UpdateOverload(dropped);
-        return dropped;
+        return available - _debt;
     }
 
     private void EnterRecoveryPause(ref Int128 elapsed, ref Int128 dropped)

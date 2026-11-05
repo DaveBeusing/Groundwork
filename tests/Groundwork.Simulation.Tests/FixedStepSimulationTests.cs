@@ -105,6 +105,43 @@ public sealed class FixedStepSimulationTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RecoveryPauseCountsOneOverloadEpisodeAcrossBothSamples(bool dropAtPauseBoundary)
+    {
+        using var run = new SimulationFixture(60000);
+        await run.AdvanceAsync();
+        if (dropAtPauseBoundary)
+        {
+            run.Clock.Timestamp = 16000;
+            var overloaded = await run.AdvanceAsync();
+            Assert.AreEqual(1UL, overloaded.OverloadEpisodeCount);
+            Assert.IsTrue(overloaded.OverloadActive);
+        }
+        else
+        {
+            run.Clock.Timestamp = 16000;
+        }
+
+        run.Pipeline.OnPhase = phase =>
+        {
+            if (phase == TickPhase.PublishState)
+            {
+                if (dropAtPauseBoundary)
+                    run.Clock.Timestamp += 7000;
+                run.Safety.Conditions = SafetyCondition.RecoveryPaused;
+            }
+        };
+
+        var paused = await run.AdvanceAsync();
+        Assert.AreEqual(SimulationState.Paused, paused.State);
+        Assert.IsTrue(paused.DroppedScaledTime > 0);
+        Assert.AreEqual(1UL, paused.OverloadEpisodeCount);
+        Assert.IsTrue(paused.OverloadActive);
+        AssertConserved(paused, run.Clock.TimestampFrequency);
+    }
+
+    [TestMethod]
     public async Task RecoveryPauseObservedAfterPublicationAccountsForTheFinalRunningInterval()
     {
         using var run = new SimulationFixture(60000);
