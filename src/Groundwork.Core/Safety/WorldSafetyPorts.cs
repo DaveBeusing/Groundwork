@@ -89,6 +89,7 @@ internal sealed class WorldControl
     }
 
     internal object Gate => _runtime.Gate;
+    internal Task RuntimeStopRequested => _runtime.StopRequested;
     internal WorldId World { get; }
     internal ResourceQuota Quota { get; }
     internal FaultLedger Ledger { get; }

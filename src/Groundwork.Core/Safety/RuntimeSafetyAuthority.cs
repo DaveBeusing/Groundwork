@@ -64,10 +64,11 @@ public sealed class RuntimeSafetyAuthority
     private readonly OwnershipScope _ownership;
     private readonly HashSet<WorldId> _pendingWorlds = [];
     private readonly Dictionary<WorldId, WorldControl> _worlds = [];
+    private readonly TaskCompletionSource _stopRequested = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private StopRequest? _stopRequest;
     private RuntimeDeadline? _deadline;
     private long _fallbackTimestamp = long.MaxValue;
     private int _contendedEvidenceLoss;
-    private int _terminal;
     private int _outstandingOperations;
     private bool _settling;
     private bool _inCustody;
@@ -146,17 +147,18 @@ public sealed class RuntimeSafetyAuthority
     internal long ShutdownDuration { get; }
     internal long BorrowedDrainDuration { get; }
     internal long SupervisorDuration { get; }
+    internal Task StopRequested => _stopRequested.Task;
     internal bool HasContendedEvidenceLoss => Volatile.Read(ref _contendedEvidenceLoss) != 0;
-    internal bool IsPublicationFenced => Volatile.Read(ref _terminal) != 0 || HasContendedEvidenceLoss || !Clock.IsValid;
+    internal bool IsPublicationFenced => Volatile.Read(ref _stopRequest) is not null || HasContendedEvidenceLoss || !Clock.IsValid;
 
     internal SafetyCondition InheritedConditions => HasContendedEvidenceLoss
         ? SafetyCondition.TerminalStop | SafetyCondition.RequiredEvidenceLost
         : IsPublicationFenced ? SafetyCondition.TerminalStop : SafetyCondition.None;
 
-    // The interlocked read is the publication linearization point with respect
-    // to a contended required fault. Root/ledger updates stay under Gate.
+    // The fences are monotonic. If all checks pass, the first interlocked
+    // read is the publication linearization point. Ledger changes stay under Gate.
     internal bool TryAuthorizePublication()
-        => Volatile.Read(ref _terminal) == 0 && Clock.IsValid &&
+        => Interlocked.CompareExchange(ref _stopRequest, null, null) is null && Clock.IsValid &&
            Interlocked.CompareExchange(ref _contendedEvidenceLoss, 0, 0) == 0;
 
     internal void FenceOnContendedEvidenceLoss()
@@ -165,8 +167,14 @@ public sealed class RuntimeSafetyAuthority
         // shorten draining, but never allows a contended fault to extend cleanup.
         Interlocked.CompareExchange(ref _fallbackTimestamp, Clock.LastTimestamp, long.MaxValue);
         Interlocked.Exchange(ref _contendedEvidenceLoss, 1);
+        SignalStop();
+    }
+
+    private void SignalStop()
+    {
         UiWake.Signal();
         SimulationWake.Signal();
+        _stopRequested.TrySetResult();
     }
 
     public bool TryAllocateWorldId(out WorldId world)
@@ -394,6 +402,29 @@ public sealed class RuntimeSafetyAuthority
 
     private void StopFromFault() => StopCore();
 
+    private RuntimeDeadline BeginStop()
+    {
+        if (Volatile.Read(ref _stopRequest) is { } existing)
+        {
+            return existing.Deadline;
+        }
+
+        // The system clock is trusted. A supplied clock can run user code or
+        // already be blocked, so its last trusted sample bounds shutdown.
+        var now = ReferenceEquals(Clock.Provider, TimeProvider.System)
+            ? TimeProvider.System.GetTimestamp()
+            : Clock.LastTimestamp;
+        var origin = Math.Min(now, Volatile.Read(ref _fallbackTimestamp));
+        var request = new StopRequest(Clock.At(origin, ShutdownDuration, Clock.IsValid));
+        if (Interlocked.CompareExchange(ref _stopRequest, request, null) is { } previous)
+        {
+            return previous.Deadline;
+        }
+
+        SignalStop();
+        return request.Deadline;
+    }
+
     private RuntimeDeadline StopCore()
     {
         if (_deadline is { } existing)
@@ -401,15 +432,10 @@ public sealed class RuntimeSafetyAuthority
             return existing;
         }
 
-        Volatile.Write(ref _terminal, 1);
-        var validClock = Clock.TryRead(out var now);
-        var origin = Math.Min(now, Volatile.Read(ref _fallbackTimestamp));
-        var deadline = Clock.At(origin, ShutdownDuration, validClock);
+        var deadline = BeginStop();
         _deadline = deadline;
         _ledger.MarkStopped();
         _pendingWorlds.Clear();
-        UiWake.Signal();
-        SimulationWake.Signal();
         foreach (var world in _worlds.Values)
         {
             world.StopForRuntime(deadline);
@@ -427,12 +453,11 @@ public sealed class RuntimeSafetyAuthority
                 throw new ArgumentOutOfRangeException(nameof(reason));
             }
 
-            lock (authority.Gate)
-            {
-                return authority.StopCore();
-            }
+            return authority.BeginStop();
         }
     }
+
+    private sealed record StopRequest(RuntimeDeadline Deadline);
 }
 
 internal sealed class OwnershipScope(RuntimeSafetyAuthority runtime, WorldControl? world, int limit) : IRuntimeOwnership

@@ -274,6 +274,8 @@ The coordinator requests a Core-issued borrowed drain deadline through `CreateBo
 
 Core orders world and runtime publication through one runtime gate. When a producer cannot acquire the gate for required fault evidence, it sets a monotonic evidence-loss fence without waiting. A world reporter fences its own world and wakes Simulation. A runtime reporter fences all its worlds and wakes the UI and Simulation. Optional telemetry contention uses delivery loss and leaves the publication fences unchanged.
 
+The first runtime stop publishes its fence and deadline together without entering the authority gate. It signals both retained wakes and the worker cancellation notification. For an injected clock, the stop path uses the last trusted sample and avoids invoking caller code. This can shorten cleanup when the clock has been idle or is blocked. The coordinator materializes ledger settlement and custody after the fence.
+
 ## Acceptance traces
 
 - Register a same-revision required fault before and after prepared writer and observer swaps. Verify the winning operation and ensure a stale decision cannot authorize the later swap.

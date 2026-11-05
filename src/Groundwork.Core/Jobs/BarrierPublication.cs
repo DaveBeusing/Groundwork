@@ -5,56 +5,82 @@ namespace Groundwork.Core;
 internal sealed partial class WorldPublicationAuthority
 {
     private List<BatchRecord>? _selected;
-    private RuntimeDeadline _drainDeadline;
+
+    private sealed class BorrowDrain(BarrierRequest request, RuntimeDeadline deadline)
+    {
+        internal BarrierRequest Request { get; } = request;
+        internal RuntimeDeadline Deadline { get; } = deadline;
+        internal TaskCompletionSource<BorrowDrainStatus> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+    }
 
     internal async ValueTask<BorrowDrainStatus> CloseAndDrainAsync(BarrierRequest request, RuntimeDeadline deadline)
     {
-        Task? wait;
-        TimeSpan remaining;
+        BorrowDrain drain;
         lock (_control.Gate)
         {
             if (_control.IsTerminal)
                 return BorrowDrainStatus.Stopped;
             if (_phase is not null || !IsNextBarrier(request) ||
-                _drain is { } current && current != request)
+                _drain is { } current && current.Request != request)
                 return BorrowDrainStatus.InvalidBarrier;
 
             if (_drain is null)
             {
                 // Validate the caller's clock before changing phase state.
                 _ = deadline.GetRemaining(_clock);
-                _drain = request;
-                _drainDeadline = deadline;
+                _drain = new BorrowDrain(request, deadline);
             }
 
+            drain = _drain;
             if (_borrowed == 0)
-                return BorrowDrainStatus.Drained;
-
-            remaining = _drainDeadline.GetRemaining(_clock);
-            _borrowReleased ??= new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            wait = _borrowReleased.Task;
+                drain.Completion.TrySetResult(BorrowDrainStatus.Drained);
+            else if (drain.Deadline.IsExpired(_clock))
+                TimeOutBorrowDrain(drain);
         }
 
-        try
+        while (!drain.Completion.Task.IsCompleted)
         {
-            await wait.WaitAsync(remaining, _clock).ConfigureAwait(false);
-        }
-        catch (TimeoutException)
-        {
-            lock (_control.Gate)
+            // Timers can round the interval. The absolute clock decides whether the drain expired.
+            var remaining = drain.Deadline.GetRemaining(_clock);
+            var wait = TimeSpan.FromMilliseconds(Math.Clamp(remaining.TotalMilliseconds, 1, TimeSpan.FromDays(1).TotalMilliseconds));
+            try
             {
-                if (_control.IsTerminal)
-                    return BorrowDrainStatus.Stopped;
-                if (_borrowed != 0)
+                return await drain.Completion.Task.WaitAsync(wait, _clock).ConfigureAwait(false);
+            }
+            catch (TimeoutException)
+            {
+                lock (_control.Gate)
                 {
-                    _control.StopWorld();
-                    return BorrowDrainStatus.TimedOut;
+                    if (_control.IsTerminal)
+                        drain.Completion.TrySetResult(BorrowDrainStatus.Stopped);
+                    else if (drain.Deadline.IsExpired(_clock))
+                        TimeOutBorrowDrain(drain);
                 }
             }
         }
 
-        lock (_control.Gate)
-            return _control.IsTerminal ? BorrowDrainStatus.Stopped : BorrowDrainStatus.Drained;
+        return await drain.Completion.Task.ConfigureAwait(false);
+    }
+
+    private void ReleaseBorrowPin()
+    {
+        _borrowed--;
+        if (_borrowed != 0 || _drain is not { } drain || drain.Completion.Task.IsCompleted)
+            return;
+
+        if (_control.IsTerminal)
+            drain.Completion.TrySetResult(BorrowDrainStatus.Stopped);
+        else if (drain.Deadline.IsExpired(_clock))
+            TimeOutBorrowDrain(drain);
+        else
+            drain.Completion.TrySetResult(BorrowDrainStatus.Drained);
+    }
+
+    private void TimeOutBorrowDrain(BorrowDrain drain)
+    {
+        if (drain.Completion.TrySetResult(BorrowDrainStatus.TimedOut))
+            _control.StopWorld();
     }
 
     private bool IsNextBarrier(BarrierRequest request)
@@ -79,7 +105,8 @@ internal sealed partial class WorldPublicationAuthority
                 return new(CandidateSealStatus.Stopped, null);
             if (_candidates is not null || _borrowed != 0 || _phase is not null)
                 return new(CandidateSealStatus.BusyBarrier, null);
-            if (_drain != request || !IsNextBarrier(request))
+            if (_drain is not { } drain || drain.Request != request || !IsNextBarrier(request) ||
+                !drain.Completion.Task.IsCompletedSuccessfully || drain.Completion.Task.Result != BorrowDrainStatus.Drained)
                 return new(CandidateSealStatus.InvalidBarrier, null);
             if (_stamp.Epoch == ulong.MaxValue)
             {
@@ -180,8 +207,13 @@ internal sealed partial class WorldPublicationAuthority
         ArgumentNullException.ThrowIfNull(publication);
         lock (_control.Gate)
         {
-            if (_control.IsTerminal || !ReferenceEquals(_prepared, publication) || _selected is null)
+            if (!ReferenceEquals(_prepared, publication) || _selected is null)
                 return new(BarrierStatus.Stopped, null);
+            if (_control.IsTerminal)
+            {
+                _control.StopWorld();
+                return new(BarrierStatus.Stopped, null);
+            }
 
             bool rejectOnly = false;
             for (int index = 0; index < _selected.Count; index++)
@@ -285,7 +317,7 @@ internal sealed partial class WorldPublicationAuthority
         lock (_control.Gate)
         {
             _phase = null;
-            _borrowReleased?.TrySetResult();
+            _drain?.Completion.TrySetResult(BorrowDrainStatus.Stopped);
             foreach (var job in _jobs.Values)
             {
                 if (job.Execution is JobExecutionStatus.Waiting or JobExecutionStatus.Ready)
@@ -327,7 +359,6 @@ internal sealed partial class WorldPublicationAuthority
     private void ClearBarrier()
     {
         _drain = null;
-        _borrowReleased = null;
         _selected = null;
         _candidates = null;
         _prepared = null;

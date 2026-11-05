@@ -31,10 +31,11 @@ internal sealed class CoreRuntimeFixture : IDisposable
     public ProcessResourceBudget Budget { get; }
     public RuntimeSafetyAuthority Runtime { get; }
 
-    public WorldSafetyPorts OpenWorld(IBarrierSupervisorPolicy? policy = null)
+    public WorldSafetyPorts OpenWorld(IBarrierSupervisorPolicy? policy = null, JobQuota? jobs = null)
     {
         Assert.IsTrue(Runtime.TryAllocateWorldId(out var world));
-        return Runtime.OpenWorld(world, WorldQuota, policy ?? new ContinuePolicy(), new Root(world), new ScopePolicy());
+        var quota = jobs is { } configuredJobs ? WorldQuota with { Jobs = configuredJobs } : WorldQuota;
+        return Runtime.OpenWorld(world, quota, policy ?? new ContinuePolicy(), new Root(world), new ScopePolicy());
     }
 
     public static async Task<CandidateSet> SealAsync(WorldSafetyPorts world, ulong tick, BarrierKind kind)

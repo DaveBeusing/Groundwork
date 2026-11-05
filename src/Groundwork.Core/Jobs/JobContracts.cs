@@ -146,9 +146,12 @@ public delegate ValueTask JobHandler(JobExecutionContext context, CancellationTo
 public sealed class JobDispatchPermit
 {
     private readonly TaskCompletionSource _cancellation = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // This private task only detaches the internal runtime-stop observer. External
+    // continuations can attach to the asynchronous cancellation signal above.
+    private readonly TaskCompletionSource _settlement = new();
 
     internal JobDispatchPermit(JobId job, JobSubmission submission, JobDispatchPhase phase,
-        IAdmittedJobScope scope, IJobArguments arguments, IJobDependencyOutputs dependencyOutputs)
+        IAdmittedJobScope scope, IJobArguments arguments, IJobDependencyOutputs dependencyOutputs, Task runtimeStop)
     {
         Job = job;
         Source = submission.Source;
@@ -160,6 +163,7 @@ public sealed class JobDispatchPermit
         InputKind = submission.InputKind;
         SnapshotTargets = submission.SnapshotTargets;
         Budget = submission.Budget;
+        _ = ObserveRuntimeStopAsync(runtimeStop);
     }
 
     public JobId Job { get; }
@@ -175,6 +179,15 @@ public sealed class JobDispatchPermit
     public JobResultBudget Budget { get; }
 
     internal void SignalCancellation() => _cancellation.TrySetResult();
+
+    internal void SignalSettlement() => _settlement.TrySetResult();
+
+    private async Task ObserveRuntimeStopAsync(Task runtimeStop)
+    {
+        // Settlement unregisters the invocation's wait even if the runtime remains alive.
+        if (ReferenceEquals(await Task.WhenAny(runtimeStop, _settlement.Task).ConfigureAwait(false), runtimeStop))
+            SignalCancellation();
+    }
 }
 
 public enum JobDispatchStatus : byte { Authorized = 1, NotReady, InvalidJob, InvalidBarrier, InvalidAccess, Closed }

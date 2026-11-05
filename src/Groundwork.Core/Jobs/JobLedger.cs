@@ -64,6 +64,7 @@ internal sealed partial class WorldPublicationAuthority
                 _snapshotBytes += owned.Budget.MaxSnapshotBytes;
                 _dependencyEdges += owned.Dependencies.Length;
                 _receiptRecords += owned.Budget.MaxBatches;
+                _reservedDeferredBatches += DeferredReservation(owned);
                 _retentionHandles++;
                 foreach (var prerequisite in owned.Dependencies)
                     _jobs[prerequisite.Prerequisite].Consumers++;
@@ -79,7 +80,7 @@ internal sealed partial class WorldPublicationAuthority
             {
                 _admitting = false;
                 owner.Root = null;
-                ReleasePolicyPin();
+                ReleaseBorrowPin();
                 if (!accepted)
                     retention.Dispose();
             }
@@ -99,6 +100,7 @@ internal sealed partial class WorldPublicationAuthority
         if (_jobs.Count >= _quota.Jobs || _retentionHandles >= _quota.RetentionHandles ||
             submission.Dependencies.Length > _quota.DependencyEdges - _dependencyEdges ||
             submission.Budget.MaxBatches > _quota.ReceiptRecords - _receiptRecords ||
+            DeferredReservation(submission) > _quota.DeferredBatches - _reservedDeferredBatches ||
             descriptorBytes > _quota.DescriptorBytes - _descriptorBytes ||
             resultBytes > _quota.ResultBytes - _resultBytes ||
             submission.Budget.MaxSnapshotBytes > _quota.SnapshotBytes - _snapshotBytes)
@@ -115,6 +117,9 @@ internal sealed partial class WorldPublicationAuthority
 
         return JobAdmissionStatus.Accepted;
     }
+
+    private static int DeferredReservation(JobSubmission submission) =>
+        submission.ResultKind == JobResultKind.Commands ? submission.Budget.MaxBatches : 0;
 
     internal JobDispatchResult TryAuthorizeDispatch(JobId id, JobDispatchPhase phase)
     {
@@ -164,7 +169,7 @@ internal sealed partial class WorldPublicationAuthority
                     return new(JobDispatchStatus.Closed, null);
 
                 var permit = new JobDispatchPermit(id, job.Submission, phase, job.Scope,
-                    new JobArgumentReader(this, id), new DependencyOutputReader(this, id));
+                    new JobArgumentReader(this, id), new DependencyOutputReader(this, id), _control.RuntimeStopRequested);
                 _active.Add(id);
                 job.Permit = permit;
                 job.Execution = JobExecutionStatus.Running;
@@ -176,7 +181,7 @@ internal sealed partial class WorldPublicationAuthority
             lock (_control.Gate)
             {
                 job.PolicyPins--;
-                ReleasePolicyPin();
+                ReleaseBorrowPin();
                 TryReleaseJob(job);
                 retention.Dispose();
             }
@@ -208,13 +213,6 @@ internal sealed partial class WorldPublicationAuthority
 
         _activeGeneration++;
         return true;
-    }
-
-    private void ReleasePolicyPin()
-    {
-        _borrowed--;
-        if (_borrowed == 0)
-            _borrowReleased?.TrySetResult();
     }
 
     internal JobCancellationStatus RequestCancellation(JobId id)
@@ -251,15 +249,17 @@ internal sealed partial class WorldPublicationAuthority
     internal ExecutionSettlementStatus TrySettle(JobExecutionCompletion completion)
     {
         ArgumentNullException.ThrowIfNull(completion);
+        JobRecord job;
         lock (_control.Gate)
         {
-            if (!TryFindPermit(completion.Permit, out var job))
+            if (!TryFindPermit(completion.Permit, out var current))
                 return ExecutionSettlementStatus.InvalidCompletion;
+            job = current;
             if (job.Execution != JobExecutionStatus.Running)
                 return ExecutionSettlementStatus.AlreadySettled;
             if (completion.Status is not (JobExecutionStatus.Succeeded or JobExecutionStatus.Cancelled))
                 return ExecutionSettlementStatus.InvalidCompletion;
-            if (job.CaptureOpen)
+            if (job.CaptureOpen || job.CopyingCompletion)
                 return ExecutionSettlementStatus.InvalidCompletion;
 
             bool stopped = _control.IsTerminal;
@@ -269,15 +269,40 @@ internal sealed partial class WorldPublicationAuthority
                 return stopped ? ExecutionSettlementStatus.Stopped : ExecutionSettlementStatus.Cancelled;
             }
 
-            if (completion.Permit.InputKind != JobInputKind.None && !job.CaptureConsumed ||
-                !TryCopyCompletion(job, completion, out var batches, out var output))
+            if (completion.Permit.InputKind != JobInputKind.None && !job.CaptureConsumed)
                 return ExecutionSettlementStatus.InvalidCompletion;
+            job.CopyingCompletion = true;
+        }
 
-            job.Batches = batches;
-            job.UnsettledBatches = batches.Count;
-            job.Output = output;
-            SettleExecution(job, JobExecutionStatus.Succeeded);
-            return ExecutionSettlementStatus.Settled;
+        try
+        {
+            var valid = TryCopyCompletion(job, completion, out var batches, out var output);
+            lock (_control.Gate)
+            {
+                var stopped = _control.IsTerminal;
+                if (stopped || job.CancellationRequested)
+                {
+                    SettleExecution(job, JobExecutionStatus.Cancelled);
+                    return stopped ? ExecutionSettlementStatus.Stopped : ExecutionSettlementStatus.Cancelled;
+                }
+
+                if (!valid)
+                    return ExecutionSettlementStatus.InvalidCompletion;
+
+                job.Batches = batches;
+                job.UnsettledBatches = batches.Count;
+                job.Output = output;
+                SettleExecution(job, JobExecutionStatus.Succeeded);
+                return ExecutionSettlementStatus.Settled;
+            }
+        }
+        finally
+        {
+            lock (_control.Gate)
+            {
+                job.CopyingCompletion = false;
+                TryReleaseJob(job);
+            }
         }
     }
 
@@ -289,7 +314,7 @@ internal sealed partial class WorldPublicationAuthority
                 return ExecutionSettlementStatus.InvalidCompletion;
             if (job.Execution != JobExecutionStatus.Running)
                 return ExecutionSettlementStatus.AlreadySettled;
-            if (job.CaptureOpen)
+            if (job.CaptureOpen || job.CopyingCompletion)
                 return ExecutionSettlementStatus.InvalidCompletion;
 
             // Evidence is registered before the state becomes visible under this same gate.
@@ -319,6 +344,7 @@ internal sealed partial class WorldPublicationAuthority
         _active.Remove(job.Id);
         _ = AdvanceActiveGeneration();
         job.Execution = status;
+        job.Permit?.SignalSettlement();
         job.Commit = status == JobExecutionStatus.Succeeded
             ? (job.Batches.Count == 0 ? JobCommitStatus.NotApplicable : JobCommitStatus.Pending)
             : (job.Submission.ResultKind == JobResultKind.Commandless ? JobCommitStatus.NotApplicable : JobCommitStatus.Rejected);
@@ -389,6 +415,7 @@ internal sealed partial class WorldPublicationAuthority
     private void TryReleaseJob(JobRecord job)
     {
         if (job.HandleOpen || !job.DependenciesReleased || job.Consumers != 0 || job.PolicyPins != 0 ||
+            job.ReadPins != 0 || job.CopyingCompletion ||
             job.CaptureOpen || job.UnsettledBatches != 0 || !_jobs.Remove(job.Id))
             return;
 
@@ -398,6 +425,7 @@ internal sealed partial class WorldPublicationAuthority
         _resultBytes -= job.ResultBytes;
         _dependencyEdges -= job.Submission.Dependencies.Length;
         _receiptRecords -= job.Submission.Budget.MaxBatches;
+        _reservedDeferredBatches -= DeferredReservation(job.Submission);
         job.Retention.Dispose();
     }
 
@@ -421,15 +449,35 @@ internal sealed partial class WorldPublicationAuthority
         return new(JobOutputReadStatus.Copied, source.Length);
     }
 
+    private void ReleaseReadPin(JobRecord job)
+    {
+        lock (_control.Gate)
+        {
+            job.ReadPins--;
+            TryReleaseJob(job);
+        }
+    }
+
     private sealed class JobArgumentReader(WorldPublicationAuthority owner, JobId id) : IJobArguments
     {
         public JobOutputRead TryCopy(Span<byte> destination)
         {
+            JobRecord ownerJob;
             lock (owner._control.Gate)
             {
-                return owner._jobs.TryGetValue(id, out var job) && job.Execution == JobExecutionStatus.Running
-                    ? CopyBytes(job.Submission.Arguments, destination)
-                    : new(JobOutputReadStatus.Expired, 0);
+                if (!owner._jobs.TryGetValue(id, out var job) || job.Execution != JobExecutionStatus.Running)
+                    return new(JobOutputReadStatus.Expired, 0);
+                ownerJob = job;
+                ownerJob.ReadPins = checked(ownerJob.ReadPins + 1);
+            }
+
+            try
+            {
+                return CopyBytes(ownerJob.Submission.Arguments, destination);
+            }
+            finally
+            {
+                owner.ReleaseReadPin(ownerJob);
             }
         }
     }
@@ -438,6 +486,7 @@ internal sealed partial class WorldPublicationAuthority
     {
         public JobOutputRead TryCopy(JobId prerequisite, Span<byte> destination)
         {
+            JobRecord producer;
             lock (owner._control.Gate)
             {
                 if (!owner._jobs.TryGetValue(id, out var job) || job.Execution != JobExecutionStatus.Running)
@@ -445,7 +494,17 @@ internal sealed partial class WorldPublicationAuthority
                 if (!job.Submission.Dependencies.Contains(new JobDependency(prerequisite, DependencyKind.Execution)))
                     return new(JobOutputReadStatus.Undeclared, 0);
 
-                return CopyBytes(owner._jobs[prerequisite].Output, destination);
+                producer = owner._jobs[prerequisite];
+                producer.ReadPins = checked(producer.ReadPins + 1);
+            }
+
+            try
+            {
+                return CopyBytes(producer.Output, destination);
+            }
+            finally
+            {
+                owner.ReleaseReadPin(producer);
             }
         }
     }
@@ -528,6 +587,8 @@ internal sealed partial class WorldPublicationAuthority
         internal bool HandleOpen { get; set; } = true;
         internal bool DependenciesReleased { get; set; }
         internal int PolicyPins { get; set; }
+        internal int ReadPins { get; set; }
+        internal bool CopyingCompletion { get; set; }
         internal int Consumers { get; set; }
         internal int UnsettledBatches { get; set; }
         internal LinkedListNode<JobRecord> AdmissionNode => field ??= new(this);

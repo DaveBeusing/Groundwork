@@ -43,9 +43,11 @@ public sealed class WorldPublicationTests
     }
 
     [TestMethod]
-    public async Task BorrowPinsItsExactCommittedRootUntilTheDrainCanComplete()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BorrowPinsItsExactCommittedRootUntilReleaseOrDeadline(bool lateRelease)
     {
-        using var fixture = new CoreRuntimeFixture();
+        using var fixture = new CoreRuntimeFixture(new ManualDrainClock());
         var world = fixture.OpenWorld();
         var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
         var ports = world.Publication;
@@ -68,11 +70,17 @@ public sealed class WorldPublicationTests
 
         ports.Phases.Close(phase);
         var request = new BarrierRequest(stamp, 1, BarrierKind.CommitResults);
-        var drain = ports.Borrow.CloseAndDrainAsync(request, world.CreateBorrowedDrainDeadline()).AsTask();
+        var deadline = world.CreateBorrowedDrainDeadline();
+        var drain = ports.Borrow.CloseAndDrainAsync(request, deadline).AsTask();
         Assert.IsFalse(drain.IsCompleted);
+        if (lateRelease)
+            fixture.Clock.Advance(deadline.GetRemaining(fixture.Clock));
         lease.Dispose();
-        Assert.AreEqual(BorrowDrainStatus.Drained, await drain.WaitAsync(TimeSpan.FromSeconds(5)));
+        Assert.AreEqual(lateRelease ? BorrowDrainStatus.TimedOut : BorrowDrainStatus.Drained,
+            await drain.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.AreEqual(stamp, ports.Committed.Read().Stamp);
+        if (lateRelease)
+            Assert.AreEqual(CandidateSealStatus.Stopped, ports.Candidates.SealCandidates(request).Status);
         ports.Execution.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));
     }
 
@@ -108,6 +116,32 @@ public sealed class WorldPublicationTests
         Assert.AreEqual(CandidateSealStatus.Stopped, ports.Candidates.SealCandidates(request).Status);
         lease.Dispose();
         ports.Execution.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));
+    }
+
+    [TestMethod]
+    public async Task DeferredCapacityIsReservedBeforeAdmittingACommandJob()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var world = fixture.OpenWorld(jobs: CoreRuntimeFixture.Quota.Jobs with { DeferredBatches = 1 });
+        var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        var ports = world.Publication;
+        var phase = OpenBasePhase(ports, stamp);
+        var first = new JobId(stamp.World, 1);
+        var second = new JobId(stamp.World, 2);
+        using var firstHandle = Admit(ports, first, Structural(phase, 1), phase);
+
+        var rejected = ports.Execution.TryAdmit(second, Structural(phase, 2), phase);
+        Assert.AreEqual(JobAdmissionStatus.CapacityExceeded, rejected.Status);
+        Assert.IsNull(rejected.Handle);
+
+        Assert.AreEqual(JobCancellationStatus.Requested, firstHandle.RequestCancellation());
+        firstHandle.Dispose();
+        using var admitted = Admit(ports, second, Structural(phase, 2), phase);
+        var batch = CompleteCreate(ports, Dispatch(ports, second, phase));
+        ports.Phases.Close(phase);
+        var candidates = await CoreRuntimeFixture.SealAsync(world, 1, BarrierKind.CommitResults);
+        var prepared = CoreRuntimeFixture.Prepare(world, candidates, [new BatchDisposition(batch, BatchDispositionKind.Defer, BatchRejection.None)]);
+        Assert.AreEqual(BarrierStatus.Unchanged, ports.Finalization.TryFinalize(prepared).Status);
     }
 
     [TestMethod]
@@ -343,5 +377,17 @@ public sealed class WorldPublicationTests
         Assert.AreEqual(ExecutionSettlementStatus.Settled, ports.Execution.TrySettle(new JobExecutionCompletion(
             permit, JobExecutionStatus.Succeeded, [new CompletedBatch(batch, [create])], [])));
         return batch;
+    }
+
+    private sealed class ManualDrainClock : CoreRuntimeFixture.TestClock
+    {
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => new InertTimer();
+    }
+
+    private sealed class InertTimer : ITimer
+    {
+        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
+        public void Dispose() { }
+        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
     }
 }

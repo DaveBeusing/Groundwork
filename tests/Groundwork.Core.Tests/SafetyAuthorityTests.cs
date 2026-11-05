@@ -39,6 +39,35 @@ public sealed class SafetyAuthorityTests
     }
 
     [TestMethod]
+    public async Task StopFencesAndSignalsBothWakesWhileAnInjectedClockHoldsTheGate()
+    {
+        var clock = new BlockingClock();
+        using var fixture = new CoreRuntimeFixture(clock);
+        var world = fixture.OpenWorld();
+        var runtime = fixture.Runtime;
+
+        clock.BlockNextSample();
+        var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
+        RuntimeDeadline deadline;
+        try
+        {
+            await clock.SampleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            deadline = await Task.Run(() => runtime.StopControl.RequestStop(HostStopReason.WindowClose))
+                .WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.IsTrue(runtime.UiWake.Handle.WaitOne(TimeSpan.Zero));
+            Assert.IsTrue(runtime.SimulationWake.Handle.WaitOne(TimeSpan.Zero));
+        }
+        finally
+        {
+            clock.SampleReleased.TrySetResult();
+            await gateOwner.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+        Assert.AreEqual(deadline.Timestamp, runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation).Timestamp);
+    }
+
+    [TestMethod]
     public void DeadlineRejectsAnotherClockAndExpiresOnClockRollback()
     {
         using var fixture = new CoreRuntimeFixture();
@@ -137,6 +166,38 @@ public sealed class SafetyAuthorityTests
     }
 
     [TestMethod]
+    public async Task TerminalCleanupRetainsSeparatePrimaryCleanupAndSinkEvidence()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var world = fixture.OpenWorld();
+        var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        Assert.AreEqual(FaultReportStatus.Recorded, ReportRequired(world, stamp));
+        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+
+        var context = new FaultContext(stamp.World, stamp.Tick, TickPhase.Base, null, null, null);
+        var cleanup = new FaultObservation(FaultClass.IncompleteCleanup, FaultSeverity.Error, FaultSubsystem.Ecs,
+            FaultOrigin.Cleanup, 2, 0, context, [], []);
+        var sink = new FaultObservation(FaultClass.RecoverableJobFault, FaultSeverity.Error, FaultSubsystem.Diagnostics,
+            FaultOrigin.Sink, 3, 0, context, [], []);
+        Assert.AreEqual(FaultReportStatus.Recorded, world.Reporter.TryReport(cleanup));
+        Assert.AreEqual(FaultReportStatus.Recorded, world.Reporter.TryReport(sink));
+
+        var state = world.State.Read();
+        var evidence = new RequiredFaultEvidence[3];
+        Assert.AreEqual(FaultEvidenceReadStatus.Copied, world.Evidence.CopyPending(state.PendingFaultGeneration, evidence, out var count));
+        Assert.AreEqual(3, count);
+        CollectionAssert.AreEqual(new[] { FaultOrigin.Primary, FaultOrigin.Cleanup, FaultOrigin.Sink },
+            evidence.Select(item => item.Origin).ToArray());
+        Assert.IsTrue(state.Conditions.HasFlag(SafetyCondition.IncompleteCleanup));
+        Assert.IsTrue(state.Conditions.HasFlag(SafetyCondition.TerminalStop));
+
+        var runtimeCleanup = new FaultObservation(FaultClass.IncompleteCleanup, FaultSeverity.Error, FaultSubsystem.Host,
+            FaultOrigin.Cleanup, 4, 0, default, [], []);
+        Assert.AreEqual(FaultReportStatus.Recorded, fixture.Runtime.Reporter.TryReport(runtimeCleanup));
+        Assert.IsTrue(fixture.Runtime.State.Read().Conditions.HasFlag(SafetyCondition.IncompleteCleanup));
+    }
+
+    [TestMethod]
     public async Task ContendedRequiredIngressFencesOnlyTheReportingWorldWithoutWaiting()
     {
         var clock = new BlockingClock();
@@ -147,8 +208,26 @@ public sealed class SafetyAuthorityTests
         var world = fixture.OpenWorld();
         var otherWorld = fixture.OpenWorld();
         var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        var ports = world.Publication;
+        var phase = ports.Phases.TryOpen(stamp, TickPhase.Base).Phase;
+        Assert.IsNotNull(phase);
+        var job = new JobId(stamp.World, 1);
+        var source = new SourceKey(stamp.World, stamp.Tick, TickPhase.Base, 1, 0, 1);
+        var commandScope = new ResourceKey(stamp.World, default, new ResourceScope(ScopeKind.World, null, null));
+        var submission = new JobSubmission(source, new JobHandlerId(1), JobInputKind.None, JobResultKind.Commands,
+            [], [], [commandScope], [], [], new JobResultBudget(1, 1, 0, 0, 0));
+        using var handle = ports.Execution.TryAdmit(job, submission, phase).Handle;
+        Assert.IsNotNull(handle);
+        var permit = ports.Execution.TryAuthorizeDispatch(job, phase).Permit;
+        Assert.IsNotNull(permit);
+        var batch = new BatchId(source, 1);
+        var command = new JobCommand(1, 1, JobCommandKind.CreateEntity, new CommandEntity(CommandEntityKind.Provisional, null, 1),
+            default, null, null, []);
+        Assert.AreEqual(ExecutionSettlementStatus.Settled, ports.Execution.TrySettle(
+            new JobExecutionCompletion(permit, JobExecutionStatus.Succeeded, [new CompletedBatch(batch, [command])], [])));
+        ports.Phases.Close(phase);
         var candidates = await CoreRuntimeFixture.SealAsync(world, 1, BarrierKind.CommitResults);
-        var prepared = CoreRuntimeFixture.Prepare(world, candidates, []);
+        var prepared = CoreRuntimeFixture.Prepare(world, candidates, [new BatchDisposition(batch, BatchDispositionKind.Defer, BatchRejection.None)]);
 
         clock.BlockNextSample();
         var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
@@ -167,6 +246,10 @@ public sealed class SafetyAuthorityTests
         Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
         Assert.AreEqual(BarrierStatus.Stopped, world.Publication.Finalization.TryFinalize(prepared).Status);
         Assert.AreEqual(stamp, world.Publication.Committed.Read().Stamp);
+        var receipts = new BatchReceipt[1];
+        Assert.AreEqual(1, handle.CopyReceipts(receipts));
+        Assert.AreEqual(BatchRejection.Stopped, receipts[0].Rejection);
+        Assert.AreEqual(BarrierAbortStatus.AlreadySettled, ports.Finalization.TryAbort(candidates, BarrierAbortReason.Faulted));
         Assert.IsFalse(fixture.Runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
         Assert.AreEqual(1UL, (await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(otherWorld, 1, BarrierKind.BeginTick)).Epoch);
     }

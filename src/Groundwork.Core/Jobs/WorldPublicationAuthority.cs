@@ -14,8 +14,7 @@ internal sealed partial class WorldPublicationAuthority
     private BarrierStamp _stamp;
     private JobDispatchPhase? _phase;
     private TickPhase _lastPhase;
-    private BarrierRequest? _drain;
-    private TaskCompletionSource? _borrowReleased;
+    private BorrowDrain? _drain;
     private CandidateSet? _candidates;
     private PreparedBarrierPublication? _prepared;
     private ObserverFrame? _previousFrame;
@@ -27,6 +26,7 @@ internal sealed partial class WorldPublicationAuthority
     private int _retentionHandles;
     private int _dependencyEdges;
     private int _deferred;
+    private int _reservedDeferredBatches;
     private int _receiptRecords;
     private long _descriptorBytes;
     private long _snapshotBytes;
@@ -128,9 +128,7 @@ internal sealed partial class WorldPublicationAuthority
             pin.Tracked = null;
             pin.Clear();
             job.CaptureOpen = false;
-            _borrowed--;
-            if (_borrowed == 0)
-                _borrowReleased?.TrySetResult();
+            ReleaseBorrowPin();
 
             TryReleaseJob(job);
             tracked.Dispose();

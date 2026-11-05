@@ -24,6 +24,7 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
     private int _requiredCount;
     private ulong _generation;
     private bool _criticalPending;
+    private bool _storageReleased;
     private SafetyCondition _conditions;
     private int _contendedEvidenceLoss;
     private long _contendedStopTimestamp = long.MaxValue;
@@ -97,34 +98,58 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
 
     internal FaultReportStatus Record(scoped in FaultObservation observation)
     {
+        var terminal = IsTerminal || HasContendedEvidenceLoss || _runtime.IsPublicationFenced;
+        var valid = IsValidObservation(observation);
         if (observation.Classification == FaultClass.DiagnosticOnly)
         {
+            if (!valid || _storageReleased)
+            {
+                _deliveryLoss.Increment();
+                _coalesced.Increment();
+                return FaultReportStatus.Coalesced;
+            }
+
+            if (terminal || observation.Origin is FaultOrigin.Cleanup or FaultOrigin.Sink)
+            {
+                return RecordEmergency(new DiagnosticSummary(observation), observation.RedactedText);
+            }
+
             return RecordOptional(observation);
         }
 
-        if (IsTerminal || HasContendedEvidenceLoss || _runtime.IsPublicationFenced)
+        if (valid && observation.Classification == FaultClass.IncompleteCleanup)
         {
-            return FaultReportStatus.EvidenceLost;
+            MarkIncomplete();
         }
 
-        var summary = new DiagnosticSummary(observation);
-        RecordEmergency(summary, observation.RedactedText);
-        if (!IsValidRequired(observation) || _generation == ulong.MaxValue)
+        if (!valid || _storageReleased)
         {
-            return LoseEvidence();
+            return LoseEvidence(terminal);
+        }
+
+        // Emergency primary, cleanup and sink summaries survive the terminal
+        // fence and stay separate from the bounded supervisor evidence ledger.
+        var retained = RecordEmergency(new DiagnosticSummary(observation), observation.RedactedText);
+        if (_generation == ulong.MaxValue)
+        {
+            return LoseEvidence(terminal);
         }
 
         _generation++;
         if (!_world.HasValue)
         {
-            _stop();
-            return FaultReportStatus.Recorded;
+            if (!terminal)
+            {
+                _stop();
+            }
+
+            return retained;
         }
 
         var count = Math.Max(1, observation.Targets.Length);
         if (count > _required.Length - _requiredCount)
         {
-            return LoseEvidence();
+            return LoseEvidence(terminal);
         }
 
         for (var i = 0; i < count; i++)
@@ -135,18 +160,16 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         }
 
         _criticalPending |= observation.Classification == FaultClass.UnknownCritical;
-        if (observation.Classification is FaultClass.UnsafePartialCommit or FaultClass.BorrowedDrainExpired or FaultClass.IncompleteCleanup)
+        if (!terminal)
         {
-            if (observation.Classification == FaultClass.IncompleteCleanup)
+            if (observation.Classification is FaultClass.UnsafePartialCommit or FaultClass.BorrowedDrainExpired or FaultClass.IncompleteCleanup)
             {
-                MarkIncomplete();
+                _stop();
             }
-
-            _stop();
-        }
-        else
-        {
-            _runtime.SimulationWake.Signal();
+            else
+            {
+                _runtime.SimulationWake.Signal();
+            }
         }
 
         return FaultReportStatus.Recorded;
@@ -166,6 +189,7 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
 
     internal void ReleaseStorage()
     {
+        _storageReleased = true;
         _required = [];
         _normal = [];
         _emergency = [];
@@ -225,15 +249,19 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         }
     }
 
-    private FaultReportStatus LoseEvidence()
+    private FaultReportStatus LoseEvidence(bool terminal)
     {
         _conditions |= SafetyCondition.RequiredEvidenceLost;
         _evidenceLoss.Increment();
-        _stop();
+        if (!terminal)
+        {
+            _stop();
+        }
+
         return FaultReportStatus.EvidenceLost;
     }
 
-    private bool IsValidRequired(scoped in FaultObservation observation)
+    private bool IsValidObservation(scoped in FaultObservation observation)
     {
         var context = observation.Context;
         if (!Enum.IsDefined(observation.Classification) || observation.Classification == FaultClass.Unspecified ||
@@ -290,13 +318,14 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         return FaultReportStatus.Recorded;
     }
 
-    private void RecordEmergency(DiagnosticSummary summary, ReadOnlySpan<char> text)
+    private FaultReportStatus RecordEmergency(DiagnosticSummary summary, ReadOnlySpan<char> text)
     {
         var index = (int)summary.Origin - 1;
         if ((uint)index >= (uint)_emergency.Length)
         {
             _deliveryLoss.Increment();
-            return;
+            _coalesced.Increment();
+            return FaultReportStatus.Coalesced;
         }
 
         if (_emergency[index] is { } first)
@@ -308,11 +337,12 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
                 _repeat.Increment();
             }
 
-            return;
+            return FaultReportStatus.Coalesced;
         }
 
         _emergency[index] = summary;
         CopyDetail(text, _emergencyText, index);
+        return FaultReportStatus.Recorded;
     }
 
     private void CopyDetail(ReadOnlySpan<char> source, char[] storage, int index)
