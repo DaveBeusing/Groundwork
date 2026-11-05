@@ -4,17 +4,17 @@ namespace Groundwork.Simulation.Tests;
 
 internal sealed class SimulationFixture : IDisposable
 {
+    private static readonly ResourceQuota Quota = new(1, 16,
+        new JobQuota(8, 4, 16, 16, 4, 8, 16, 65536, 65536, 65536),
+        new DiagnosticQuota(1, 16384, 12, 32768, 4, 4, 64, 1024));
     private readonly RuntimeSafetyAuthority _runtime;
     private readonly EngineModuleContext _context;
 
     internal SimulationFixture(long frequency, SimulationOptions? options = null)
     {
         Clock = new SyntheticClock(frequency);
-        var quota = new ResourceQuota(1, 16,
-            new JobQuota(8, 4, 16, 16, 4, 8, 16, 65536, 65536, 65536),
-            new DiagnosticQuota(1, 16384, 12, 32768, 4, 4, 64, 1024));
-        var budget = new ProcessResourceBudget(new ProcessResourceLimits(1, quota));
-        using var reservation = budget.TryReserveRuntime(quota);
+        var budget = new ProcessResourceBudget(new ProcessResourceLimits(1, Quota));
+        using var reservation = budget.TryReserveRuntime(Quota);
         Assert.IsNotNull(reservation);
         var duration = TimeSpan.FromMilliseconds(100);
         var timing = new RuntimeTimingLimits(duration, duration, duration);
@@ -29,11 +29,26 @@ internal sealed class SimulationFixture : IDisposable
     internal MutableSafety Safety { get; } = new();
     internal RecordingFaults Faults { get; } = new();
     internal RuntimeWakeSignal Wake => _runtime.SimulationWake;
+    internal RuntimeSafetyAuthority Runtime => _runtime;
     internal FixedStepSimulation Driver { get; }
 
     internal FixedStepSimulation CreateDriver(SimulationOptions? options) => new(_context, Input, Pipeline, Safety, Wake, options);
 
     internal ValueTask<SimulationIteration> AdvanceAsync() => Driver.AdvanceAsync(CancellationToken.None);
+
+    internal FixedStepSimulation CreateWithReporter(IFaultReporter reporter, WorldId? world = null) =>
+        new(_context with { FaultReporter = reporter }, Input, Pipeline, Safety, Wake, faultWorld: world);
+
+    internal WorldSafetyPorts OpenWorld(out WorldId world)
+    {
+        Assert.IsTrue(_runtime.TryAllocateWorldId(out world));
+        var quota = Quota with
+        {
+            OutstandingOperations = 8,
+            Diagnostics = Quota.Diagnostics with { EmergencyRecords = 9, EmergencyBytes = 28672 },
+        };
+        return _runtime.OpenWorld(world, quota, new UnusedPolicy(), new WorldRoot(world), new UnusedScope());
+    }
 
     public void Dispose()
     {
@@ -51,7 +66,9 @@ internal sealed class SimulationFixture : IDisposable
     internal sealed class CountingInput : IInputSource
     {
         internal ulong Count { get; private set; }
-        public InputSnapshot Capture() => new(++Count, [], [], null, false);
+        internal Exception? Failure { get; set; }
+
+        public InputSnapshot Capture() => Failure is { } failure ? throw failure : new(++Count, [], [], null, false);
     }
 
     internal sealed class MutableSafety : IRuntimeSafetyState
@@ -119,5 +136,22 @@ internal sealed class SimulationFixture : IDisposable
             Calls.Add(new Call(phase, tick.Tick, tick.Input.LastSequence, step));
             OnPhase?.Invoke(phase);
         }
+    }
+
+    private sealed record WorldRoot(WorldId World) : IWorldStateRoot;
+
+    private sealed class UnusedPolicy : IBarrierSupervisorPolicy
+    {
+        public ValueTask<SupervisorAction> DecideAsync(
+            BarrierReviewRequest request, IFaultEvidenceReader evidence, CancellationToken cancellationToken) => throw new NotSupportedException();
+    }
+
+    private sealed class UnusedScope : IJobScopePolicy
+    {
+        public JobScopeAdmission ValidateAdmission(JobSubmission submission, in CommittedWorldView world) => throw new NotSupportedException();
+
+        public bool CanDispatch(IAdmittedJobScope scope, in CommittedWorldView world) => throw new NotSupportedException();
+
+        public JobScopeOverlap EvaluateOverlap(IAdmittedJobScope first, IAdmittedJobScope second, in CommittedWorldView world) => throw new NotSupportedException();
     }
 }

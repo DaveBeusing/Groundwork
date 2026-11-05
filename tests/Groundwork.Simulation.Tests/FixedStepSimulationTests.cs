@@ -105,6 +105,37 @@ public sealed class FixedStepSimulationTests
     }
 
     [TestMethod]
+    public async Task RecoveryPauseObservedAfterPublicationAccountsForTheFinalRunningInterval()
+    {
+        using var run = new SimulationFixture(60000);
+        await run.AdvanceAsync();
+        run.Clock.Timestamp = 1000;
+        run.Pipeline.OnPhase = phase =>
+        {
+            if (phase == TickPhase.PublishState)
+            {
+                run.Clock.Timestamp += 500;
+                run.Safety.Conditions = SafetyCondition.RecoveryPaused;
+            }
+        };
+
+        var paused = await run.AdvanceAsync();
+        var step = (Int128)60000 * TimeSpan.TicksPerSecond;
+        Assert.AreEqual(SimulationState.Paused, paused.State);
+        Assert.AreEqual(1UL, paused.CompletedTick);
+        Assert.AreEqual(step + step / 2, paused.ElapsedScaledTime);
+        Assert.AreEqual(step / 2, paused.RemainingScaledTime);
+        AssertConserved(paused, run.Clock.TimestampFrequency);
+
+        run.Clock.Timestamp += 60000;
+        run.Safety.Conditions = SafetyCondition.None;
+        var resumed = await run.AdvanceAsync();
+        Assert.AreEqual(Int128.Zero, resumed.ElapsedScaledTime);
+        Assert.AreEqual(step / 2, resumed.RemainingScaledTime);
+        Assert.AreEqual(run.Clock.Timestamp + 500, resumed.NextWakeTimestamp);
+    }
+
+    [TestMethod]
     public async Task FractionalWakeRoundsUpAndInterpolationCannotRoundToOne()
     {
         using var run = new SimulationFixture(long.MaxValue, new SimulationOptions(1, 1, 1, TimeSpan.FromSeconds(1)));
@@ -143,10 +174,10 @@ public sealed class FixedStepSimulationTests
     [TestMethod]
     public async Task CancellationDuringSuccessfulPublicationStillSettlesTheTick()
     {
-        using var run = new SimulationFixture(60);
+        using var run = new SimulationFixture(60000);
         using var cancellation = new CancellationTokenSource();
         await run.AdvanceAsync();
-        run.Clock.Timestamp = 1;
+        run.Clock.Timestamp = 18000;
         run.Pipeline.OnPhase = phase =>
         {
             if (phase == TickPhase.PublishState)
@@ -154,9 +185,12 @@ public sealed class FixedStepSimulationTests
         };
 
         var iteration = await run.Driver.AdvanceAsync(cancellation.Token);
+        var step = (Int128)60000 * TimeSpan.TicksPerSecond;
         Assert.AreEqual(1UL, iteration.CompletedTick);
         Assert.AreEqual(1, iteration.AppliedSteps);
-        Assert.AreEqual(Int128.Zero, iteration.RemainingScaledTime);
+        Assert.AreEqual(14 * step, iteration.RemainingScaledTime);
+        Assert.AreEqual(3 * step, iteration.DroppedScaledTime);
+        AssertConserved(iteration, run.Clock.TimestampFrequency);
         Assert.AreEqual(0, run.Faults.Count);
     }
 
@@ -236,6 +270,51 @@ public sealed class FixedStepSimulationTests
         Assert.AreEqual(TickPhase.Base, run.Faults.LastContext.Phase);
         Assert.AreEqual(SimulationState.Stopped, (await run.AdvanceAsync()).State);
         Assert.AreEqual(1UL, run.Input.Count);
+    }
+
+    [TestMethod]
+    public async Task WorldReporterRetainsEvidenceFromBeforeTheFirstBarrier()
+    {
+        using var run = new SimulationFixture(60);
+        var world = run.OpenWorld(out var id);
+        var driver = run.CreateWithReporter(world.Reporter, id);
+        await driver.AdvanceAsync(CancellationToken.None);
+        run.Clock.Timestamp = 1;
+        var primary = new InvalidOperationException("input failure");
+        run.Input.Failure = primary;
+
+        Assert.AreSame(primary, await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => driver.AdvanceAsync(CancellationToken.None).AsTask()));
+        var state = world.State.Read();
+        Assert.IsFalse(state.Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+        var evidence = new RequiredFaultEvidence[1];
+        Assert.AreEqual(FaultEvidenceReadStatus.Copied, world.Evidence.CopyPending(state.PendingFaultGeneration, evidence, out var count));
+        Assert.AreEqual(1, count);
+        Assert.AreEqual(id, evidence[0].Context.World);
+        Assert.AreEqual(TickPhase.AcquireInput, evidence[0].Context.Phase);
+    }
+
+    [TestMethod]
+    public async Task RuntimeReporterRetainsEvidenceAfterAWorldBarrier()
+    {
+        using var run = new SimulationFixture(60);
+        var driver = run.CreateWithReporter(run.Runtime.Reporter);
+        await driver.AdvanceAsync(CancellationToken.None);
+        run.Clock.Timestamp = 1;
+        var primary = new InvalidOperationException("base phase failure");
+        run.Pipeline.OnPhase = phase =>
+        {
+            if (phase == TickPhase.Base)
+                throw primary;
+        };
+
+        Assert.AreSame(primary, await Assert.ThrowsExactlyAsync<InvalidOperationException>(
+            () => driver.AdvanceAsync(CancellationToken.None).AsTask()));
+        Assert.AreEqual(BarrierKind.BeginTick, driver.LastConfirmedBarrier?.Kind);
+        var state = run.Runtime.State.Read();
+        Assert.IsTrue(state.Conditions.HasFlag(SafetyCondition.TerminalStop));
+        Assert.IsFalse(state.Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+        Assert.AreEqual(0UL, state.EvidenceLossCount);
     }
 
     [TestMethod]

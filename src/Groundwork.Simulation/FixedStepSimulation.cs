@@ -9,6 +9,7 @@ public sealed class FixedStepSimulation : ISimulationDriver
     private readonly ITickPipeline _pipeline;
     private readonly IRuntimeSafetyState _safety;
     private readonly IFaultReporter _faults;
+    private readonly WorldId? _faultWorld;
     private readonly RuntimeWakeSignal _wake;
     private readonly FixedStep _baseStep;
     private readonly FixedStep _gameplayStep;
@@ -38,7 +39,8 @@ public sealed class FixedStepSimulation : ISimulationDriver
         ITickPipeline pipeline,
         IRuntimeSafetyState safety,
         RuntimeWakeSignal wake,
-        SimulationOptions? options = null)
+        SimulationOptions? options = null,
+        WorldId? faultWorld = null)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(context.Clock);
@@ -47,6 +49,8 @@ public sealed class FixedStepSimulation : ISimulationDriver
         ArgumentNullException.ThrowIfNull(pipeline);
         ArgumentNullException.ThrowIfNull(safety);
         ArgumentNullException.ThrowIfNull(wake);
+        if (faultWorld is { Value: 0 })
+            throw new ArgumentOutOfRangeException(nameof(faultWorld));
         options ??= SimulationOptions.Default;
         var frequency = context.Clock.TimestampFrequency;
         if (frequency <= 0)
@@ -71,6 +75,7 @@ public sealed class FixedStepSimulation : ISimulationDriver
 
         _clock = context.Clock;
         _faults = context.FaultReporter;
+        _faultWorld = faultWorld;
         _input = input;
         _pipeline = pipeline;
         _safety = safety;
@@ -117,15 +122,15 @@ public sealed class FixedStepSimulation : ISimulationDriver
 
             var elapsed = SampleElapsed();
             _paused = shouldPause;
-            var available = _debt + elapsed;
-            _debt = Int128.Min(available, _maxDebt);
-            var dropped = available - _debt;
-            UpdateOverload(dropped);
+            var dropped = AdmitElapsed(elapsed);
 
             int steps = 0;
             while (!_paused && steps < _stepLimit && _debt >= _stepDebt)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                // The current sample has already been accounted for. Return its
+                // metrics if cancellation arrives between owned ticks.
+                if (cancellationToken.IsCancellationRequested)
+                    break;
                 conditions = _safety.Read().Conditions;
                 if (IsTerminal(conditions))
                 {
@@ -134,7 +139,7 @@ public sealed class FixedStepSimulation : ISimulationDriver
                 }
                 if ((conditions & SafetyCondition.RecoveryPaused) != 0)
                 {
-                    _paused = true;
+                    EnterRecoveryPause(ref elapsed, ref dropped);
                     break;
                 }
 
@@ -149,7 +154,8 @@ public sealed class FixedStepSimulation : ISimulationDriver
             {
                 conditions = _safety.Read().Conditions;
                 _stopped = IsTerminal(conditions);
-                _paused |= (conditions & SafetyCondition.RecoveryPaused) != 0;
+                if (!_stopped && !_paused && (conditions & SafetyCondition.RecoveryPaused) != 0)
+                    EnterRecoveryPause(ref elapsed, ref dropped);
             }
             return Result(debtBefore, elapsed, dropped, steps);
         }
@@ -184,6 +190,23 @@ public sealed class FixedStepSimulation : ISimulationDriver
         _lastTimestamp = now;
         _hasTimestamp = true;
         return elapsed;
+    }
+
+    private Int128 AdmitElapsed(Int128 elapsed)
+    {
+        var available = _debt + elapsed;
+        _debt = Int128.Min(available, _maxDebt);
+        var dropped = available - _debt;
+        UpdateOverload(dropped);
+        return dropped;
+    }
+
+    private void EnterRecoveryPause(ref Int128 elapsed, ref Int128 dropped)
+    {
+        var finalSample = SampleElapsed();
+        elapsed += finalSample;
+        dropped += AdmitElapsed(finalSample);
+        _paused = true;
     }
 
     private async ValueTask<bool> RunTickAsync(CancellationToken cancellationToken)
@@ -247,7 +270,8 @@ public sealed class FixedStepSimulation : ISimulationDriver
         var priorEpoch = prior?.Epoch ?? 0;
         var priorRevision = prior?.Revision ?? 0;
         var expectedRevision = outcome.Status == BarrierStatus.Committed ? checked(priorRevision + 1) : priorRevision;
-        if ((prior.HasValue && stamp.World != prior.Value.World) || stamp.Epoch != checked(priorEpoch + 1) || stamp.Revision != expectedRevision)
+        if ((_faultWorld.HasValue && stamp.World != _faultWorld.Value) || (prior.HasValue && stamp.World != prior.Value.World) ||
+            stamp.Epoch != checked(priorEpoch + 1) || stamp.Revision != expectedRevision)
             throw new InvalidOperationException("The tick pipeline did not advance the same world's barrier.");
 
         LastConfirmedBarrier = stamp;
@@ -296,7 +320,7 @@ public sealed class FixedStepSimulation : ISimulationDriver
         _stopped = true;
         try
         {
-            var context = new FaultContext(LastConfirmedBarrier?.World, _activeTick, _activePhase, null, null, null);
+            var context = new FaultContext(_faultWorld, _activeTick, _activePhase, null, null, null);
             var fault = new FaultObservation(classification, severity, FaultSubsystem.Simulation, FaultOrigin.Primary,
                 1, _lastTimestamp, context, [], []);
             _faults.TryReport(fault);
