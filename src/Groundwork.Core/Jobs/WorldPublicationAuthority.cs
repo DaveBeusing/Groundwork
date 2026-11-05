@@ -103,7 +103,8 @@ internal sealed partial class WorldPublicationAuthority
             if (_control.IsTerminal)
             {
                 // Capture can observe the terminal fence before the permit's stop observer runs.
-                permit.SignalCancellation();
+                if (job.Execution == JobExecutionStatus.Running)
+                    permit.SignalCancellation();
                 return new(JobCapturePermitStatus.Expired, null);
             }
             if (job.CancellationRequested || job.Execution != JobExecutionStatus.Running ||
@@ -153,7 +154,8 @@ internal sealed partial class WorldPublicationAuthority
         lock (_control.Gate)
         {
             var stopped = _control.IsTerminal;
-            if (stopped && TryFindPermit(stamp.Permit, out _))
+            if (stopped && TryFindPermit(stamp.Permit, out var stoppedJob) &&
+                stoppedJob is { Execution: JobExecutionStatus.Running, CaptureOpen: true })
                 stamp.Permit.SignalCancellation();
             if (stopped || !TryFindPermit(stamp.Permit, out var job) || !job.CaptureOpen ||
                 stamp.Target.Entity.World != _stamp.World || stamp.Target.Entity.Generation == 0 ||

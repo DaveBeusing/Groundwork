@@ -157,6 +157,49 @@ public sealed class WorldPublicationTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task StaleCaptureCallsDoNotCancelAnAlreadySettledPermit(bool acquired)
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var world = fixture.OpenWorld();
+        var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        var ports = world.Publication;
+        var phase = OpenBasePhase(ports, stamp);
+        var job = new JobId(stamp.World, 1);
+        var component = new ComponentTypeId(1);
+        using var handle = Admit(ports, job, Commandless(phase, 1) with
+        {
+            InputKind = JobInputKind.Borrowed,
+            ReadScopes = [new ResourceKey(stamp.World, component, new ResourceScope(ScopeKind.World, null, null))],
+        }, phase);
+        var permit = Dispatch(ports, job, phase);
+        var target = new ComponentTarget(new EntityId(stamp.World, 0, 1), component);
+        var version = new TargetVersionStamp(permit, target, true, 1);
+
+        if (acquired)
+        {
+            var capture = ports.Capture.TryAcquire(permit);
+            using var lease = capture.Lease;
+            Assert.AreEqual(JobCapturePermitStatus.Authorized, capture.Status);
+            Assert.IsNotNull(lease);
+        }
+
+        var status = acquired ? JobExecutionStatus.Succeeded : JobExecutionStatus.Cancelled;
+        Assert.AreEqual(acquired ? ExecutionSettlementStatus.Settled : ExecutionSettlementStatus.Cancelled,
+            ports.Execution.TrySettle(new JobExecutionCompletion(permit, status, [], [])));
+        var cancellation = permit.CancellationRequested;
+        Assert.IsFalse(cancellation.IsCompleted);
+
+        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        Assert.AreEqual(acquired ? JobCapturePermitStatus.AlreadyConsumed : JobCapturePermitStatus.Expired,
+            ports.Capture.TryAcquire(permit).Status);
+        Assert.ThrowsExactly<InvalidOperationException>(() => ports.VersionIssuer.Issue(version));
+        Assert.IsFalse(cancellation.IsCompleted);
+        Assert.AreEqual(status, handle.Observe().Execution);
+    }
+
+    [TestMethod]
     public async Task DeferredCapacityIsReservedBeforeAdmittingACommandJob()
     {
         using var fixture = new CoreRuntimeFixture();
