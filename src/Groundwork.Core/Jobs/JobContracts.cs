@@ -149,6 +149,7 @@ public sealed class JobDispatchPermit
     // This private task only detaches the internal runtime-stop observer. External
     // continuations can attach to the asynchronous cancellation signal above.
     private readonly TaskCompletionSource _settlement = new();
+    private Task? _runtimeStop;
 
     internal JobDispatchPermit(JobId job, JobSubmission submission, JobDispatchPhase phase,
         IAdmittedJobScope scope, IJobArguments arguments, IJobDependencyOutputs dependencyOutputs, Task runtimeStop)
@@ -163,6 +164,7 @@ public sealed class JobDispatchPermit
         InputKind = submission.InputKind;
         SnapshotTargets = submission.SnapshotTargets;
         Budget = submission.Budget;
+        _runtimeStop = runtimeStop;
         _ = ObserveRuntimeStopAsync(runtimeStop);
     }
 
@@ -172,7 +174,16 @@ public sealed class JobDispatchPermit
     public TickPhase DispatchPhase { get; }
     public IJobArguments Arguments { get; }
     public IJobDependencyOutputs DependencyOutputs { get; }
-    public Task CancellationRequested => _cancellation.Task;
+    public Task CancellationRequested
+    {
+        get
+        {
+            // A coordinator returning from capture may poll before the stop observer resumes.
+            if (Volatile.Read(ref _runtimeStop)?.IsCompletedSuccessfully == true)
+                SignalCancellation();
+            return _cancellation.Task;
+        }
+    }
     public JobInputKind InputKind { get; }
     public IAdmittedJobScope Scope { get; }
     public ImmutableArray<ComponentTarget> SnapshotTargets { get; }
@@ -180,7 +191,11 @@ public sealed class JobDispatchPermit
 
     internal void SignalCancellation() => _cancellation.TrySetResult();
 
-    internal void SignalSettlement() => _settlement.TrySetResult();
+    internal void SignalSettlement()
+    {
+        Volatile.Write(ref _runtimeStop, null);
+        _settlement.TrySetResult();
+    }
 
     private async Task ObserveRuntimeStopAsync(Task runtimeStop)
     {

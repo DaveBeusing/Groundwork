@@ -100,7 +100,13 @@ internal sealed partial class WorldPublicationAuthority
                 return new(JobCapturePermitStatus.InvalidPermit, null);
             if (job.CaptureConsumed)
                 return new(JobCapturePermitStatus.AlreadyConsumed, null);
-            if (_control.IsTerminal || job.CancellationRequested || job.Execution != JobExecutionStatus.Running ||
+            if (_control.IsTerminal)
+            {
+                // Capture can observe the terminal fence before the permit's stop observer runs.
+                permit.SignalCancellation();
+                return new(JobCapturePermitStatus.Expired, null);
+            }
+            if (job.CancellationRequested || job.Execution != JobExecutionStatus.Running ||
                 _drain is not null || _phase?.Phase != permit.DispatchPhase || _stamp != permit.DispatchStamp)
                 return new(JobCapturePermitStatus.Expired, null);
             if (_borrowed >= _quota.BorrowedLeases)
@@ -108,7 +114,14 @@ internal sealed partial class WorldPublicationAuthority
 
             var pin = new CaptureLease(this, job, new CommittedWorldView(_stamp, CurrentRoot));
             if (_ownership.TryTrack(pin) is not { } tracked)
+            {
+                if (_control.IsTerminal)
+                {
+                    permit.SignalCancellation();
+                    return new(JobCapturePermitStatus.Expired, null);
+                }
                 return new(JobCapturePermitStatus.CapacityExceeded, null);
+            }
 
             pin.Tracked = tracked;
             job.CaptureConsumed = true;
@@ -139,7 +152,10 @@ internal sealed partial class WorldPublicationAuthority
     {
         lock (_control.Gate)
         {
-            if (_control.IsTerminal || !TryFindPermit(stamp.Permit, out var job) || !job.CaptureOpen ||
+            var stopped = _control.IsTerminal;
+            if (stopped && TryFindPermit(stamp.Permit, out _))
+                stamp.Permit.SignalCancellation();
+            if (stopped || !TryFindPermit(stamp.Permit, out var job) || !job.CaptureOpen ||
                 stamp.Target.Entity.World != _stamp.World || stamp.Target.Entity.Generation == 0 ||
                 stamp.Target.Component.Value == 0 && !stamp.Present ||
                 !CouldCover(job.Submission.ReadScopes, stamp.Target))
