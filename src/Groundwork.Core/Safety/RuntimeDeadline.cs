@@ -29,6 +29,23 @@ public readonly struct RuntimeDeadline
         return TimeSpan.FromTicks((long)Int128.Min(ticks, long.MaxValue));
     }
 
+    /// <summary>Returns the remaining settlement budget without sampling the supplied clock.</summary>
+    public TimeSpan GetRemainingForSettlement(TimeProvider clock)
+    {
+        var source = ValidateClock(clock);
+        if (_expired || !source.IsValid)
+        {
+            return TimeSpan.Zero;
+        }
+
+        var watchdog = TimeProvider.System;
+        var clockTicks = ((Int128)Timestamp - source.LastTimestamp) * TimeSpan.TicksPerSecond / source.Frequency;
+        var watchdogTicks = ((Int128)_watchdogTimestamp - watchdog.GetTimestamp()) * TimeSpan.TicksPerSecond /
+            watchdog.TimestampFrequency;
+        var remaining = Int128.Min(clockTicks, watchdogTicks);
+        return TimeSpan.FromTicks((long)Int128.Clamp(remaining, 0, long.MaxValue));
+    }
+
     internal bool ForcedExpired => _expired;
 
     internal bool IsExpiredForSettlement()
@@ -93,6 +110,12 @@ internal sealed class DeadlineClock
     {
         var valid = TryRead(out var now);
         return At(now, duration, valid);
+    }
+
+    internal RuntimeDeadline StartFromTrustedSample(long duration)
+    {
+        var now = ReferenceEquals(Provider, TimeProvider.System) ? TimeProvider.System.GetTimestamp() : LastTimestamp;
+        return At(now, duration, IsValid);
     }
 
     internal RuntimeDeadline At(long now, long duration, bool valid = true, long? watchdogOrigin = null)

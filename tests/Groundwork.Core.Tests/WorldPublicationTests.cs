@@ -47,7 +47,8 @@ public sealed class WorldPublicationTests
     [DataRow(true)]
     public async Task BorrowPinsItsExactCommittedRootUntilReleaseOrDeadline(bool lateRelease)
     {
-        using var fixture = new CoreRuntimeFixture(new ManualDrainClock());
+        var clock = new DrainClock();
+        using var fixture = new CoreRuntimeFixture(clock);
         var world = fixture.OpenWorld();
         var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
         var ports = world.Publication;
@@ -74,20 +75,37 @@ public sealed class WorldPublicationTests
         var drain = ports.Borrow.CloseAndDrainAsync(request, deadline).AsTask();
         Assert.IsFalse(drain.IsCompleted);
         if (lateRelease)
+        {
             fixture.Clock.Advance(deadline.GetRemaining(fixture.Clock));
-        lease.Dispose();
+            Assert.IsTrue(deadline.IsExpired(fixture.Clock));
+        }
+        clock.BeforeSample = static () => throw new InvalidOperationException("The clock is unavailable.");
+        try
+        {
+            lease.Dispose();
+        }
+        finally
+        {
+            clock.BeforeSample = null;
+        }
         Assert.AreEqual(lateRelease ? BorrowDrainStatus.TimedOut : BorrowDrainStatus.Drained,
             await drain.WaitAsync(TimeSpan.FromSeconds(5)));
         Assert.AreEqual(stamp, ports.Committed.Read().Stamp);
         if (lateRelease)
             Assert.AreEqual(CandidateSealStatus.Stopped, ports.Candidates.SealCandidates(request).Status);
         ports.Execution.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));
+        handle.Dispose();
+        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
     }
 
     [TestMethod]
-    public async Task BorrowDrainTimeoutFencesWorldWithoutAdvancingTheBarrier()
+    public async Task BorrowDrainWatchdogFencesWorldWhileInjectedClockIsBlocked()
     {
-        using var fixture = new CoreRuntimeFixture();
+        var clock = new DrainClock();
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(2), TimeSpan.FromMilliseconds(200),
+            TimeSpan.FromSeconds(2));
+        using var fixture = new CoreRuntimeFixture(clock, timing: timing);
         var world = fixture.OpenWorld();
         var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
         var ports = world.Publication;
@@ -106,16 +124,36 @@ public sealed class WorldPublicationTests
         Assert.IsNotNull(lease);
         ports.Phases.Close(phase);
         var request = new BarrierRequest(stamp, 1, BarrierKind.CommitResults);
-        var deadline = world.CreateBorrowedDrainDeadline();
-        fixture.Clock.Advance(deadline.GetRemaining(fixture.Clock));
-
-        Assert.AreEqual(BorrowDrainStatus.TimedOut, await ports.Borrow.CloseAndDrainAsync(request, deadline));
-        Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
-        Assert.AreEqual(before, ports.Committed.Read());
-        Assert.AreEqual(before, lease.World);
-        Assert.AreEqual(CandidateSealStatus.Stopped, ports.Candidates.SealCandidates(request).Status);
-        lease.Dispose();
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var resume = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        clock.BeforeSample = () =>
+        {
+            entered.TrySetResult();
+            resume.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+        };
+        var clockOwner = Task.Run(() => clock.GetTimestamp());
+        try
+        {
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var drain = Task.Run(async () => await ports.Borrow.CloseAndDrainAsync(request, world.CreateBorrowedDrainDeadline()));
+            Assert.AreEqual(BorrowDrainStatus.TimedOut, await drain.WaitAsync(TimeSpan.FromSeconds(5)));
+            Assert.IsFalse(clockOwner.IsCompleted);
+            Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+            Assert.AreEqual(before, ports.Committed.Read());
+            Assert.AreEqual(before, lease.World);
+            Assert.AreEqual(CandidateSealStatus.Stopped, ports.Candidates.SealCandidates(request).Status);
+            lease.Dispose();
+        }
+        finally
+        {
+            clock.BeforeSample = null;
+            resume.TrySetResult();
+            await clockOwner.WaitAsync(TimeSpan.FromSeconds(5));
+        }
         ports.Execution.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));
+        handle.Dispose();
+        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
     }
 
     [TestMethod]
@@ -379,15 +417,17 @@ public sealed class WorldPublicationTests
         return batch;
     }
 
-    private sealed class ManualDrainClock : CoreRuntimeFixture.TestClock
+    private sealed class DrainClock : CoreRuntimeFixture.TestClock
     {
-        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) => new InertTimer();
-    }
+        internal Action? BeforeSample { get; set; }
 
-    private sealed class InertTimer : ITimer
-    {
-        public bool Change(TimeSpan dueTime, TimeSpan period) => true;
-        public void Dispose() { }
-        public ValueTask DisposeAsync() => ValueTask.CompletedTask;
+        public override long GetTimestamp()
+        {
+            BeforeSample?.Invoke();
+            return base.GetTimestamp();
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period) =>
+            throw new InvalidOperationException("The drain must use a trusted timer.");
     }
 }
