@@ -9,5 +9,6 @@
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj" />
+    <Project Path="tests/Groundwork.Ecs.Tests/Groundwork.Ecs.Tests.csproj" />
   </Folder>
 </Solution>
