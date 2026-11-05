@@ -115,6 +115,54 @@ public sealed class SafetyAuthorityTests
         fixture.Clock.Advance(TimeSpan.FromSeconds(-1));
         Assert.IsTrue(deadline.IsExpired(fixture.Clock));
         Assert.AreEqual(TimeSpan.Zero, deadline.GetRemaining(fixture.Clock));
+        Assert.AreEqual(TimeSpan.Zero, deadline.GetRemainingForSettlement(fixture.Clock));
+    }
+
+    [TestMethod]
+    public void SettlementDeadlineUsesTrustedWatchdogWithoutSamplingClock()
+    {
+        var clock = new ThrowingClock();
+        var budget = TimeSpan.FromMilliseconds(200);
+        using var fixture = new CoreRuntimeFixture(clock, timing: new RuntimeTimingLimits(budget, budget, budget));
+        var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        clock.RejectSamples = true;
+
+        try
+        {
+            Assert.IsLessThanOrEqualTo(budget, deadline.GetRemainingForSettlement(clock));
+            Assert.ThrowsExactly<ArgumentException>(() => deadline.GetRemainingForSettlement(TimeProvider.System));
+            Assert.ThrowsExactly<ArgumentException>(() => default(RuntimeDeadline).GetRemainingForSettlement(clock));
+            Assert.IsTrue(SpinWait.SpinUntil(() => deadline.GetRemainingForSettlement(clock) == TimeSpan.Zero,
+                TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            clock.RejectSamples = false;
+        }
+    }
+
+    [TestMethod]
+    public void WorldFaultStopsWithoutSamplingAnUnavailableClock()
+    {
+        var clock = new ThrowingClock();
+        using var fixture = new CoreRuntimeFixture(clock);
+        var world = fixture.OpenWorld();
+        clock.RejectSamples = true;
+
+        try
+        {
+            var context = new FaultContext(world.Publication.Committed.Read().Stamp.World, null, null, null, null, null);
+            var observation = new FaultObservation(FaultClass.IncompleteCleanup, FaultSeverity.Error, FaultSubsystem.Jobs,
+                FaultOrigin.Cleanup, 1, 0, context, [], []);
+            world.Reporter.TryReport(observation);
+
+            Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+            Assert.IsFalse(fixture.Runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+        }
+        finally
+        {
+            clock.RejectSamples = false;
+        }
     }
 
     [TestMethod]
@@ -314,6 +362,15 @@ public sealed class SafetyAuthorityTests
             await Release.Task.WaitAsync(cancellationToken);
             return SupervisorAction.ContinueAtSafeBarrier;
         }
+    }
+
+    private sealed class ThrowingClock : CoreRuntimeFixture.TestClock
+    {
+        internal bool RejectSamples { get; set; }
+
+        public override long GetTimestamp() => RejectSamples
+            ? throw new InvalidOperationException("The injected clock is unavailable.")
+            : base.GetTimestamp();
     }
 
     private sealed class BlockingClock : CoreRuntimeFixture.TestClock
