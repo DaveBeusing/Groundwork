@@ -3,7 +3,7 @@ using Groundwork.Core;
 
 namespace Groundwork.Jobs;
 
-internal sealed class JobResults(JobDispatchPermit permit, JobResultKind kind) : IJobCommandWriter
+internal sealed class JobResults(JobDispatchPermit permit, JobResultKind kind, Task localStop) : IJobCommandWriter
 {
     private readonly object _gate = new();
     private readonly ImmutableArray<ResourceKey> _scopes = permit.Scope.CommandScopes;
@@ -22,7 +22,7 @@ internal sealed class JobResults(JobDispatchPermit permit, JobResultKind kind) :
     {
         lock (_gate)
         {
-            if (_closed)
+            if (_closed || localStop.IsCompleted || permit.CancellationRequested.IsCompleted)
                 return BatchAppendResult.Closed;
             if (_failure is { } prior)
                 return prior;
@@ -60,7 +60,7 @@ internal sealed class JobResults(JobDispatchPermit permit, JobResultKind kind) :
     {
         lock (_gate)
         {
-            if (_closed)
+            if (_closed || localStop.IsCompleted || permit.CancellationRequested.IsCompleted)
                 return BatchAppendResult.Closed;
             if (_failure is { } prior)
                 return prior;

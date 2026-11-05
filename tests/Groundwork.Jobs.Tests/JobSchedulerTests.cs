@@ -14,6 +14,129 @@ public sealed class JobSchedulerTests
     public TestContext TestContext { get; set; } = null!;
 
     [TestMethod]
+    public async Task TwoOwnershipCreditsRunCommandlessWorkAndRejectUnfundedCapture()
+    {
+        await using var fixture = new Fixture(worldOperations: 2);
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = static (_, _) => ValueTask.CompletedTask,
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        Assert.AreEqual(JobAdmissionStatus.CapacityExceeded,
+            scheduler.TrySubmit(Submission(phase, 1, First) with { InputKind = JobInputKind.Borrowed }, phase).Status);
+        using var job = Admit(scheduler, phase, Submission(phase, 2, First));
+        await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+        Assert.AreEqual(JobExecutionStatus.Succeeded, (await Finish(job)).Status);
+        fixture.Publication.Phases.Close(phase);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ResultWriterClosesOnOwnerCancellationOrLocalStop(bool localStop)
+    {
+        await using var fixture = new Fixture();
+        var started = Signal();
+        var write = Signal();
+        var observed = new TaskCompletionSource<BatchAppendResult>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = async (context, _) =>
+            {
+                started.TrySetResult();
+                await write.Task;
+                observed.TrySetResult(localStop
+                    ? context.Results.TrySetOutput([42])
+                    : context.Results.TryAppend(CreateCommand()));
+            },
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, localStop ? Submission(phase, 1, First) : Structural(phase, 1, First));
+        Task? stopped = null;
+        try
+        {
+            await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+            await started.Task.WaitAsync(TestTimeout);
+            if (localStop)
+                stopped = scheduler.StopAsync(fixture.Ports.CreateBorrowedDrainDeadline()).AsTask();
+            else
+                Assert.AreEqual(JobCancellationStatus.Requested, job.RequestCancellation());
+        }
+        finally
+        {
+            write.TrySetResult();
+        }
+
+        Assert.AreEqual(BatchAppendResult.Closed, await observed.Task.WaitAsync(TestTimeout));
+        Assert.AreEqual(JobExecutionStatus.Cancelled, (await Finish(job)).Status);
+        if (stopped is not null)
+            await stopped.WaitAsync(TestTimeout);
+        fixture.Publication.Phases.Close(phase);
+    }
+
+    [TestMethod]
+    public async Task CancellationCallbackKeepsInputUntilItJoinsAndReportsCleanupOnce()
+    {
+        await using var fixture = new Fixture(requiredEvidenceRecords: 1);
+        var registered = Signal();
+        var callbackEntered = Signal();
+        var handlerReturned = Signal();
+        using var release = new ManualResetEventSlim();
+        var callbackRead = new TaskCompletionSource<ComponentReadStatus>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var exception = new InvalidOperationException("cancellation cleanup failure");
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = async (context, token) =>
+            {
+                // The invocation owns the token registration through callback completion.
+                _ = token.Register(() =>
+                {
+                    callbackEntered.TrySetResult();
+                    if (!release.Wait(TestTimeout))
+                        throw new TimeoutException("The test did not release the cancellation callback.");
+                    callbackRead.TrySetResult(context.Input!.ReadEntity(new EntityId(fixture.World, 0, 1)).Status);
+                    throw exception;
+                });
+                registered.TrySetResult();
+                await callbackEntered.Task;
+                handlerReturned.TrySetResult();
+            },
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, Submission(phase, 1, First) with
+        {
+            InputKind = JobInputKind.Borrowed,
+            ReadScopes = [new ResourceKey(fixture.World, new ComponentTypeId(1), new ResourceScope(ScopeKind.World, null, null))],
+        });
+        try
+        {
+            await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+            await registered.Task.WaitAsync(TestTimeout);
+            Assert.AreEqual(JobCancellationStatus.Requested, job.RequestCancellation());
+            await handlerReturned.Task.WaitAsync(TestTimeout);
+            Assert.IsFalse(job.ExecutionCompletion.IsCompleted);
+        }
+        finally
+        {
+            release.Set();
+        }
+
+        Assert.AreEqual(ComponentReadStatus.Present, await callbackRead.Task.WaitAsync(TestTimeout));
+        var report = await Finish(job);
+        Assert.AreEqual(JobExecutionStatus.Faulted, report.Status);
+        Assert.IsNotNull(report.Failure);
+        Assert.IsNull(report.Failure.Primary);
+        Assert.HasCount(1, report.Failure.Cleanup);
+        var cleanup = report.Failure.Cleanup[0].Exception.SourceException;
+        Assert.IsInstanceOfType<AggregateException>(cleanup);
+        Assert.AreSame(exception, ((AggregateException)cleanup).InnerException);
+        var safety = fixture.Ports.State.Read();
+        Assert.AreEqual(1, safety.PendingRequiredEvidenceRecords);
+        Assert.IsFalse(safety.Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+        fixture.Publication.Phases.Close(phase);
+    }
+
+    [TestMethod]
     public async Task IndependentWorkersRunTogetherAndDependentReadsSettledOutput()
     {
         await using var fixture = new Fixture();
@@ -462,7 +585,7 @@ public sealed class JobSchedulerTests
         private readonly TimeProvider _clock;
         private JobScheduler? _scheduler;
 
-        internal Fixture(TimeProvider? clock = null)
+        internal Fixture(TimeProvider? clock = null, int worldOperations = 48, int requiredEvidenceRecords = 4)
         {
             _clock = clock ?? TimeProvider.System;
             var quota = new ResourceQuota(1, 64,
@@ -477,8 +600,13 @@ public sealed class JobSchedulerTests
             World = world;
             var worldQuota = quota with
             {
-                OutstandingOperations = 48,
-                Diagnostics = quota.Diagnostics with { EmergencyRecords = 9, EmergencyBytes = 28672 },
+                OutstandingOperations = worldOperations,
+                Diagnostics = quota.Diagnostics with
+                {
+                    EmergencyRecords = 9,
+                    EmergencyBytes = 28672,
+                    RequiredEvidenceRecords = requiredEvidenceRecords,
+                },
             };
             Ports = Runtime.OpenWorld(world, worldQuota, new ContinuePolicy(), new Root(world), new ScopePolicy());
         }

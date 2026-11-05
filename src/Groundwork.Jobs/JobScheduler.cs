@@ -69,6 +69,7 @@ public sealed partial class JobScheduler : IJobScheduler
         ArgumentNullException.ThrowIfNull(submission);
         ArgumentNullException.ThrowIfNull(phase);
         JobId id;
+        bool needsCaptureHeadroom;
         lock (_gate)
         {
             if (_closed || _lastId == ulong.MaxValue)
@@ -76,15 +77,28 @@ public sealed partial class JobScheduler : IJobScheduler
             if (submission.Source.World != World || phase.Stamp.World != World ||
                 !_handlers.ContainsKey(submission.Handler))
                 return Reject(JobAdmissionStatus.InvalidDescriptor);
-            if (_admitting || _pending.Count >= _limits.QueuedJobs)
+            if (_admitting || _dispatching || _pending.Count >= _limits.QueuedJobs)
                 return Reject(JobAdmissionStatus.CapacityExceeded);
 
             _admitting = true;
             id = new JobId(World, ++_lastId);
+            needsCaptureHeadroom = submission.InputKind != JobInputKind.None || _pending.Any(entry => entry.NeedsCapture);
         }
 
         try
         {
+            // Keep enough room beyond Core's persistent job record for its
+            // temporary dispatch pin and our later invocation custody lease.
+            // Capture additionally needs a pin while the custody lease is live.
+            using var dispatchHeadroom = _ownership.TryTrack(this);
+            using var captureHeadroom = needsCaptureHeadroom && dispatchHeadroom is not null
+                ? _ownership.TryTrack(this) : null;
+            if (dispatchHeadroom is null || needsCaptureHeadroom && captureHeadroom is null)
+            {
+                lock (_gate)
+                    return Reject(_closed ? JobAdmissionStatus.Closed : JobAdmissionStatus.CapacityExceeded);
+            }
+
             var admittedAt = _clock.GetTimestamp();
             var result = _authority.TryAdmit(id, submission, phase);
             if (result is not { Status: JobAdmissionStatus.Accepted, Handle: { } handle })
@@ -93,7 +107,7 @@ public sealed partial class JobScheduler : IJobScheduler
                     return Reject(result.Status);
             }
 
-            var entry = new Entry(handle, submission.Source, submission.ResultKind,
+            var entry = new Entry(handle, submission.Source, submission.ResultKind, submission.InputKind != JobInputKind.None,
                 _handlers[submission.Handler], admittedAt);
             lock (_gate)
             {
@@ -135,6 +149,8 @@ public sealed partial class JobScheduler : IJobScheduler
                 throw new ArgumentException("The dispatch phase belongs to another world.", nameof(phase));
             if (_dispatching)
                 throw new InvalidOperationException("The phase coordinator already has a dispatch scan in progress.");
+            if (_admitting)
+                return ValueTask.CompletedTask;
 
             scan = [.. _pending.OrderBy(entry => entry.Source.Tick)
                 .ThenBy(entry => entry.Source.Phase).ThenBy(entry => entry.Source.System)
@@ -274,10 +290,6 @@ public sealed partial class JobScheduler : IJobScheduler
                     return;
             }
 
-            work.Retention = _ownership.TryTrack(work);
-            if (work.Retention is null)
-                return;
-
             var dispatch = _authority.TryAuthorizeDispatch(entry.Id, phase);
             if (dispatch is not { Status: JobDispatchStatus.Authorized, Permit: { } permit })
             {
@@ -297,6 +309,14 @@ public sealed partial class JobScheduler : IJobScheduler
             lock (_gate)
                 work.Permit = permit;
             removePending = true;
+            // Core has released its temporary policy pin by this point.
+            work.Retention = _ownership.TryTrack(work);
+            if (work.Retention is null)
+            {
+                _authority.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));
+                return;
+            }
+
             if (cancellationToken.IsCancellationRequested)
                 work.Stop.TrySetResult();
             Capture(work);

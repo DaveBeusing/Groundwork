@@ -105,7 +105,7 @@ public sealed partial class JobScheduler
         {
             if (primary is null && !IsCancellationRequested(work, permit))
             {
-                results = new JobResults(permit, work.Entry.Kind);
+                results = new JobResults(permit, work.Entry.Kind, work.Stop.Task);
                 var execution = new JobExecutionContext(permit.Job, permit.DispatchStamp,
                     permit.Arguments, input, permit.DependencyOutputs, results);
                 await work.Entry.Handler(execution, cancellation.Token).ConfigureAwait(false);
@@ -123,6 +123,12 @@ public sealed partial class JobScheduler
         finally
         {
             results?.Close();
+            ended.TrySetResult();
+            foreach (var exception in await watch.ConfigureAwait(false))
+                cleanup.Add(CaptureFailure(FaultClass.RecoverableJobFault, context, exception));
+
+            // Cancellation callbacks may still use the invocation's read-only
+            // input. Their completion is part of the borrowed ownership period.
             input?.Close();
             if (work.Input is { } owned)
             {
@@ -137,12 +143,7 @@ public sealed partial class JobScheduler
                     cleanup.Add(CaptureFailure(FaultClass.IncompleteCleanup, context, exception));
                 }
             }
-
-            ended.TrySetResult();
         }
-
-        foreach (var exception in await watch.ConfigureAwait(false))
-            cleanup.Add(CaptureFailure(FaultClass.RecoverableJobFault, context, exception));
 
         cancelled |= IsCancellationRequested(work, permit);
         ExecutionSettlementStatus settlement;
@@ -173,12 +174,17 @@ public sealed partial class JobScheduler
             classification = FaultClass.IncompleteCleanup;
         }
 
+        // Core records the cause of faulted execution as its atomic primary
+        // observation. When cleanup alone failed, that observation already
+        // represents the first cleanup error. The operational report below
+        // continues to distinguish the original and cleanup exceptions.
         var fault = new FaultObservation(primary is null ? cleanup[0].Classification : classification,
-            FaultSeverity.Error, FaultSubsystem.Jobs, FaultOrigin.Primary, 1, _clock.GetTimestamp(), context, [], []);
+            FaultSeverity.Error, FaultSubsystem.Jobs, FaultOrigin.Primary, primary is null ? 2U : 1U,
+            _clock.GetTimestamp(), context, [], []);
         settlement = _authority.TrySettleFault(permit, in fault);
 
-        foreach (var cleanupFailure in cleanup)
-            Report(cleanupFailure.Classification, FaultOrigin.Cleanup, context);
+        for (int index = primary is null ? 1 : 0; index < cleanup.Count; index++)
+            Report(cleanup[index].Classification, FaultOrigin.Cleanup, context);
 
         var settled = settlement != ExecutionSettlementStatus.InvalidCompletion;
         if (!settled)
@@ -271,7 +277,8 @@ public sealed partial class JobScheduler
         internal void Close() => Interlocked.Exchange(ref _input, null);
     }
 
-    private sealed class Entry(IJobHandle handle, SourceKey source, JobResultKind kind, JobHandler handler, long admittedAt)
+    private sealed class Entry(IJobHandle handle, SourceKey source, JobResultKind kind, bool needsCapture,
+        JobHandler handler, long admittedAt)
         : IJobExecutionHandle
     {
         private readonly object _gate = new();
@@ -283,6 +290,7 @@ public sealed partial class JobScheduler
         public Task<JobExecutionReport> ExecutionCompletion => _completion.Task;
         internal SourceKey Source { get; } = source;
         internal JobResultKind Kind { get; } = kind;
+        internal bool NeedsCapture { get; } = needsCapture;
         internal JobHandler Handler { get; } = handler;
         internal long AdmittedAt { get; } = admittedAt;
 
