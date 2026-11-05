@@ -186,6 +186,128 @@ public sealed class EcsWorldTests
         fixture.Complete(permit);
     }
 
+    [TestMethod]
+    public async Task PartitionCreationAndAnExistingMemberWriteRejectBothBatches()
+    {
+        var partition = new PartitionId(1);
+        using var fixture = new EcsFixture(partitions: [partition]);
+        var entity = await SeedAsync(fixture, partition: fixture.World.FindPartition(partition));
+        var destination = fixture.World.FindPartition(partition);
+        var member = new ResourceKey(fixture.World.Id, EcsFixture.Positions, new ResourceScope(ScopeKind.Entity, null, entity));
+        using var create = fixture.Admit(JobInputKind.None, write: [fixture.WorldScope()]);
+        using var replace = fixture.Admit(JobInputKind.Borrowed, [member], [member]);
+        fixture.Complete(fixture.Dispatch(create), EcsFixture.Create(partition: destination),
+            EcsFixture.AddNew(2, EcsFixture.Positions, new Position(30)));
+        var permit = fixture.Dispatch(replace);
+        TargetVersion? expected;
+        using (var input = fixture.Capture(permit))
+            expected = input.Read<Position>(entity).Version;
+        fixture.Complete(permit, EcsFixture.Existing(1, JobCommandKind.ReplaceComponent, entity, EcsFixture.Positions, expected,
+            EcsFixture.Registry.Encode(new Position(40))));
+
+        var plan = await fixture.EndAsync(2);
+        Assert.HasCount(2, plan.Issues);
+        Assert.IsTrue(plan.Issues.All(issue => issue.Reason == BatchRejection.WriteConflict));
+        Assert.AreEqual(create.Id, plan.Issues[0].Job);
+        Assert.AreEqual(replace.Id, plan.Issues[1].Job);
+        Assert.AreEqual(plan.Issues[1].Batch, plan.Issues[0].ConflictingBatch);
+        Assert.AreEqual(plan.Issues[0].Batch, plan.Issues[1].ConflictingBatch);
+        Assert.AreEqual(new Position(12), fixture.World.Read<Position>(entity).Value);
+        Assert.IsEmpty((await fixture.BeginAsync(3)).Dispositions);
+        Assert.HasCount(1, fixture.World.Query<Position>());
+    }
+
+    [TestMethod]
+    public async Task ConcurrentStageRetainsOnePlanAndStorageStaysChargedThroughCustody()
+    {
+        var clock = new TestClock();
+        using var fixture = new EcsFixture(clock: clock);
+        await fixture.BeginAsync(1);
+        using (var seed = fixture.Admit(JobInputKind.None, write: [fixture.WorldScope()]))
+        {
+            fixture.Complete(fixture.Dispatch(seed), EcsFixture.Create(), EcsFixture.AddNew(2, EcsFixture.Positions, new Position(12)));
+            await fixture.EndAsync(1);
+        }
+        var request = new BarrierRequest(fixture.Ports.Committed.Read().Stamp, 2, BarrierKind.BeginTick);
+        Assert.AreEqual(BorrowDrainStatus.Drained,
+            await fixture.Ports.Borrow.CloseAndDrainAsync(request, fixture.World.Safety.CreateBorrowedDrainDeadline()));
+        var sealedSet = fixture.Ports.Candidates.SealCandidates(request);
+        Assert.AreEqual(CandidateSealStatus.Sealed, sealedSet.Status);
+        Assert.IsNotNull(sealedSet.Candidates);
+
+        var ready = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = AttemptStageAsync(fixture.World, sealedSet.Candidates, ready.Task);
+        var second = AttemptStageAsync(fixture.World, sealedSet.Candidates, ready.Task);
+        ready.SetResult();
+        var attempts = await Task.WhenAll(first, second).WaitAsync(TimeSpan.FromSeconds(5));
+        using var retained = attempts.OfType<EcsBatchPlan>().Single();
+        Assert.AreEqual(BatchDispositionKind.Commit, retained.Dispositions.Single().Kind);
+        Assert.AreEqual(BarrierPreparationStatus.Prepared, retained.Prepare(fixture.World.Safety.State.Read().PendingFaultGeneration));
+        Assert.AreEqual(EcsFixture.RetainedBytes, fixture.StorageBudget.ReservedBytes);
+        Assert.ThrowsExactly<InvalidOperationException>(() => new EcsFixture(storageBudget: fixture.StorageBudget));
+
+        var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        Assert.AreEqual(ShutdownSettlement.Pending, fixture.Runtime.SettleStop());
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.IsTrue(deadline.IsExpired(clock));
+        Assert.AreEqual(ShutdownSettlement.Custody, fixture.Runtime.SettleStop());
+        Assert.IsFalse(fixture.World.TryReleaseStorage());
+        Assert.AreEqual(EcsFixture.RetainedBytes, fixture.StorageBudget.ReservedBytes);
+        Assert.AreEqual(BarrierStatus.Stopped, retained.FinalizePublication().Status);
+        Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
+        Assert.IsTrue(fixture.World.TryReleaseStorage());
+        Assert.AreEqual(0L, fixture.StorageBudget.ReservedBytes);
+        using var replacement = new EcsFixture(storageBudget: fixture.StorageBudget);
+        Assert.AreEqual(EcsFixture.RetainedBytes, replacement.StorageBudget.ReservedBytes);
+    }
+
+    [TestMethod]
+    public async Task PublishedObserverLeaseKeepsStorageChargedUntilAcknowledged()
+    {
+        var clock = new TestClock();
+        using var fixture = new EcsFixture(clock: clock);
+        var entity = await SeedAsync(fixture);
+        await fixture.EndAsync(2);
+        var result = fixture.Ports.ObserverSnapshots.TryAcquire();
+        Assert.AreEqual(ObserverReadStatus.Acquired, result.Status);
+        using var lease = result.Lease;
+        Assert.IsNotNull(lease);
+        Assert.AreEqual(new Position(12), ((EcsObserverState)lease.Current.State).Read<Position>(entity).Value);
+
+        var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.IsTrue(deadline.IsExpired(clock));
+        Assert.AreEqual(ShutdownSettlement.Custody, fixture.Runtime.SettleStop());
+        Assert.AreEqual(EcsFixture.RetainedBytes, fixture.StorageBudget.ReservedBytes);
+        Assert.AreEqual(ObserverPublication.Blocked,
+            fixture.World.PublishObserver(lease.Current.Stamp, fixture.World.Safety.State.Read().PendingFaultGeneration));
+        lease.Dispose();
+        Assert.AreEqual(ShutdownSettlement.Released, fixture.Runtime.SettleStop());
+        Assert.IsTrue(fixture.World.TryReleaseStorage());
+        Assert.AreEqual(0L, fixture.StorageBudget.ReservedBytes);
+    }
+
+    private static Task<EcsBatchPlan?> AttemptStageAsync(EcsWorld world, CandidateSet candidates, Task start) => Task.Run(async () =>
+    {
+        await start;
+        try
+        {
+            return world.Stage(candidates);
+        }
+        catch (InvalidOperationException)
+        {
+            return null;
+        }
+    });
+
+    private sealed class TestClock : TimeProvider
+    {
+        private long _timestamp;
+        public override long TimestampFrequency => TimeSpan.TicksPerSecond;
+        public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
+        internal void Advance(TimeSpan interval) => Interlocked.Add(ref _timestamp, interval.Ticks);
+    }
+
     private static async Task<EntityId> SeedAsync(EcsFixture fixture, bool second = false, PartitionScope? partition = null)
     {
         await fixture.BeginAsync(1);

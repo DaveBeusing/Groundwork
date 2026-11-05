@@ -8,6 +8,7 @@ internal readonly record struct Health(int Value);
 
 internal sealed class EcsFixture : IDisposable
 {
+    internal const long RetainedBytes = 134217728;
     internal static readonly ComponentTypeId Positions = new(1);
     internal static readonly ComponentTypeId Healths = new(2);
     internal static readonly ComponentRegistry Registry = new ComponentRegistryBuilder()
@@ -15,7 +16,8 @@ internal sealed class EcsFixture : IDisposable
     private readonly RuntimeSafetyAuthority _runtime;
     private ulong _ordinal;
 
-    internal EcsFixture(int slots = 16, IEnumerable<PartitionId>? partitions = null)
+    internal EcsFixture(int slots = 16, IEnumerable<PartitionId>? partitions = null,
+        EcsStorageBudget? storageBudget = null, TimeProvider? clock = null)
     {
         var quota = new ResourceQuota(1, 64,
             new JobQuota(32, 8, 32, 32, 16, 32, 64, 65536, 65536, 65536),
@@ -24,14 +26,26 @@ internal sealed class EcsFixture : IDisposable
         var reservation = budget.TryReserveRuntime(quota);
         Assert.IsNotNull(reservation);
         var duration = TimeSpan.FromSeconds(2);
-        _runtime = RuntimeSafetyAuthority.Create(TimeProvider.System, new RuntimeTimingLimits(duration, duration, duration), reservation);
-        World = EcsWorld.Open(_runtime, quota with
+        _runtime = RuntimeSafetyAuthority.Create(clock ?? TimeProvider.System, new RuntimeTimingLimits(duration, duration, duration), reservation);
+        StorageBudget = storageBudget ?? new EcsStorageBudget(RetainedBytes);
+        try
         {
-            Diagnostics = quota.Diagnostics with { EmergencyRecords = 21, EmergencyBytes = 61440 },
-        }, new ContinuePolicy(), Registry, new EcsLimits(slots, 2, 4, 1048576, 134217728), partitions);
+            World = EcsWorld.Open(_runtime, quota with
+            {
+                Diagnostics = quota.Diagnostics with { EmergencyRecords = 21, EmergencyBytes = 61440 },
+            }, new ContinuePolicy(), Registry, new EcsLimits(slots, 2, 4, 1048576, RetainedBytes), StorageBudget, partitions);
+        }
+        catch
+        {
+            _runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            _runtime.SettleStop();
+            throw;
+        }
     }
 
     internal EcsWorld World { get; }
+    internal RuntimeSafetyAuthority Runtime => _runtime;
+    internal EcsStorageBudget StorageBudget { get; }
     internal WorldPublicationPorts Ports => World.Safety.Publication;
     internal JobDispatchPhase? Phase { get; private set; }
 
@@ -52,9 +66,8 @@ internal sealed class EcsFixture : IDisposable
         Phase = null;
         var plan = await RunBarrierAsync(tick, BarrierKind.CommitResults);
         var stamp = Ports.Committed.Read().Stamp;
-        var observer = new ObserverPublicationDraft(stamp, World.Safety.State.Read().PendingFaultGeneration,
-            World.CaptureObserver(stamp));
-        Assert.AreEqual(ObserverPublication.Published, Ports.Observer.TryPublish(observer));
+        Assert.AreEqual(ObserverPublication.Published,
+            World.PublishObserver(stamp, World.Safety.State.Read().PendingFaultGeneration));
         return plan;
     }
 
@@ -66,7 +79,7 @@ internal sealed class EcsFixture : IDisposable
         var sealedSet = Ports.Candidates.SealCandidates(request);
         Assert.AreEqual(CandidateSealStatus.Sealed, sealedSet.Status);
         Assert.IsNotNull(sealedSet.Candidates);
-        var plan = World.Stage(sealedSet.Candidates);
+        using var plan = World.Stage(sealedSet.Candidates);
         foreach (var issue in plan.Issues)
             Assert.AreEqual(FaultReportStatus.Recorded, issue.Report(World.Safety.Reporter, TimeProvider.System.GetTimestamp()));
         ulong generation = World.Safety.State.Read().PendingFaultGeneration;
@@ -79,10 +92,8 @@ internal sealed class EcsFixture : IDisposable
             var decision = await World.Safety.Supervisor.DecideAsync(review, CancellationToken.None);
             Assert.AreEqual(DecisionApplication.Continued, World.Safety.Coordinator.TryApply(decision));
         }
-        var prepared = Ports.Preparation.TryPrepare(plan.CreateDraft(generation));
-        Assert.AreEqual(BarrierPreparationStatus.Prepared, prepared.Status);
-        Assert.IsNotNull(prepared.Publication);
-        Assert.AreNotEqual(BarrierStatus.Stopped, Ports.Finalization.TryFinalize(prepared.Publication).Status);
+        Assert.AreEqual(BarrierPreparationStatus.Prepared, plan.Prepare(generation));
+        Assert.AreNotEqual(BarrierStatus.Stopped, plan.FinalizePublication().Status);
         return plan;
     }
 
@@ -147,7 +158,8 @@ internal sealed class EcsFixture : IDisposable
     public void Dispose()
     {
         _runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
-        _runtime.SettleStop();
+        if (_runtime.SettleStop() == ShutdownSettlement.Released)
+            World.TryReleaseStorage();
     }
 
     private sealed class ContinuePolicy : IBarrierSupervisorPolicy

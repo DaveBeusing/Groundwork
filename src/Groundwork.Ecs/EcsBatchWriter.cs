@@ -28,20 +28,104 @@ public readonly record struct EcsBatchIssue(BatchId Batch, JobId Job, BatchRejec
 }
 
 /// <summary>Isolated writer staging. The trusted coordinator owns supervision and final publication.</summary>
-public sealed class EcsBatchPlan
+public sealed class EcsBatchPlan : IDisposable
 {
-    private readonly CandidateSet _candidates;
-    private readonly EcsRoot _next;
+    private readonly WorldPublicationPorts _ports;
+    private readonly object _gate = new();
+    private CandidateSet? _candidates;
+    private EcsRoot? _entry;
+    private EcsRoot? _next;
+    private PreparedBarrierPublication? _prepared;
+    private IRuntimeWorkLease? _lease;
 
-    internal EcsBatchPlan(CandidateSet candidates, EcsRoot next, ImmutableArray<BatchDisposition> dispositions,
-        ImmutableArray<EcsBatchIssue> issues)
-        => (_candidates, _next, Dispositions, Issues) = (candidates, next, dispositions, issues);
+    internal EcsBatchPlan(WorldPublicationPorts ports, CandidateSet candidates) => (_ports, _candidates) = (ports, candidates);
 
-    public ImmutableArray<BatchDisposition> Dispositions { get; }
-    public ImmutableArray<EcsBatchIssue> Issues { get; }
-    public BarrierPublicationDraft CreateDraft(ulong expectedSafetyGeneration) =>
-        new(_candidates, _next, expectedSafetyGeneration, Dispositions);
+    public ImmutableArray<BatchDisposition> Dispositions { get; private set; } = [];
+    public ImmutableArray<EcsBatchIssue> Issues { get; private set; } = [];
+
+    internal bool IsSettled
+    {
+        get
+        {
+            lock (_gate)
+                return _lease is null;
+        }
+    }
+
+    internal void Track(IRuntimeWorkLease lease, EcsRoot entry) => (_lease, _entry) = (lease, entry);
+
+    internal void Stage()
+    {
+        var staged = EcsBatchWriter.Stage(_entry!, _candidates!, _ports.VersionIssuer);
+        (_next, Dispositions, Issues) = (staged.Root, staged.Dispositions, staged.Issues);
+    }
+
+    public BarrierPreparationStatus Prepare(ulong expectedSafetyGeneration)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_lease is null, this);
+            if (_prepared is not null)
+                throw new InvalidOperationException("The ECS batch plan is already prepared.");
+            var result = _ports.Preparation.TryPrepare(new BarrierPublicationDraft(_candidates!, _next!,
+                expectedSafetyGeneration, Dispositions));
+            _prepared = result.Publication;
+            return result.Status;
+        }
+    }
+
+    public BarrierOutcome FinalizePublication()
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_lease is null, this);
+            if (_prepared is not { } prepared)
+                throw new InvalidOperationException("Prepare the ECS batch plan before finalization.");
+            var outcome = _ports.Finalization.TryFinalize(prepared);
+            if (outcome.Status == BarrierStatus.Stopped)
+                _ = AbortLocked(BarrierAbortReason.Faulted);
+            else
+                Release();
+            return outcome;
+        }
+    }
+
+    public BarrierAbortStatus Abort(BarrierAbortReason reason)
+    {
+        lock (_gate)
+            return AbortLocked(reason);
+    }
+
+    public void Dispose()
+    {
+        lock (_gate)
+            _ = AbortLocked(BarrierAbortReason.Cancelled);
+    }
+
+    private BarrierAbortStatus AbortLocked(BarrierAbortReason reason)
+    {
+        if (_lease is null)
+            return BarrierAbortStatus.AlreadySettled;
+        var result = _ports.Finalization.TryAbort(_candidates!, reason);
+        if (result is BarrierAbortStatus.Stopped or BarrierAbortStatus.AlreadySettled)
+            Release();
+        return result;
+    }
+
+    private void Release()
+    {
+        _entry = null;
+        _next = null;
+        _candidates = null;
+        _prepared = null;
+        var lease = _lease;
+        _lease = null;
+        lease?.Dispose();
+    }
 }
+
+internal sealed record StagedBatchResult(EcsRoot Root, ImmutableArray<BatchDisposition> Dispositions,
+    ImmutableArray<EcsBatchIssue> Issues);
 
 internal static class EcsBatchWriter
 {
@@ -59,7 +143,7 @@ internal static class EcsBatchWriter
         internal EcsBatchIssue? Issue { get; set; }
     }
 
-    internal static EcsBatchPlan Stage(EcsRoot entry, CandidateSet candidates, ITargetVersionIssuer versions)
+    internal static StagedBatchResult Stage(EcsRoot entry, CandidateSet candidates, ITargetVersionIssuer versions)
     {
         var analyses = candidates.Batches.Select(batch => new BatchAnalysis(batch)).ToArray();
         foreach (var analysis in analyses)
@@ -92,7 +176,7 @@ internal static class EcsBatchWriter
                     defer ? BatchDispositionKind.Defer : BatchDispositionKind.Commit, BatchRejection.None));
             }
         }
-        return new EcsBatchPlan(candidates, current, dispositions.MoveToImmutable(), issues.ToImmutable());
+        return new StagedBatchResult(current, dispositions.MoveToImmutable(), issues.ToImmutable());
     }
 
     private static void RejectConflicts(WorldId world, BatchAnalysis[] analyses)
@@ -100,25 +184,31 @@ internal static class EcsBatchWriter
         var writes = analyses.Where(analysis => !analysis.Issue.HasValue)
             .SelectMany(analysis => analysis.Writes.Select(target => (analysis, target))).ToArray();
         foreach (var partition in writes.Where(item => item.target.Partition.HasValue).GroupBy(item => item.target.Partition!.Value.Partition))
-            RejectGroup(world, partition);
+            RejectWildcardGroup(world, partition, item => !item.target.Entity.HasValue);
         foreach (var entity in writes.Where(item => item.target.Entity.HasValue).GroupBy(item => item.target.Entity!.Value))
         {
             if (entity.Any(item => item.target.Component.Value == 0))
             {
-                var destroyer = entity.First(item => item.target.Component.Value == 0);
-                var others = entity.Where(item => item.analysis != destroyer.analysis).ToArray();
-                if (others.Length != 0)
-                {
-                    MarkConflict(world, destroyer, others[0]);
-                    foreach (var other in others)
-                        MarkConflict(world, other, destroyer);
-                }
+                RejectWildcardGroup(world, entity, item => item.target.Component.Value == 0);
             }
             else
             {
                 foreach (var component in entity.GroupBy(item => item.target.Component))
                     RejectGroup(world, component);
             }
+        }
+    }
+
+    private static void RejectWildcardGroup(WorldId world, IEnumerable<(BatchAnalysis analysis, WriteTarget target)> group,
+        Func<(BatchAnalysis analysis, WriteTarget target), bool> wildcard)
+    {
+        var owner = group.FirstOrDefault(wildcard);
+        if (owner.analysis is null)
+            return;
+        foreach (var other in group.Where(item => item.analysis != owner.analysis).DistinctBy(item => item.analysis))
+        {
+            MarkConflict(world, owner, other);
+            MarkConflict(world, other, owner);
         }
     }
 
@@ -161,7 +251,10 @@ internal static class EcsBatchWriter
                 var failure = ValidateExisting(entry, batch, scope, command, entity, versions);
                 if (failure.HasValue)
                     return failure;
-                writes?.Add(new WriteTarget(entity, command.Component, null));
+                _ = entry.Find(entity, out var existingSlot);
+                var partition = existingSlot!.Partition is { } member
+                    ? new PartitionScope(member, entry.Partitions[member].Revision) : (PartitionScope?)null;
+                writes?.Add(new WriteTarget(entity, command.Component, partition));
             }
             else if (command.Entity.Provisional is { } id && provisional.TryGetValue(id, out var created) &&
                 command.Kind != JobCommandKind.DestroyEntity && scope.AllowsProvisional(command.Component, created.Destination))
