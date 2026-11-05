@@ -129,7 +129,7 @@ internal sealed class WorldControl
     {
         lock (Gate)
         {
-            var result = _runtime.Clock.Start(_runtime.BorrowedDrainDuration);
+            var result = _runtime.Clock.StartFromTrustedSample(_runtime.BorrowedDrainDuration);
             if (result.ForcedExpired)
             {
                 StopWorld();
@@ -146,7 +146,7 @@ internal sealed class WorldControl
             return;
         }
 
-        var deadline = _runtime.Clock.Start(_runtime.ShutdownDuration);
+        var deadline = _runtime.Clock.StartFromTrustedSample(_runtime.ShutdownDuration);
         StopForRuntime(deadline);
     }
 
