@@ -6,9 +6,11 @@
     <Description>Groundwork Platform.Windows module, WP01-L1 ownership.</Description>
     <IsPackable>true</IsPackable>
     <TargetFramework>net10.0-windows</TargetFramework>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="WorkPackage" Value="WP01-L1" />
+    <InternalsVisibleTo Include="Groundwork.Platform.Windows.Tests" />
     <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
   </ItemGroup>
 </Project>
