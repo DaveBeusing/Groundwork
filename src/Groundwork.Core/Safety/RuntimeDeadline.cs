@@ -112,6 +112,12 @@ internal sealed class DeadlineClock
         return At(now, duration, valid);
     }
 
+    internal RuntimeDeadline StartFromTrustedSample(long duration)
+    {
+        var now = ReferenceEquals(Provider, TimeProvider.System) ? TimeProvider.System.GetTimestamp() : LastTimestamp;
+        return At(now, duration, IsValid);
+    }
+
     internal RuntimeDeadline At(long now, long duration, bool valid = true, long? watchdogOrigin = null)
     {
         var watchdog = TimeProvider.System;

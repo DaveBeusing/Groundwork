@@ -1,3 +1,5 @@
+using System.Reflection;
+
 namespace Groundwork.Core.Tests;
 
 [TestClass]
@@ -39,19 +41,17 @@ public sealed class SafetyAuthorityTests
     }
 
     [TestMethod]
-    public async Task StopFencesAndSignalsBothWakesWhileAnInjectedClockHoldsTheGate()
+    public async Task StopFencesAndSignalsBothWakesWhileTheRuntimeGateIsHeld()
     {
-        var clock = new BlockingClock();
-        using var fixture = new CoreRuntimeFixture(clock);
+        using var fixture = new CoreRuntimeFixture();
         var world = fixture.OpenWorld();
         var runtime = fixture.Runtime;
 
-        clock.BlockNextSample();
-        var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
+        var (gateOwner, entered, release) = HoldGate(runtime);
         RuntimeDeadline deadline;
         try
         {
-            await clock.SampleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await entered.WaitAsync(TimeSpan.FromSeconds(5));
             deadline = await Task.Run(() => runtime.StopControl.RequestStop(HostStopReason.WindowClose))
                 .WaitAsync(TimeSpan.FromSeconds(5));
             Assert.IsTrue(runtime.UiWake.Handle.WaitOne(TimeSpan.Zero));
@@ -59,7 +59,7 @@ public sealed class SafetyAuthorityTests
         }
         finally
         {
-            clock.SampleReleased.TrySetResult();
+            release.TrySetResult();
             await gateOwner.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
@@ -68,22 +68,20 @@ public sealed class SafetyAuthorityTests
     }
 
     [TestMethod]
-    public async Task ShutdownTransfersToCustodyWhileTheInjectedClockStillHoldsTheGate()
+    public async Task ShutdownTransfersToCustodyWhileTheRuntimeGateIsHeld()
     {
-        var clock = new BlockingClock();
         var shutdown = TimeSpan.FromMilliseconds(100);
         var otherDeadline = TimeSpan.FromSeconds(2);
-        using var fixture = new CoreRuntimeFixture(clock, timing: new RuntimeTimingLimits(shutdown, otherDeadline, otherDeadline));
+        using var fixture = new CoreRuntimeFixture(timing: new RuntimeTimingLimits(shutdown, otherDeadline, otherDeadline));
         var world = fixture.OpenWorld();
         var runtime = fixture.Runtime;
         using var owner = runtime.RuntimeOwnership.TryTrack(new object());
         Assert.IsNotNull(owner);
 
-        clock.BlockNextSample();
-        var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
+        var (gateOwner, entered, release) = HoldGate(runtime);
         try
         {
-            await clock.SampleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await entered.WaitAsync(TimeSpan.FromSeconds(5));
             await Task.Run(() => runtime.StopControl.RequestStop(HostStopReason.WindowClose)).WaitAsync(TimeSpan.FromSeconds(5));
             await Task.Delay(shutdown * 2);
 
@@ -94,7 +92,7 @@ public sealed class SafetyAuthorityTests
         }
         finally
         {
-            clock.SampleReleased.TrySetResult();
+            release.TrySetResult();
             await gateOwner.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
@@ -286,11 +284,10 @@ public sealed class SafetyAuthorityTests
     [TestMethod]
     public async Task ContendedRequiredIngressFencesOnlyTheReportingWorldWithoutWaiting()
     {
-        var clock = new BlockingClock();
         var quota = new ResourceQuota(2, 32,
             new JobQuota(16, 8, 32, 32, 8, 16, 32, 131072, 131072, 131072),
             new DiagnosticQuota(2, 32768, 24, 65536, 8, 4, 64, 1024));
-        using var fixture = new CoreRuntimeFixture(clock, quota);
+        using var fixture = new CoreRuntimeFixture(runtimeQuota: quota);
         var world = fixture.OpenWorld();
         var otherWorld = fixture.OpenWorld();
         var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
@@ -315,17 +312,16 @@ public sealed class SafetyAuthorityTests
         var candidates = await CoreRuntimeFixture.SealAsync(world, 1, BarrierKind.CommitResults);
         var prepared = CoreRuntimeFixture.Prepare(world, candidates, [new BatchDisposition(batch, BatchDispositionKind.Defer, BatchRejection.None)]);
 
-        clock.BlockNextSample();
-        var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
+        var (gateOwner, entered, release) = HoldGate(fixture.Runtime);
         try
         {
-            await clock.SampleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            await entered.WaitAsync(TimeSpan.FromSeconds(5));
             var report = Task.Run(() => ReportRequired(world, stamp));
             Assert.AreEqual(FaultReportStatus.EvidenceLost, await report.WaitAsync(TimeSpan.FromSeconds(5)));
         }
         finally
         {
-            clock.SampleReleased.TrySetResult();
+            release.TrySetResult();
             await gateOwner.WaitAsync(TimeSpan.FromSeconds(5));
         }
 
@@ -373,24 +369,21 @@ public sealed class SafetyAuthorityTests
             : base.GetTimestamp();
     }
 
-    private sealed class BlockingClock : CoreRuntimeFixture.TestClock
+    private static (Task Owner, Task Entered, TaskCompletionSource Release) HoldGate(RuntimeSafetyAuthority runtime)
     {
-        private int _block;
-
-        public TaskCompletionSource SampleEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-        public TaskCompletionSource SampleReleased { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
-
-        public void BlockNextSample() => Volatile.Write(ref _block, 1);
-
-        public override long GetTimestamp()
+        // Deliberately contend the actual gate without relying on caller code running under it.
+        var gate = typeof(RuntimeSafetyAuthority).GetProperty("Gate", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .GetValue(runtime)!;
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var owner = Task.Run(() =>
         {
-            if (Interlocked.Exchange(ref _block, 0) == 1)
+            lock (gate)
             {
-                SampleEntered.TrySetResult();
-                SampleReleased.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+                entered.SetResult();
+                release.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
             }
-
-            return base.GetTimestamp();
-        }
+        });
+        return (owner, entered.Task, release);
     }
 }
