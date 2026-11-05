@@ -31,6 +31,69 @@ public sealed class JobSchedulerTests
     }
 
     [TestMethod]
+    public async Task SecondBorrowWaitsForPinCapacityInsteadOfFaulting()
+    {
+        await using var fixture = new Fixture(worldOperations: 5);
+        var firstStarted = Signal();
+        var secondStarted = Signal();
+        var release = Signal();
+        var scheduler = fixture.CreateScheduler(new(2, 2), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = async (_, token) =>
+            {
+                firstStarted.TrySetResult();
+                await release.Task.WaitAsync(token);
+            },
+            [Second] = (_, _) =>
+            {
+                secondStarted.TrySetResult();
+                return ValueTask.CompletedTask;
+            },
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        using var first = Admit(scheduler, phase, Borrowed(phase, 1, First));
+        using var second = Admit(scheduler, phase, Borrowed(phase, 2, Second));
+
+        try
+        {
+            await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+            await firstStarted.Task.WaitAsync(TestTimeout);
+            Assert.AreEqual(JobExecutionStatus.Ready, second.Observe().Execution);
+            Assert.IsFalse(secondStarted.Task.IsCompleted);
+            Assert.AreEqual(0, fixture.Ports.State.Read().PendingRequiredEvidenceRecords);
+        }
+        finally
+        {
+            release.TrySetResult();
+        }
+
+        Assert.AreEqual(JobExecutionStatus.Succeeded, (await Finish(first)).Status);
+        await fixture.DispatchUntilAsync(second, phase);
+        Assert.AreEqual(JobExecutionStatus.Succeeded, (await Finish(second)).Status);
+        Assert.IsTrue(secondStarted.Task.IsCompleted);
+        fixture.Publication.Phases.Close(phase);
+    }
+
+    [TestMethod]
+    public async Task CaptureCreditTakenAfterAuthorizationCancelsWithoutFaultEvidence()
+    {
+        await using var fixture = new Fixture(worldOperations: 3);
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = static (_, _) => throw new AssertFailedException("Unfunded capture must not invoke the handler."),
+        }, new CapacityStealingInputSource(fixture.Ports.Ownership, fixture.Publication.Capture));
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, Borrowed(phase, 1, First));
+        await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+        var completion = await Finish(job);
+        Assert.AreEqual(JobExecutionStatus.Cancelled, completion.Status);
+        Assert.AreEqual(JobExecutionStatus.Cancelled, job.Observe().Execution);
+        Assert.AreEqual(FaultClass.Cancelled, completion.Failure?.Primary?.Classification);
+        Assert.AreEqual(0, fixture.Ports.State.Read().PendingRequiredEvidenceRecords);
+        fixture.Publication.Phases.Close(phase);
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public async Task ResultWriterClosesOnOwnerCancellationOrLocalStop(bool localStop)
@@ -576,6 +639,14 @@ public sealed class JobSchedulerTests
             Budget = new JobResultBudget(1, 1, 0, 0, 0),
         };
 
+    private static JobSubmission Borrowed(JobDispatchPhase phase, ulong ordinal, JobHandlerId handler) =>
+        Submission(phase, ordinal, handler) with
+        {
+            InputKind = JobInputKind.Borrowed,
+            ReadScopes = [new ResourceKey(phase.Stamp.World, new ComponentTypeId(1),
+                new ResourceScope(ScopeKind.World, null, null))],
+        };
+
     private static JobCommand CreateCommand() => new(
         1, 1, JobCommandKind.CreateEntity, new CommandEntity(CommandEntityKind.Provisional, null, 1),
         default, null, null, []);
@@ -719,6 +790,20 @@ public sealed class JobSchedulerTests
             }
 
             return new JobInputCapture(JobInputCaptureStatus.Captured, new Input(stamp, lease));
+        }
+    }
+
+    private sealed class CapacityStealingInputSource(IRuntimeOwnership ownership, IJobCaptureAuthority capture)
+        : IJobInputSource
+    {
+        public JobInputCapture TryCapture(in JobInputRequest request)
+        {
+            using var competingOwner = ownership.TryTrack(this);
+            Assert.IsNotNull(competingOwner);
+            var result = capture.TryAcquire(request.Permit);
+            using var unexpectedLease = result.Lease;
+            Assert.AreEqual(JobCapturePermitStatus.CapacityExceeded, result.Status);
+            return new JobInputCapture(JobInputCaptureStatus.CapacityExceeded, null);
         }
     }
 

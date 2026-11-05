@@ -290,6 +290,15 @@ public sealed partial class JobScheduler : IJobScheduler
                     return;
             }
 
+            if (entry.NeedsCapture)
+            {
+                // Capture retains its pin beside the invocation lease. Reserve custody
+                // first so Core tests the remaining pin capacity before issuing a permit.
+                work.Retention = _ownership.TryTrack(work);
+                if (work.Retention is null)
+                    return;
+            }
+
             var dispatch = _authority.TryAuthorizeDispatch(entry.Id, phase);
             if (dispatch is not { Status: JobDispatchStatus.Authorized, Permit: { } permit })
             {
@@ -309,8 +318,8 @@ public sealed partial class JobScheduler : IJobScheduler
             lock (_gate)
                 work.Permit = permit;
             removePending = true;
-            // Core has released its temporary policy pin by this point.
-            work.Retention = _ownership.TryTrack(work);
+            // Jobs without input reuse Core's released policy-pin credit for custody.
+            work.Retention ??= _ownership.TryTrack(work);
             if (work.Retention is null)
             {
                 _authority.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));

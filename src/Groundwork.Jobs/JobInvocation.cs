@@ -31,6 +31,16 @@ public sealed partial class JobScheduler
             var request = new JobInputRequest(permit);
             var result = _inputs.TryCapture(in request);
             work.Input = result.Input;
+            if (result.Status == JobInputCaptureStatus.CapacityExceeded && work.Input is null)
+            {
+                // Core's policy pin does not transfer to capture. An unrelated
+                // owner can take that credit after authorization.
+                work.CaptureBackpressure = new RuntimeFailure(
+                    CaptureFailure(FaultClass.Cancelled, Context(permit),
+                        new InvalidOperationException("Job input capture exceeded the available capacity.")), []);
+                work.Stop.TrySetResult();
+                return;
+            }
             if (result.Status != JobInputCaptureStatus.Captured || work.Input is null ||
                 work.Input.CapturedAt != permit.DispatchStamp)
             {
@@ -168,7 +178,7 @@ public sealed partial class JobScheduler
         {
             settlement = _authority.TrySettle(new JobExecutionCompletion(permit, JobExecutionStatus.Cancelled, [], []));
             if (settlement != ExecutionSettlementStatus.InvalidCompletion)
-                return new InvocationResult(JobExecutionStatus.Cancelled, null, true);
+                return new InvocationResult(JobExecutionStatus.Cancelled, work.CaptureBackpressure, true);
 
             primary = new InvalidOperationException("Core could not acknowledge cancellation of the running job.");
             classification = FaultClass.IncompleteCleanup;
@@ -261,6 +271,7 @@ public sealed partial class JobScheduler
         internal JobDispatchPermit? Permit { get; set; }
         internal IJobInput? Input { get; set; }
         internal Exception? InitialFailure { get; set; }
+        internal RuntimeFailure? CaptureBackpressure { get; set; }
         internal FaultClass InitialClass { get; set; } = FaultClass.RecoverableJobFault;
         internal long? CancellationObservedAt { get; set; }
     }
