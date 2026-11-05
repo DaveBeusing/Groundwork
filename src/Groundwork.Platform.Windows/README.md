@@ -8,7 +8,7 @@ The module owns one STA thread, native window, and registered class. The borrowe
 
 The input producer runs only on the window thread. The simulation consumer captures an immutable snapshot of the retained transitions and current held controls. Keyboard repeat does not add another press. Mouse button capture follows held buttons and capture loss releases them. Focus loss and close clear held controls and pointer position. A full transition buffer drops further transitions until capture and reports the gap while still updating authoritative held state. Event sequences are strictly increasing within a host, including dropped transitions.
 
-The stop wait uses the common deadline and the caller's wait token. For an injected clock, its last trusted input sample and a real-time cap bound teardown without invoking clock code during the wait. An expired wait reports incomplete cleanup while the owner continues its existing teardown. This keeps the runtime from releasing the window or its wake early.
+The stop wait uses Core's settlement deadline and the caller's wait token. Core bounds teardown using its last trusted clock sample and system watchdog without invoking the injected clock during the wait. An expired deadline reports incomplete cleanup while the owner continues teardown. This keeps the runtime from releasing the window or its wake early.
 
 ## Verification
 
