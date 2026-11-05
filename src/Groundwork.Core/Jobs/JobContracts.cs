@@ -179,7 +179,9 @@ public sealed class JobDispatchPermit
         get
         {
             // A coordinator returning from capture may poll before the stop observer resumes.
-            if (Volatile.Read(ref _runtimeStop)?.IsCompletedSuccessfully == true)
+            var runtimeStop = Volatile.Read(ref _runtimeStop);
+            if (runtimeStop is { IsCompletedSuccessfully: true } &&
+                ReferenceEquals(runtimeStop, Volatile.Read(ref _runtimeStop)))
                 SignalCancellation();
             return _cancellation.Task;
         }
