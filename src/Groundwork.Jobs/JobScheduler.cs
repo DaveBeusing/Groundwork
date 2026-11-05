@@ -47,8 +47,6 @@ public sealed partial class JobScheduler : IJobScheduler
             throw new ArgumentOutOfRangeException(nameof(world));
         if (limits.QueuedJobs <= 0 || limits.Workers <= 0)
             throw new ArgumentOutOfRangeException(nameof(limits));
-        if (clock.TimestampFrequency <= 0)
-            throw new ArgumentOutOfRangeException(nameof(clock));
         if (handlers.Any(entry => entry.Key.Value == 0 || entry.Value is null))
             throw new ArgumentException("Each job handler requires a nonzero identity and a delegate.", nameof(handlers));
 
@@ -99,7 +97,7 @@ public sealed partial class JobScheduler : IJobScheduler
                     return Reject(_closed ? JobAdmissionStatus.Closed : JobAdmissionStatus.CapacityExceeded);
             }
 
-            var admittedAt = _clock.GetTimestamp();
+            var admittedAt = TimeProvider.System.GetTimestamp();
             var result = _authority.TryAdmit(id, submission, phase);
             if (result is not { Status: JobAdmissionStatus.Accepted, Handle: { } handle })
             {
@@ -139,7 +137,7 @@ public sealed partial class JobScheduler : IJobScheduler
     {
         ArgumentNullException.ThrowIfNull(phase);
         cancellationToken.ThrowIfCancellationRequested();
-        var start = _clock.GetTimestamp();
+        var start = TimeProvider.System.GetTimestamp();
         Entry[] scan;
         lock (_gate)
         {
@@ -185,30 +183,35 @@ public sealed partial class JobScheduler : IJobScheduler
     public async ValueTask StopAsync(RuntimeDeadline deadline, CancellationToken cancellationToken = default)
     {
         // A foreign or invalid deadline must not change scheduler state.
-        _ = deadline.GetRemaining(_clock);
+        _ = deadline.GetRemainingForSettlement(_clock);
         RequestStop();
         while (!_quiesced.Task.IsCompleted)
         {
-            if (deadline.IsExpired(_clock))
+            var remaining = deadline.GetRemainingForSettlement(_clock);
+            if (remaining == TimeSpan.Zero)
+            {
+                if (_quiesced.Task.IsCompleted)
+                    return;
                 throw new IncompleteCleanupException(FaultSubsystem.Jobs);
+            }
 
-            var wait = TimeSpan.FromMilliseconds(Math.Clamp(deadline.GetRemaining(_clock).TotalMilliseconds,
-                1, TimeSpan.FromDays(1).TotalMilliseconds));
+            var wait = TimeSpan.FromMilliseconds(Math.Clamp(remaining.TotalMilliseconds, 1,
+                TimeSpan.FromDays(1).TotalMilliseconds));
             try
             {
-                await _quiesced.Task.WaitAsync(wait, _clock, cancellationToken).ConfigureAwait(false);
+                await _quiesced.Task.WaitAsync(wait, TimeProvider.System, cancellationToken).ConfigureAwait(false);
                 return;
             }
             catch (TimeoutException)
             {
-                // Timer granularity may differ from the deadline clock.
+                // Recheck the cached deadline after the trusted timer fires.
             }
         }
     }
 
     public JobSchedulerMetrics ReadMetrics()
     {
-        var frequency = _clock.TimestampFrequency;
+        var frequency = TimeProvider.System.TimestampFrequency;
         lock (_gate)
             return new JobSchedulerMetrics(_accepted, _rejected, _pending.Count,
                 _running.Values.Count(work => work.Permit is not null), _started,
@@ -421,7 +424,8 @@ public sealed partial class JobScheduler : IJobScheduler
         }
     }
 
-    private long Elapsed(long start) => (long)Int128.Clamp((Int128)_clock.GetTimestamp() - start, 0, long.MaxValue);
+    private static long Elapsed(long start) =>
+        (long)Int128.Clamp((Int128)TimeProvider.System.GetTimestamp() - start, 0, long.MaxValue);
     private static void Increment(ref long count) => Add(ref count, 1);
     private static void Add(ref long count, long amount) => count += Math.Min(long.MaxValue - count, amount);
 }

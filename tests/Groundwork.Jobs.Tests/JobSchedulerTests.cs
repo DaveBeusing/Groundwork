@@ -598,6 +598,7 @@ public sealed class JobSchedulerTests
             await started.Task.WaitAsync(TestTimeout);
             var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
             clock.Advance(TimeSpan.FromSeconds(3));
+            Assert.IsTrue(deadline.IsExpired(clock)); // Publish the synthetic clock sample before the bounded wait.
             await Assert.ThrowsExactlyAsync<IncompleteCleanupException>(
                 () => scheduler.StopAsync(deadline).AsTask());
             Assert.AreEqual(ShutdownSettlement.Custody, fixture.Runtime.SettleStop());
@@ -610,6 +611,130 @@ public sealed class JobSchedulerTests
 
         Assert.AreEqual(JobExecutionStatus.Cancelled, (await Finish(handle)).Status);
         handle.Dispose();
+        await fixture.WaitForReleaseAsync();
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task ThrowingClockCannotPreventWorkerSettlementOrMandatoryEvidence(bool fault)
+    {
+        using var clock = new GuardedClock();
+        await using var fixture = new Fixture(clock);
+        var exception = new InvalidOperationException("handler failure with unavailable clock");
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = (_, _) => fault ? throw exception : ValueTask.CompletedTask,
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, Submission(phase, 1, First));
+
+        clock.ThrowOnAccess();
+        try
+        {
+            await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+            var completion = await Finish(job);
+            Assert.AreEqual(fault ? JobExecutionStatus.Faulted : JobExecutionStatus.Succeeded, completion.Status);
+            Assert.AreEqual(completion.Status, job.Observe().Execution);
+            Assert.AreEqual(fault ? 1 : 0, fixture.Ports.State.Read().PendingRequiredEvidenceRecords);
+            if (fault)
+                Assert.AreSame(exception, completion.Failure?.Primary?.Exception.SourceException);
+            Assert.AreEqual(TimeProvider.System.TimestampFrequency, scheduler.ReadMetrics().TimestampFrequency);
+            Assert.AreEqual(0, clock.GuardedCalls);
+        }
+        finally
+        {
+            clock.AllowAccess();
+        }
+
+        fixture.Publication.Phases.Close(phase);
+    }
+
+    [TestMethod]
+    public async Task BlockedClockCannotDelayCancellationOrBorrowCleanup()
+    {
+        using var clock = new GuardedClock();
+        await using var fixture = new Fixture(clock);
+        var started = Signal();
+        var callbackRan = Signal();
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = async (context, token) =>
+            {
+                var input = context.Input ?? throw new AssertFailedException("Expected captured input.");
+                _ = token.Register(() =>
+                {
+                    Assert.AreEqual(ComponentReadStatus.Present,
+                        input.ReadEntity(new EntityId(fixture.World, 0, 1)).Status);
+                    callbackRan.TrySetResult();
+                });
+                started.TrySetResult();
+                await Task.Delay(Timeout.InfiniteTimeSpan, token);
+            },
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, Borrowed(phase, 1, First));
+        await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+        await started.Task.WaitAsync(TestTimeout);
+        var deadline = fixture.Ports.CreateBorrowedDrainDeadline();
+
+        clock.BlockAccess();
+        try
+        {
+            var stopped = Task.Run(() => scheduler.StopAsync(deadline).AsTask());
+            await callbackRan.Task.WaitAsync(TestTimeout);
+            await stopped.WaitAsync(TestTimeout);
+            Assert.AreEqual(JobExecutionStatus.Cancelled, (await Finish(job)).Status);
+            Assert.AreEqual(0, clock.GuardedCalls);
+        }
+        finally
+        {
+            clock.AllowAccess();
+        }
+
+        fixture.Publication.Phases.Close(phase);
+        var request = new BarrierRequest(phase.Stamp, phase.Stamp.Tick, BarrierKind.CommitResults);
+        Assert.AreEqual(BorrowDrainStatus.Drained, await fixture.Publication.Borrow.CloseAndDrainAsync(request,
+            fixture.Ports.CreateBorrowedDrainDeadline()));
+    }
+
+    [TestMethod]
+    public async Task BlockedClockCannotExtendTheTrustedShutdownWatchdog()
+    {
+        using var clock = new GuardedClock();
+        await using var fixture = new Fixture(clock, shutdownBudget: TimeSpan.FromMilliseconds(200));
+        var started = Signal();
+        var release = Signal();
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = async (_, _) =>
+            {
+                started.TrySetResult();
+                await release.Task;
+            },
+        });
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, Submission(phase, 1, First));
+        await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+        await started.Task.WaitAsync(TestTimeout);
+
+        clock.BlockAccess();
+        try
+        {
+            var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            await Assert.ThrowsExactlyAsync<IncompleteCleanupException>(() =>
+                Task.Run(() => scheduler.StopAsync(deadline).AsTask()).WaitAsync(TestTimeout));
+            Assert.IsFalse(job.ExecutionCompletion.IsCompleted);
+            Assert.AreEqual(0, clock.GuardedCalls);
+        }
+        finally
+        {
+            clock.AllowAccess();
+            release.TrySetResult();
+        }
+
+        Assert.AreEqual(JobExecutionStatus.Cancelled, (await Finish(job)).Status);
+        job.Dispose();
         await fixture.WaitForReleaseAsync();
     }
 
@@ -656,7 +781,8 @@ public sealed class JobSchedulerTests
         private readonly TimeProvider _clock;
         private JobScheduler? _scheduler;
 
-        internal Fixture(TimeProvider? clock = null, int worldOperations = 48, int requiredEvidenceRecords = 4)
+        internal Fixture(TimeProvider? clock = null, int worldOperations = 48, int requiredEvidenceRecords = 4,
+            TimeSpan? shutdownBudget = null)
         {
             _clock = clock ?? TimeProvider.System;
             var quota = new ResourceQuota(1, 64,
@@ -666,7 +792,8 @@ public sealed class JobSchedulerTests
             var reservation = budget.TryReserveRuntime(quota);
             Assert.IsNotNull(reservation);
             var interval = TimeSpan.FromSeconds(2);
-            Runtime = RuntimeSafetyAuthority.Create(_clock, new RuntimeTimingLimits(interval, interval, interval), reservation);
+            Runtime = RuntimeSafetyAuthority.Create(_clock,
+                new RuntimeTimingLimits(shutdownBudget ?? interval, interval, interval), reservation);
             Assert.IsTrue(Runtime.TryAllocateWorldId(out var world));
             World = world;
             var worldQuota = quota with
@@ -737,7 +864,7 @@ public sealed class JobSchedulerTests
         public async ValueTask DisposeAsync()
         {
             var deadline = Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
-            if (_scheduler is not null && !deadline.IsExpired(_clock))
+            if (_scheduler is not null && deadline.GetRemainingForSettlement(_clock) >= TimeSpan.FromMilliseconds(1))
                 await _scheduler.StopAsync(deadline);
             Runtime.SettleStop();
         }
@@ -749,6 +876,61 @@ public sealed class JobSchedulerTests
         public override long TimestampFrequency => TimeSpan.TicksPerSecond;
         public override long GetTimestamp() => Interlocked.Read(ref _timestamp);
         internal void Advance(TimeSpan duration) => Interlocked.Add(ref _timestamp, duration.Ticks);
+    }
+
+    private sealed class GuardedClock : TimeProvider, IDisposable
+    {
+        private readonly ManualResetEventSlim _unblocked = new(true);
+        private int _guard;
+        private int _guardedCalls;
+
+        public override long TimestampFrequency
+        {
+            get
+            {
+                CheckGuard();
+                return TimeSpan.TicksPerSecond;
+            }
+        }
+
+        public override long GetTimestamp()
+        {
+            CheckGuard();
+            return 0; // The trusted watchdog must run even when synthetic time stops.
+        }
+
+        public override ITimer CreateTimer(TimerCallback callback, object? state, TimeSpan dueTime, TimeSpan period)
+        {
+            CheckGuard();
+            return TimeProvider.System.CreateTimer(callback, state, dueTime, period);
+        }
+
+        internal int GuardedCalls => Volatile.Read(ref _guardedCalls);
+        internal void ThrowOnAccess() => Volatile.Write(ref _guard, 1);
+        internal void BlockAccess()
+        {
+            _unblocked.Reset();
+            Volatile.Write(ref _guard, 2);
+        }
+
+        internal void AllowAccess()
+        {
+            Volatile.Write(ref _guard, 0);
+            _unblocked.Set();
+        }
+
+        private void CheckGuard()
+        {
+            var guard = Volatile.Read(ref _guard);
+            if (guard == 0)
+                return;
+
+            Interlocked.Increment(ref _guardedCalls);
+            if (guard == 1 || !_unblocked.Wait(TestTimeout))
+                throw new InvalidOperationException("The runtime clock is unavailable.");
+        }
+
+        public void Dispose() => _unblocked.Dispose();
     }
 
     private sealed record Root(WorldId World) : IWorldStateRoot;

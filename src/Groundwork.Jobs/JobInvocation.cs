@@ -58,7 +58,7 @@ public sealed partial class JobScheduler
     private async Task RunAsync(Work work)
     {
         var permit = work.Permit!;
-        var start = _clock.GetTimestamp();
+        var start = TimeProvider.System.GetTimestamp();
         var status = JobExecutionStatus.Faulted;
         RuntimeFailure? failure = null;
         bool release = false;
@@ -190,7 +190,7 @@ public sealed partial class JobScheduler
         // continues to distinguish the original and cleanup exceptions.
         var fault = new FaultObservation(primary is null ? cleanup[0].Classification : classification,
             FaultSeverity.Error, FaultSubsystem.Jobs, FaultOrigin.Primary, primary is null ? 2U : 1U,
-            _clock.GetTimestamp(), context, [], []);
+            TimeProvider.System.GetTimestamp(), context, [], []);
         settlement = _authority.TrySettleFault(permit, in fault);
 
         for (int index = primary is null ? 1 : 0; index < cleanup.Count; index++)
@@ -211,11 +211,14 @@ public sealed partial class JobScheduler
         if (ReferenceEquals(signal, invocationEnded))
             return [];
 
-        work.CancellationObservedAt = _clock.GetTimestamp();
+        work.CancellationObservedAt = TimeProvider.System.GetTimestamp();
         var failures = ImmutableArray.CreateBuilder<Exception>();
         try
         {
-            _authority.RequestCancellation(permit.Job);
+            // The permit's own signal already follows Core's authoritative
+            // intent. Only local scheduler stop needs to record it here.
+            if (!permit.CancellationRequested.IsCompleted)
+                _authority.RequestCancellation(permit.Job);
         }
         catch (Exception exception)
         {
@@ -245,7 +248,7 @@ public sealed partial class JobScheduler
     private void Report(FaultClass classification, FaultOrigin origin, FaultContext context)
     {
         var observation = new FaultObservation(classification, FaultSeverity.Error, FaultSubsystem.Jobs,
-            origin, 1, _clock.GetTimestamp(), context, [], []);
+            origin, 1, TimeProvider.System.GetTimestamp(), context, [], []);
         _faults.TryReport(in observation);
     }
 
