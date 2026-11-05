@@ -18,8 +18,6 @@ jobs:
     name: Build, package and integrity checks
     runs-on: windows-latest
     timeout-minutes: 40
-    env:
-      NUGET_PACKAGES: ${{ runner.temp }}/groundwork-test-nuget-cache
     defaults:
       run:
         shell: pwsh
@@ -31,6 +29,11 @@ jobs:
         uses: actions/setup-dotnet@v4
         with:
           global-json-file: global.json
+
+      - name: Configure fresh package cache
+        run: |
+          $cache = Join-Path $env:RUNNER_TEMP 'groundwork-test-nuget-cache'
+          "NUGET_PACKAGES=$cache" >> $env:GITHUB_ENV
 
       - name: Validate solution, restore, build and test
         run: ./scripts/Verify-Bootstrap.ps1 -TestResultsDirectory (Join-Path $env:RUNNER_TEMP 'groundwork-test-results')
