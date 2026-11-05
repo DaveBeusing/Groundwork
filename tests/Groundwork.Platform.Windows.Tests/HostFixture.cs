@@ -4,11 +4,12 @@ namespace Groundwork.Platform.Windows.Tests;
 
 internal sealed class HostFixture : IAsyncDisposable
 {
-    private readonly RuntimeTimingLimits _timing = new(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
+    private readonly RuntimeTimingLimits _timing;
 
     internal HostFixture(WindowsHostOptions? options = null, IRuntimeOwnership? ownership = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null, TimeSpan? shutdown = null)
     {
+        _timing = new RuntimeTimingLimits(shutdown ?? TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(1), TimeSpan.FromSeconds(1));
         Clock = clock ?? TimeProvider.System;
         var quota = new ResourceQuota(1, 8, new JobQuota(2, 1, 2, 2, 2, 2, 2, 4096, 4096, 4096),
             new DiagnosticQuota(4, 8192, 12, 32768, 4, 4, 64, 1024));

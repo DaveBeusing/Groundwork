@@ -25,10 +25,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
     private Stage _stage;
     private int _stopRequested;
     private IncompleteCleanupException? _teardownTimeout;
-    private long _stopWallTimestamp = long.MaxValue;
-    private long _clockFrequency;
     private long _lastClockTimestamp;
-    private long _lastWallTimestamp;
 
     public WindowsHostModule(WindowsHostOptions options, RuntimeWakeSignal uiWake, IRuntimeOwnership ownership)
     {
@@ -65,8 +62,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
             throw new ArgumentException("The host requires a positive clock frequency.", nameof(context));
         }
 
-        var wall = TimeProvider.System.GetTimestamp();
-        var timestamp = ReferenceEquals(context.Clock, TimeProvider.System) ? wall : context.Clock.GetTimestamp();
+        var timestamp = context.Clock.GetTimestamp();
         lock (_lifecycle)
         {
             if (_stage != Stage.Created || StopRequested)
@@ -75,9 +71,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
             }
 
             _input = new WindowsInputBuffer(_options.TransitionCapacity);
-            _clockFrequency = clockFrequency;
             _lastClockTimestamp = timestamp;
-            _lastWallTimestamp = wall;
             Volatile.Write(ref _context, context);
             _stage = Stage.Initialized;
         }
@@ -208,7 +202,6 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
 
     private void MarkStop()
     {
-        Interlocked.CompareExchange(ref _stopWallTimestamp, TimeProvider.System.GetTimestamp(), long.MaxValue);
         Interlocked.Exchange(ref _stopRequested, 1);
     }
 
@@ -233,80 +226,58 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
 
     private async Task AwaitTeardownAsync(RuntimeDeadline deadline, CancellationToken cancellationToken)
     {
-        try
+        while (!_finished.Task.IsCompleted)
         {
-            while (!_finished.Task.IsCompleted)
+            var remaining = deadline.GetRemainingForSettlement(Context.Clock);
+            if (remaining == TimeSpan.Zero)
             {
-                var remaining = RemainingTeardownTime(deadline);
-                var interval = remaining < LongestWait ? remaining : LongestWait;
-                try
-                {
-                    await _finished.Task.WaitAsync(interval, cancellationToken).ConfigureAwait(false);
-                }
-                catch (TimeoutException) when (interval < remaining)
-                {
-                    // WaitAsync uses a bounded timer. Longer deadlines are observed in chunks.
-                }
-            }
-        }
-        catch (TimeoutException)
-        {
-            IncompleteCleanupException incomplete;
-            lock (_faults)
-            {
-                if (_finished.Task.IsCompleted)
-                {
-                    return;
-                }
-
-                if (_teardownTimeout is not null)
-                {
-                    throw _teardownTimeout;
-                }
-
-                // The owner remains registered until the UI thread actually tears down.
-                incomplete = new IncompleteCleanupException(FaultSubsystem.Platform);
-                _teardownTimeout = incomplete;
-                AddFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
+                break;
             }
 
-            ReportFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
-            throw incomplete;
+            var interval = TimeSpan.FromMilliseconds(Math.Clamp(remaining.TotalMilliseconds, 1, LongestWait.TotalMilliseconds));
+            try
+            {
+                await _finished.Task.WaitAsync(interval, cancellationToken).ConfigureAwait(false);
+                return;
+            }
+            catch (TimeoutException)
+            {
+                // Recheck Core's deadline after the system timer wakes.
+            }
         }
-    }
 
-    private TimeSpan RemainingTeardownTime(RuntimeDeadline deadline)
-    {
-        var system = TimeProvider.System;
-        if (ReferenceEquals(Context.Clock, system))
+        IncompleteCleanupException incomplete;
+        lock (_faults)
         {
-            return deadline.GetRemaining(system);
+            if (_finished.Task.IsCompleted)
+            {
+                return;
+            }
+
+            if (_teardownTimeout is not null)
+            {
+                throw _teardownTimeout;
+            }
+
+            // The owner remains registered until the UI thread actually tears down.
+            incomplete = new IncompleteCleanupException(FaultSubsystem.Platform);
+            _teardownTimeout = incomplete;
+            AddFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
         }
 
-        // Never invoke an injected clock during teardown. Reading wall first
-        // can pair an older wall timestamp with a newer clock sample, which
-        // only shortens the conservative remaining budget.
-        var lastWall = Volatile.Read(ref _lastWallTimestamp);
-        var lastClock = Volatile.Read(ref _lastClockTimestamp);
-        var now = system.GetTimestamp();
-        var sampledBudget = ((Int128)deadline.Timestamp - lastClock) * TimeSpan.TicksPerSecond / _clockFrequency
-            - system.GetElapsedTime(lastWall, now).Ticks;
-        var stopBudget = Context.Timing.Shutdown.Ticks -
-            system.GetElapsedTime(Volatile.Read(ref _stopWallTimestamp), now).Ticks;
-        return TimeSpan.FromTicks((long)Int128.Max(0, Int128.Min(sampledBudget, stopBudget)));
+        ReportFailure(incomplete, FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
+        throw incomplete;
     }
 
     private long SampleTimestamp()
     {
-        var wall = TimeProvider.System.GetTimestamp();
-        var timestamp = ReferenceEquals(Context.Clock, TimeProvider.System) ? wall : Context.Clock.GetTimestamp();
+        var timestamp = Context.Clock.GetTimestamp();
         if (timestamp < Volatile.Read(ref _lastClockTimestamp))
         {
             throw new InvalidOperationException("The Windows input clock moved backwards.");
         }
 
         Volatile.Write(ref _lastClockTimestamp, timestamp);
-        Volatile.Write(ref _lastWallTimestamp, wall);
         return timestamp;
     }
 
