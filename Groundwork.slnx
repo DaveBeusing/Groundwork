@@ -7,4 +7,7 @@
     <Project Path="src/Groundwork.Jobs/Groundwork.Jobs.csproj" />
     <Project Path="src/Groundwork.Diagnostics/Groundwork.Diagnostics.csproj" />
   </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj" />
+  </Folder>
 </Solution>

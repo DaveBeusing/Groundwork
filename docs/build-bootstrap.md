@@ -1,23 +1,22 @@
 # WP01-B00 Groundwork build bootstrap
 
-This branch introduces the six approved WP01 module boundaries as build-only projects.
-It does not implement a runtime, scheduler, ECS, jobs, diagnostics or window handling.
-The projects are for existing planned work lanes, not speculative future modules.
+The solution keeps the six approved WP01 shipping projects and adds separate
+contract test projects as modules land. Each implementation lane owns its tests.
 
 ## Windows prerequisites and verification
 
-Install a supported stable .NET 10 SDK and Git. global.json requires .NET
-10.0.100 or a later 10.0 feature band. Run from the repository root:
+Install a supported stable .NET 10 SDK, Git and PowerShell 7. `global.json`
+requires .NET 10.0.100 or a later 10.0 feature band. Run from the repository root.
 
-- dotnet --version
-- dotnet restore Groundwork.slnx --configfile NuGet.Config
-- dotnet build Groundwork.slnx -c Release --no-restore
-- dotnet test Groundwork.slnx -c Release --no-build
-- git ls-files (verify no generated bin, obj, artifacts or nupkg)
+```powershell
+$testResults = Join-Path $env:TEMP ('groundwork-tests-' + [guid]::NewGuid().ToString('N'))
+./scripts/Verify-Bootstrap.ps1 -TestResultsDirectory $testResults
+```
 
-There are no runtime/unit tests yet. A successful test-command exit alone is
-not proof of executable correctness. Build products are written to ignored,
-per-worktree artifacts/ directories. Do not use a shared build output directory.
+The script checks the production and test project boundaries, restores the tracked
+NuGet locks, builds Release and verifies that each selected test project executed
+passing tests. Windows CI uses a fresh package cache and publishes the TRX results.
+Build products go to the checkout's ignored `artifacts/` directory.
 
 ## Versions, packages and feed boundaries
 
@@ -55,9 +54,6 @@ sets PackageLicenseExpression=Apache-2.0 for newly built NuGet packages.
 This license decision does not retroactively modify already-built packages.
 Review third-party dependencies for security, license obligations and required
 NOTICE attribution before any redistribution.
-This PR does not claim an installed SDK, successful Windows build, CI checks,
-executable tests, package trust verification or release automation.
-
 ## Ownership handover
 
 B00 exclusively owns shared root settings, solution and project files.
