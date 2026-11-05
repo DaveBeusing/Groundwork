@@ -18,6 +18,8 @@ jobs:
     name: Build, package and integrity checks
     runs-on: windows-latest
     timeout-minutes: 40
+    env:
+      NUGET_PACKAGES: ${{ runner.temp }}/groundwork-test-nuget-cache
     defaults:
       run:
         shell: pwsh
@@ -31,9 +33,7 @@ jobs:
           global-json-file: global.json
 
       - name: Validate solution, restore, build and test
-        run: |
-          $env:NUGET_PACKAGES = Join-Path $env:RUNNER_TEMP 'groundwork-test-nuget-cache'
-          & ./scripts/Verify-Bootstrap.ps1 -TestResultsDirectory (Join-Path $env:RUNNER_TEMP 'groundwork-test-results')
+        run: ./scripts/Verify-Bootstrap.ps1 -TestResultsDirectory (Join-Path $env:RUNNER_TEMP 'groundwork-test-results')
 
       - name: Upload test results
         if: always()
@@ -51,7 +51,7 @@ jobs:
           $packageDir = 'artifacts/packages'
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
           foreach ($module in @('Core','Platform.Windows','Simulation','Ecs','Jobs','Diagnostics')) {
-            & dotnet pack "src/Groundwork.$module/Groundwork.$module.csproj" -c Release "-p:PackageVersion=$version" -o $packageDir
+            & dotnet pack "src/Groundwork.$module/Groundwork.$module.csproj" -c Release --no-build --no-restore "-p:PackageVersion=$version" -o $packageDir
             if ($LASTEXITCODE -ne 0) { throw "Package build failed: $module" }
           }
           $manifest = Join-Path $packageDir 'manifest.json'
