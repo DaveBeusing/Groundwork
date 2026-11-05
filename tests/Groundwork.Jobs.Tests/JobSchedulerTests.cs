@@ -651,6 +651,47 @@ public sealed class JobSchedulerTests
     }
 
     [TestMethod]
+    [DataRow(false, false)]
+    [DataRow(true, false)]
+    [DataRow(true, true)]
+    public async Task ClosedCaptureFaultsOnlyWithoutCancellation(bool stop, bool acquireBeforeStop)
+    {
+        await using var fixture = new Fixture();
+        var inputs = new ClosingCapture(fixture, stop, acquireBeforeStop);
+        int handlerCalls = 0;
+        var scheduler = fixture.CreateScheduler(new(2, 1), new Dictionary<JobHandlerId, JobHandler>
+        {
+            [First] = (_, _) =>
+            {
+                Interlocked.Increment(ref handlerCalls);
+                return ValueTask.CompletedTask;
+            },
+        }, inputs);
+        var phase = await fixture.OpenPhaseAsync();
+        using var job = Admit(scheduler, phase, Borrowed(phase, 1, First));
+
+        await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
+        var completion = await Finish(job);
+        Assert.IsTrue(inputs.Attempted);
+        Assert.AreEqual(0, handlerCalls);
+        var status = stop ? JobExecutionStatus.Cancelled : JobExecutionStatus.Faulted;
+        Assert.AreEqual(status, completion.Status);
+        Assert.AreEqual(status, job.Observe().Execution);
+        var state = fixture.Ports.State.Read();
+        Assert.AreEqual(stop ? 0 : 1, state.PendingRequiredEvidenceRecords);
+        Assert.IsFalse(state.Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+        if (stop)
+            Assert.IsNull(completion.Failure);
+        else
+            Assert.AreEqual(FaultClass.RecoverableJobFault, completion.Failure?.Primary?.Classification);
+
+        job.Dispose();
+        var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        await scheduler.StopAsync(deadline);
+        await fixture.WaitForReleaseAsync();
+    }
+
+    [TestMethod]
     public async Task BlockedClockCannotDelayCancellationOrBorrowCleanup()
     {
         using var clock = new GuardedClock();
@@ -972,6 +1013,43 @@ public sealed class JobSchedulerTests
             }
 
             return new JobInputCapture(JobInputCaptureStatus.Captured, new Input(stamp, lease));
+        }
+    }
+
+    private sealed class ClosingCapture(Fixture fixture, bool stop, bool acquireBeforeStop) : IJobInputSource
+    {
+        internal bool Attempted { get; private set; }
+
+        public JobInputCapture TryCapture(in JobInputRequest request)
+        {
+            Attempted = true;
+            if (!stop)
+                return new(JobInputCaptureStatus.Closed, null);
+
+            var permit = request.Permit;
+            var publication = fixture.Publication;
+            if (acquireBeforeStop)
+            {
+                var acquired = publication.Capture.TryAcquire(permit);
+                using var lease = acquired.Lease;
+                Assert.IsNotNull(lease);
+                Assert.AreEqual(JobCapturePermitStatus.Authorized, acquired.Status);
+                fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+                var target = new ComponentTarget(new EntityId(fixture.World, 0, 1), new ComponentTypeId(1));
+                var version = new TargetVersionStamp(permit, target, true, 1);
+                Assert.ThrowsExactly<InvalidOperationException>(() => publication.VersionIssuer.Issue(version));
+            }
+            else
+            {
+                fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+                var rejected = publication.Capture.TryAcquire(permit);
+                using var lease = rejected.Lease;
+                Assert.IsNull(lease);
+                Assert.AreEqual(JobCapturePermitStatus.Expired, rejected.Status);
+            }
+
+            Assert.IsTrue(permit.CancellationRequested.IsCompletedSuccessfully);
+            return new(JobInputCaptureStatus.Closed, null);
         }
     }
 

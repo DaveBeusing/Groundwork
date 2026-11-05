@@ -31,6 +31,8 @@ public sealed partial class JobScheduler
             var request = new JobInputRequest(permit);
             var result = _inputs.TryCapture(in request);
             work.Input = result.Input;
+            if (result.Status == JobInputCaptureStatus.Closed && work.Input is null && IsCancellationRequested(work, permit))
+                return;
             if (result.Status == JobInputCaptureStatus.CapacityExceeded && work.Input is null)
             {
                 // Core's policy pin does not transfer to capture. An unrelated
