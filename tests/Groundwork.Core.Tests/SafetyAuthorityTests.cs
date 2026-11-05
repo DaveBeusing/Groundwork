@@ -1,0 +1,218 @@
+namespace Groundwork.Core.Tests;
+
+[TestClass]
+public sealed class SafetyAuthorityTests
+{
+    [TestMethod]
+    public void PendingWorldReleaseDoesNotRecycleItsIdentity()
+    {
+        using var fixture = new CoreRuntimeFixture();
+
+        Assert.IsTrue(fixture.Runtime.TryAllocateWorldId(out var first));
+        Assert.IsFalse(fixture.Runtime.TryAllocateWorldId(out _));
+        Assert.IsTrue(fixture.Runtime.TryAbandonWorldId(first));
+        Assert.IsFalse(fixture.Runtime.TryAbandonWorldId(first));
+        Assert.IsTrue(fixture.Runtime.TryAllocateWorldId(out var next));
+        Assert.IsGreaterThan(first.Value, next.Value);
+    }
+
+    [TestMethod]
+    public void StopIsDurableAndDuplicateRequestsKeepTheOriginalDeadline()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var runtime = fixture.Runtime;
+        var first = runtime.StopControl.RequestStop(HostStopReason.WindowClose);
+
+        Assert.IsTrue(runtime.UiWake.Handle.WaitOne(TimeSpan.Zero));
+        Assert.IsTrue(runtime.SimulationWake.Handle.WaitOne(TimeSpan.Zero));
+        Assert.IsTrue(runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+        Assert.IsFalse(first.IsExpired(fixture.Clock));
+        Assert.IsNull(runtime.RuntimeOwnership.TryTrack(new object()));
+
+        fixture.Clock.Advance(TimeSpan.FromSeconds(1));
+        var duplicate = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        Assert.AreEqual(first.Timestamp, duplicate.Timestamp);
+        Assert.AreEqual(TimeSpan.FromSeconds(1), duplicate.GetRemaining(fixture.Clock));
+        fixture.Clock.Advance(TimeSpan.FromSeconds(1));
+        Assert.IsTrue(first.IsExpired(fixture.Clock));
+        Assert.AreEqual(TimeSpan.Zero, duplicate.GetRemaining(fixture.Clock));
+    }
+
+    [TestMethod]
+    public void DeadlineRejectsAnotherClockAndExpiresOnClockRollback()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var deadline = fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        var otherClock = new CoreRuntimeFixture.TestClock();
+
+        Assert.ThrowsExactly<ArgumentException>(() => deadline.GetRemaining(otherClock));
+        fixture.Clock.Advance(TimeSpan.FromSeconds(-1));
+        Assert.IsTrue(deadline.IsExpired(fixture.Clock));
+        Assert.AreEqual(TimeSpan.Zero, deadline.GetRemaining(fixture.Clock));
+    }
+
+    [TestMethod]
+    public void DeadlineCustodyKeepsCapacityChargedUntilTheLastOwnerReleases()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var world = fixture.OpenWorld();
+        using var hostLease = fixture.Runtime.RuntimeOwnership.TryTrack(new object());
+        using var worldLease = world.Ownership.TryTrack(new object());
+        Assert.IsNotNull(hostLease);
+        Assert.IsNotNull(worldLease);
+
+        fixture.Runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        Assert.AreEqual(ShutdownSettlement.Pending, fixture.Runtime.SettleStop());
+        fixture.Clock.Advance(TimeSpan.FromSeconds(2));
+        Assert.AreEqual(ShutdownSettlement.Custody, fixture.Runtime.SettleStop());
+        Assert.IsNull(fixture.Budget.TryReserveRuntime(CoreRuntimeFixture.Quota));
+
+        hostLease.Dispose();
+        hostLease.Dispose();
+        Assert.IsNull(fixture.Budget.TryReserveRuntime(CoreRuntimeFixture.Quota));
+        worldLease.Dispose();
+
+        using var next = fixture.Budget.TryReserveRuntime(CoreRuntimeFixture.Quota);
+        Assert.IsNotNull(next);
+    }
+
+    [TestMethod]
+    public async Task FaultRegisteredWhilePolicyRunsInvalidatesThePendingDecision()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var policy = new ControlledPolicy();
+        var world = fixture.OpenWorld(policy);
+        var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        Assert.AreEqual(FaultReportStatus.Recorded, ReportRequired(world, stamp));
+        var firstGeneration = world.State.Read().PendingFaultGeneration;
+        var proof = world.Writer.TryIssue(stamp, firstGeneration);
+        Assert.IsNotNull(proof);
+        var request = world.Coordinator.TryBegin(proof);
+        Assert.IsNotNull(request);
+        var decisionTask = world.Supervisor.DecideAsync(request, CancellationToken.None).AsTask();
+
+        try
+        {
+            await policy.Entered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            Assert.AreEqual(FaultReportStatus.Recorded, ReportRequired(world, stamp, 2));
+        }
+        finally
+        {
+            policy.Release.TrySetResult();
+        }
+
+        var decision = await decisionTask.WaitAsync(TimeSpan.FromSeconds(5));
+        Assert.AreEqual(DecisionApplication.Rejected, world.Coordinator.TryApply(decision));
+        var current = world.State.Read();
+        Assert.IsGreaterThan(firstGeneration, current.PendingFaultGeneration);
+        Assert.AreEqual(FaultEvidenceReadStatus.StaleGeneration, world.Evidence.CopyPending(firstGeneration, [], out _));
+        Assert.AreEqual(DecisionApplication.Rejected, world.Coordinator.CompleteUnverified(firstGeneration));
+        Assert.AreEqual(DecisionApplication.Stopped, world.Coordinator.CompleteUnverified(current.PendingFaultGeneration));
+        Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+    }
+
+    [TestMethod]
+    public async Task RequiredEvidenceOverflowIsDistinctFromOptionalDeliveryLoss()
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var world = fixture.OpenWorld();
+        var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+
+        Report(world, stamp, FaultClass.DiagnosticOnly, 1);
+        Report(world, stamp, FaultClass.DiagnosticOnly, 2);
+        var optional = world.State.Read();
+        Assert.IsGreaterThan(0UL, optional.DeliveryLossCount);
+        Assert.IsFalse(optional.Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+
+        for (var i = 0; i < CoreRuntimeFixture.Quota.Diagnostics.RequiredEvidenceRecords; i++)
+        {
+            Assert.AreEqual(FaultReportStatus.Recorded, ReportRequired(world, stamp, checked((uint)i + 1)));
+        }
+
+        Assert.AreEqual(FaultReportStatus.EvidenceLost, ReportRequired(world, stamp, 10));
+        var required = world.State.Read();
+        Assert.IsTrue(required.Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+        Assert.IsGreaterThan(0UL, required.EvidenceLossCount);
+        Assert.IsNull(world.Writer.TryIssue(stamp, required.PendingFaultGeneration));
+    }
+
+    [TestMethod]
+    public async Task ContendedRequiredIngressFencesOnlyTheReportingWorldWithoutWaiting()
+    {
+        var clock = new BlockingClock();
+        var quota = new ResourceQuota(2, 32,
+            new JobQuota(16, 8, 32, 32, 8, 16, 32, 131072, 131072, 131072),
+            new DiagnosticQuota(2, 32768, 24, 65536, 8, 4, 64, 1024));
+        using var fixture = new CoreRuntimeFixture(clock, quota);
+        var world = fixture.OpenWorld();
+        var otherWorld = fixture.OpenWorld();
+        var stamp = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        var candidates = await CoreRuntimeFixture.SealAsync(world, 1, BarrierKind.CommitResults);
+        var prepared = CoreRuntimeFixture.Prepare(world, candidates, []);
+
+        clock.BlockNextSample();
+        var gateOwner = Task.Run(world.CreateBorrowedDrainDeadline);
+        try
+        {
+            await clock.SampleEntered.Task.WaitAsync(TimeSpan.FromSeconds(5));
+            var report = Task.Run(() => ReportRequired(world, stamp));
+            Assert.AreEqual(FaultReportStatus.EvidenceLost, await report.WaitAsync(TimeSpan.FromSeconds(5)));
+        }
+        finally
+        {
+            clock.SampleReleased.TrySetResult();
+            await gateOwner.WaitAsync(TimeSpan.FromSeconds(5));
+        }
+
+        Assert.IsTrue(world.State.Read().Conditions.HasFlag(SafetyCondition.RequiredEvidenceLost));
+        Assert.AreEqual(BarrierStatus.Stopped, world.Publication.Finalization.TryFinalize(prepared).Status);
+        Assert.AreEqual(stamp, world.Publication.Committed.Read().Stamp);
+        Assert.IsFalse(fixture.Runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
+        Assert.AreEqual(1UL, (await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(otherWorld, 1, BarrierKind.BeginTick)).Epoch);
+    }
+
+    private static FaultReportStatus ReportRequired(WorldSafetyPorts world, BarrierStamp stamp, uint code = 1) =>
+        Report(world, stamp, FaultClass.Cancelled, code);
+
+    private static FaultReportStatus Report(WorldSafetyPorts world, BarrierStamp stamp, FaultClass classification, uint code)
+    {
+        var context = new FaultContext(stamp.World, stamp.Tick, TickPhase.Base, null, null, null);
+        var fault = new FaultObservation(classification, FaultSeverity.Warning, FaultSubsystem.Jobs, FaultOrigin.Primary, code, 0, context, [], []);
+        return world.Reporter.TryReport(fault);
+    }
+
+    private sealed class ControlledPolicy : IBarrierSupervisorPolicy
+    {
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public async ValueTask<SupervisorAction> DecideAsync(
+            BarrierReviewRequest request, IFaultEvidenceReader evidence, CancellationToken cancellationToken)
+        {
+            Entered.TrySetResult();
+            await Release.Task.WaitAsync(cancellationToken);
+            return SupervisorAction.ContinueAtSafeBarrier;
+        }
+    }
+
+    private sealed class BlockingClock : CoreRuntimeFixture.TestClock
+    {
+        private int _block;
+
+        public TaskCompletionSource SampleEntered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource SampleReleased { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void BlockNextSample() => Volatile.Write(ref _block, 1);
+
+        public override long GetTimestamp()
+        {
+            if (Interlocked.Exchange(ref _block, 0) == 1)
+            {
+                SampleEntered.TrySetResult();
+                SampleReleased.Task.WaitAsync(TimeSpan.FromSeconds(10)).GetAwaiter().GetResult();
+            }
+
+            return base.GetTimestamp();
+        }
+    }
+}

@@ -1,0 +1,492 @@
+using System.Diagnostics.CodeAnalysis;
+
+namespace Groundwork.Core;
+
+public interface IRuntimeStopControl
+{
+    RuntimeDeadline RequestStop(HostStopReason reason);
+}
+
+[SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "The runtime authority owns the wake handle through terminal custody.")]
+public sealed class RuntimeWakeSignal
+{
+    private readonly AutoResetEvent _signal = new(false);
+    private int _closed;
+
+    internal RuntimeWakeSignal() { }
+
+    public WaitHandle Handle => _signal;
+
+    public void Signal()
+    {
+        if (Volatile.Read(ref _closed) != 0)
+        {
+            return;
+        }
+
+        try
+        {
+            _signal.Set();
+        }
+        catch (ObjectDisposedException) when (Volatile.Read(ref _closed) != 0)
+        {
+            // A concurrent late producer cannot signal a released runtime.
+        }
+    }
+
+    internal void Close()
+    {
+        if (Interlocked.Exchange(ref _closed, 1) == 0)
+        {
+            _signal.Dispose();
+        }
+    }
+}
+
+public interface IRuntimeWorkLease : IDisposable { }
+
+public interface IRuntimeOwnership
+{
+    IRuntimeWorkLease? TryTrack(object retainedOwner);
+}
+
+public enum ShutdownSettlement : byte { Pending = 1, Released, Custody, InvalidScope }
+
+public sealed class RuntimeSafetyAuthority
+{
+    private static readonly Lock CustodianGate = new();
+    private static readonly HashSet<RuntimeSafetyAuthority> Custodian = [];
+    private static ulong _lastWorldId;
+
+    private readonly ProcessRuntimeReservation _reservation;
+    private readonly ResourceQuotaUsage _worldUsage;
+    private readonly FaultLedger _ledger;
+    private readonly OwnershipScope _ownership;
+    private readonly HashSet<WorldId> _pendingWorlds = [];
+    private readonly Dictionary<WorldId, WorldControl> _worlds = [];
+    private RuntimeDeadline? _deadline;
+    private long _fallbackTimestamp = long.MaxValue;
+    private int _contendedEvidenceLoss;
+    private int _terminal;
+    private int _outstandingOperations;
+    private bool _settling;
+    private bool _inCustody;
+    private bool _released;
+
+    private RuntimeSafetyAuthority(
+        DeadlineClock clock, long shutdown, long borrowedDrain, long supervisorResponse,
+        ProcessRuntimeReservation reservation)
+    {
+        Clock = clock;
+        ShutdownDuration = shutdown;
+        BorrowedDrainDuration = borrowedDrain;
+        SupervisorDuration = supervisorResponse;
+        _reservation = reservation;
+        var diagnosticQuota = reservation.Quota.Diagnostics;
+        _worldUsage = new ResourceQuotaUsage(reservation.Quota with
+        {
+            Diagnostics = diagnosticQuota with
+            {
+                EmergencyRecords = diagnosticQuota.EmergencyRecords - FaultLedger.EmergencySummaryCount,
+                EmergencyBytes = diagnosticQuota.EmergencyBytes -
+                    (long)FaultLedger.EmergencySummaryCount * diagnosticQuota.MaxPayloadBytesPerRecord
+            }
+        });
+        _ownership = new OwnershipScope(this, null, reservation.Quota.OutstandingOperations);
+        _ledger = new FaultLedger(this, null, reservation.Quota.Diagnostics, StopFromFault);
+        Reporter = new FaultReporterPort(_ledger);
+        State = new SafetyStatePort(_ledger);
+        StopControl = new StopPort(this);
+        UiWake = new RuntimeWakeSignal();
+        try
+        {
+            SimulationWake = new RuntimeWakeSignal();
+        }
+        catch
+        {
+            UiWake.Close();
+            throw;
+        }
+    }
+
+    public static RuntimeSafetyAuthority Create(
+        TimeProvider clock, RuntimeTimingLimits timing, ProcessRuntimeReservation reservation)
+    {
+        ArgumentNullException.ThrowIfNull(clock);
+        ArgumentNullException.ThrowIfNull(reservation);
+        var domain = new DeadlineClock(clock);
+        var shutdown = domain.GetDuration(timing.Shutdown);
+        var borrowedDrain = domain.GetDuration(timing.BorrowedDrain);
+        var supervisor = domain.GetDuration(timing.SupervisorResponse);
+        if (!reservation.TryAdopt())
+        {
+            throw new InvalidOperationException("The process reservation is already adopted or released.");
+        }
+
+        try
+        {
+            return new RuntimeSafetyAuthority(domain, shutdown, borrowedDrain, supervisor, reservation);
+        }
+        catch
+        {
+            reservation.ReleaseAdopted();
+            throw;
+        }
+    }
+
+    public IRuntimeStopControl StopControl { get; }
+    public IFaultReporter Reporter { get; }
+    public IRuntimeSafetyState State { get; }
+    public RuntimeWakeSignal UiWake { get; }
+    public RuntimeWakeSignal SimulationWake { get; }
+    public IRuntimeOwnership RuntimeOwnership => _ownership;
+
+    internal object Gate { get; } = new();
+    internal DeadlineClock Clock { get; }
+    internal long ShutdownDuration { get; }
+    internal long BorrowedDrainDuration { get; }
+    internal long SupervisorDuration { get; }
+    internal bool HasContendedEvidenceLoss => Volatile.Read(ref _contendedEvidenceLoss) != 0;
+    internal bool IsPublicationFenced => Volatile.Read(ref _terminal) != 0 || HasContendedEvidenceLoss || !Clock.IsValid;
+
+    internal SafetyCondition InheritedConditions => HasContendedEvidenceLoss
+        ? SafetyCondition.TerminalStop | SafetyCondition.RequiredEvidenceLost
+        : IsPublicationFenced ? SafetyCondition.TerminalStop : SafetyCondition.None;
+
+    // The interlocked read is the publication linearization point with respect
+    // to a contended required fault. Root/ledger updates stay under Gate.
+    internal bool TryAuthorizePublication()
+        => Volatile.Read(ref _terminal) == 0 && Clock.IsValid &&
+           Interlocked.CompareExchange(ref _contendedEvidenceLoss, 0, 0) == 0;
+
+    internal void FenceOnContendedEvidenceLoss()
+    {
+        // If the gate is contended, use the last trusted clock sample. This can
+        // shorten draining, but never allows a contended fault to extend cleanup.
+        Interlocked.CompareExchange(ref _fallbackTimestamp, Clock.LastTimestamp, long.MaxValue);
+        Interlocked.Exchange(ref _contendedEvidenceLoss, 1);
+        UiWake.Signal();
+        SimulationWake.Signal();
+    }
+
+    public bool TryAllocateWorldId(out WorldId world)
+    {
+        lock (Gate)
+        {
+            world = default;
+            if (IsPublicationFenced || _worlds.Count + _pendingWorlds.Count >= _reservation.Quota.Worlds)
+            {
+                return false;
+            }
+
+            while (true)
+            {
+                var last = Volatile.Read(ref _lastWorldId);
+                if (last == ulong.MaxValue)
+                {
+                    return false;
+                }
+
+                if (Interlocked.CompareExchange(ref _lastWorldId, last + 1, last) == last)
+                {
+                    world = new WorldId(last + 1);
+                    _pendingWorlds.Add(world);
+                    return true;
+                }
+            }
+        }
+    }
+
+    public bool TryAbandonWorldId(WorldId world)
+    {
+        lock (Gate)
+        {
+            return _pendingWorlds.Remove(world);
+        }
+    }
+
+    public WorldSafetyPorts OpenWorld(
+        WorldId world, ResourceQuota quota, IBarrierSupervisorPolicy policy,
+        IWorldStateRoot initialRoot, IJobScopePolicy scopePolicy)
+    {
+        ArgumentNullException.ThrowIfNull(policy);
+        ArgumentNullException.ThrowIfNull(initialRoot);
+        ArgumentNullException.ThrowIfNull(scopePolicy);
+        ResourceQuotaUsage.Validate(quota);
+        if (initialRoot.World != world || quota.Worlds != 1)
+        {
+            throw new ArgumentException("A world requires its own initial root and one world slot.", nameof(initialRoot));
+        }
+
+        lock (Gate)
+        {
+            if (IsPublicationFenced || !_pendingWorlds.Contains(world) || !_worldUsage.TryCharge(quota, includeOperations: false))
+            {
+                throw new InvalidOperationException("The world is not pending in this authority or its quota is unavailable.");
+            }
+
+            try
+            {
+                var control = new WorldControl(this, world, quota, policy, initialRoot, scopePolicy);
+                var ports = new WorldSafetyPorts(control);
+                _worlds.Add(world, control);
+                _pendingWorlds.Remove(world);
+                return ports;
+            }
+            catch
+            {
+                _worldUsage.Release(quota, includeOperations: false);
+                throw;
+            }
+        }
+    }
+
+    public ShutdownSettlement SettleWorld(WorldId world)
+    {
+        lock (Gate)
+        {
+            if (!_worlds.TryGetValue(world, out var control))
+            {
+                return ShutdownSettlement.InvalidScope;
+            }
+
+            if (IsPublicationFenced && !_deadline.HasValue)
+            {
+                StopCore();
+            }
+
+            if (control.Ledger.HasContendedEvidenceLoss && !control.Deadline.HasValue)
+            {
+                control.StopWorld();
+            }
+
+            var result = SettleWorldCore(control);
+            TryReleaseStoppedRuntime();
+            return result;
+        }
+    }
+
+    public ShutdownSettlement SettleStop()
+    {
+        lock (Gate)
+        {
+            if (_released)
+            {
+                return ShutdownSettlement.Released;
+            }
+
+            if (!IsPublicationFenced)
+            {
+                return ShutdownSettlement.InvalidScope;
+            }
+
+            var deadline = StopCore();
+            _settling = true;
+            foreach (var world in _worlds.Values)
+            {
+                SettleWorldCore(world);
+            }
+
+            if (TryReleaseStoppedRuntime())
+            {
+                return ShutdownSettlement.Released;
+            }
+
+            if (!deadline.IsExpired(Clock.Provider))
+            {
+                return ShutdownSettlement.Pending;
+            }
+
+            _inCustody = true;
+            _ledger.MarkIncomplete();
+            UpdateCustodian();
+            return ShutdownSettlement.Custody;
+        }
+    }
+
+    internal bool TryTrackOperation()
+    {
+        if (IsPublicationFenced || _outstandingOperations >= _reservation.Quota.OutstandingOperations)
+        {
+            return false;
+        }
+
+        _outstandingOperations++;
+        return true;
+    }
+
+    internal void ReleaseOperation(WorldControl? world)
+    {
+        _outstandingOperations--;
+        if (world is { Settling: true, IsStopping: false, OwnerCount: 0 })
+        {
+            ReleaseWorld(world);
+        }
+
+        TryReleaseStoppedRuntime();
+    }
+
+    private ShutdownSettlement SettleWorldCore(WorldControl world)
+    {
+        if (world.Deadline is not { } deadline)
+        {
+            return ShutdownSettlement.InvalidScope;
+        }
+
+        world.Settling = true;
+        if (world.OwnerCount == 0)
+        {
+            ReleaseWorld(world);
+            return ShutdownSettlement.Released;
+        }
+
+        if (!deadline.IsExpired(Clock.Provider))
+        {
+            return ShutdownSettlement.Pending;
+        }
+
+        world.InCustody = true;
+        world.Ledger.MarkIncomplete();
+        UpdateCustodian();
+        return ShutdownSettlement.Custody;
+    }
+
+    private void ReleaseWorld(WorldControl world)
+    {
+        if (_worlds.Remove(world.World))
+        {
+            world.Release();
+            _worldUsage.Release(world.Quota, includeOperations: false);
+            UpdateCustodian();
+        }
+    }
+
+    private bool TryReleaseStoppedRuntime()
+    {
+        if (!_released && _settling && _worlds.Count == 0 && _outstandingOperations == 0)
+        {
+            _released = true;
+            _inCustody = false;
+            _ledger.ReleaseStorage();
+            UiWake.Close();
+            SimulationWake.Close();
+            _reservation.ReleaseAdopted();
+            UpdateCustodian();
+        }
+
+        return _released;
+    }
+
+    private void UpdateCustodian()
+    {
+        lock (CustodianGate)
+        {
+            if (_inCustody || _worlds.Values.Any(world => world.InCustody))
+            {
+                Custodian.Add(this);
+            }
+            else
+            {
+                Custodian.Remove(this);
+            }
+        }
+    }
+
+    private void StopFromFault() => StopCore();
+
+    private RuntimeDeadline StopCore()
+    {
+        if (_deadline is { } existing)
+        {
+            return existing;
+        }
+
+        Volatile.Write(ref _terminal, 1);
+        var validClock = Clock.TryRead(out var now);
+        var origin = Math.Min(now, Volatile.Read(ref _fallbackTimestamp));
+        var deadline = Clock.At(origin, ShutdownDuration, validClock);
+        _deadline = deadline;
+        _ledger.MarkStopped();
+        _pendingWorlds.Clear();
+        UiWake.Signal();
+        SimulationWake.Signal();
+        foreach (var world in _worlds.Values)
+        {
+            world.StopForRuntime(deadline);
+        }
+
+        return deadline;
+    }
+
+    private sealed class StopPort(RuntimeSafetyAuthority authority) : IRuntimeStopControl
+    {
+        public RuntimeDeadline RequestStop(HostStopReason reason)
+        {
+            if (!Enum.IsDefined(reason))
+            {
+                throw new ArgumentOutOfRangeException(nameof(reason));
+            }
+
+            lock (authority.Gate)
+            {
+                return authority.StopCore();
+            }
+        }
+    }
+}
+
+internal sealed class OwnershipScope(RuntimeSafetyAuthority runtime, WorldControl? world, int limit) : IRuntimeOwnership
+{
+    private readonly HashSet<WorkLease> _leases = [];
+
+    internal int Count => _leases.Count;
+
+    public IRuntimeWorkLease? TryTrack(object retainedOwner)
+    {
+        ArgumentNullException.ThrowIfNull(retainedOwner);
+        lock (runtime.Gate)
+        {
+            if (world is { IsTerminal: true } || _leases.Count >= limit || !runtime.TryTrackOperation())
+            {
+                return null;
+            }
+
+            try
+            {
+                var lease = new WorkLease(this, retainedOwner);
+                _leases.Add(lease);
+                return lease;
+            }
+            catch
+            {
+                runtime.ReleaseOperation(world);
+                throw;
+            }
+        }
+    }
+
+    private void Release(WorkLease lease)
+    {
+        lock (runtime.Gate)
+        {
+            if (_leases.Remove(lease))
+            {
+                lease.ClearOwner();
+                runtime.ReleaseOperation(world);
+            }
+        }
+    }
+
+    private sealed class WorkLease(OwnershipScope scope, object retainedOwner) : IRuntimeWorkLease
+    {
+        private object? _retainedOwner = retainedOwner;
+
+        internal void ClearOwner()
+        {
+            GC.KeepAlive(_retainedOwner);
+            _retainedOwner = null;
+        }
+
+        public void Dispose() => scope.Release(this);
+    }
+}

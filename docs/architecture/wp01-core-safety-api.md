@@ -179,6 +179,7 @@ public sealed class WorldSafetyPorts
     public ISafeBarrierSupervisor Supervisor => throw new NotSupportedException();
     public WorldPublicationPorts Publication => throw new NotSupportedException();
     public IRuntimeOwnership Ownership => throw new NotSupportedException();
+    public RuntimeDeadline CreateBorrowedDrainDeadline() => throw new NotSupportedException();
 }
 ```
 
@@ -268,6 +269,10 @@ An owning module registers a retention bundle before starting or exposing work t
 Core owns distinct retained wake signals for the UI pump and simulation coordinator, with a single waiting consumer each. A signal persists until consumed and may coalesce repeated notifications. The first stop signals both independently of the startup or cleanup gate. Pause, resume and supervisor recovery signal the simulation endpoint. The host rechecks the control state after waking. Handles are borrowed by their trusted waiting owners and remain open until waiters have quiesced, including in custody. Only L1 bridges its handle into the native message wait.
 
 Deadlines are Core-issued values tied to the injected clock by identity. A default deadline or a different clock is invalid. Compute the absolute timestamp using widened checked arithmetic and ceiling-round positive durations to timestamp units. Remaining time clamps to zero and floor-rounds the conversion to `TimeSpan`. Expiry compares timestamps directly. If the clock rolls back or the deadline cannot be represented, latch stop and issue an already-expired deadline. The first terminal stop latches admission and publication closed and captures the single shutdown deadline before cancellation dispatch or an affinity-bound wait. Repeated requests return that deadline and cannot weaken terminal safety state. Barrier and review deadlines are separate finite budgets and never extend an active terminal deadline. A caller cancelling its wait does not cancel shared cleanup. At expiry, transfer reachable resources and reservations to process custody and surface `IncompleteCleanupException` while release continues under the original ownership and affinity rules.
+
+The coordinator requests a Core-issued borrowed drain deadline through `CreateBorrowedDrainDeadline` and passes it to the borrow barrier port. The deadline uses the configured borrowed-drain budget and the authority's clock.
+
+Core orders world and runtime publication through one runtime gate. When a producer cannot acquire the gate for required fault evidence, it sets a monotonic evidence-loss fence without waiting. A world reporter fences its own world and wakes Simulation. A runtime reporter fences all its worlds and wakes the UI and Simulation. Optional telemetry contention uses delivery loss and leaves the publication fences unchanged.
 
 ## Acceptance traces
 

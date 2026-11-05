@@ -154,7 +154,9 @@ public sealed class JobDispatchPermit
     public SourceKey Source { get; }
     public BarrierStamp DispatchStamp { get; }
     public TickPhase DispatchPhase { get; }
+    public IJobArguments Arguments => throw new NotSupportedException();
     public IJobDependencyOutputs DependencyOutputs => throw new NotSupportedException();
+    public Task CancellationRequested => throw new NotSupportedException();
     public JobInputKind InputKind { get; }
     public IAdmittedJobScope Scope => throw new NotSupportedException();
     public ImmutableArray<ComponentTarget> SnapshotTargets { get; }
@@ -188,6 +190,7 @@ public readonly record struct TargetVersionStamp(
 public interface ITargetVersionIssuer
 {
     TargetVersion Issue(in TargetVersionStamp stamp);
+    bool TryRead(TargetVersion version, JobDispatchPermit permit, ComponentTarget target, out TargetVersionStamp stamp);
 }
 ```
 
@@ -385,6 +388,7 @@ public sealed class WorldPublicationPorts
     public IObserverPublicationAuthority Observer => throw new NotSupportedException();
     public IObserverSnapshotSource ObserverSnapshots => throw new NotSupportedException();
     public ICommittedWorldSource Committed => throw new NotSupportedException();
+    public IBorrowBarrierControl Borrow => throw new NotSupportedException();
 }
 ```
 
@@ -402,6 +406,7 @@ public sealed class WorldPublicationPorts
 - The observer reader gets a bounded lease over the coherent previous/current pair and their stamps, independently of the ECS writer view. Before first publication return `Empty`. Reserve retention before granting a lease. A successful swap rotates the old current to previous and installs the new current atomically. A blocked swap leaves both unchanged. Drop frame references before releasing the lease. Terminal close fences new leases, and outstanding buffers stay charged through custody.
 - The trusted pipeline passes the active phase to scheduler submissions and calls `DispatchReadyAsync` with the same capability before closing the phase. Jobs visits ready candidates in stable source order and schedules only within available worker and capture reservations. It may rescan on readiness while the phase remains open. The phase handoff does not wait for all workers or extend borrow lifetime. A job that cannot dispatch during that phase remains pending for its next eligible phase unless it reaches a terminal outcome.
 - Core binds the dispatch permit's `DependencyOutputs` reader to that permit and its retained commandless execution prerequisites. Jobs passes only the reader to the handler. Copy from the authoritative retained output under an in-flight read reservation. The reader remains valid across phases while that worker owns its invocation, rejects undeclared prerequisites, and expires on settlement. Keep the buffer charged until the worker and all in-flight copies have quiesced. This avoids a second retained copy and does not expose a backing buffer.
+- The permit provides the bounded copy reader for admitted argument bytes and a cancellation notification for Jobs. Cancellation and shutdown complete the notification with asynchronous continuations. Jobs invokes cooperative cancellation outside the authority gate. The ECS writer uses `TryRead` on its version issuance port to authenticate a token against the exact permit and target before comparing its stamp with committed state. The coordinator obtains the borrow barrier control through `WorldPublicationPorts.Borrow`.
 
 ## Freeze checks
 
