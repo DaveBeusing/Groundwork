@@ -13,10 +13,11 @@ $m = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 if ($m.schemaVersion -ne 1 -or $m.sourceCommit -ine $ExpectedSourceCommit) { throw 'Wrong manifest schema or source commit.' }
 $ids = @('Groundwork.Core','Groundwork.Platform.Windows','Groundwork.Simulation','Groundwork.Ecs','Groundwork.Jobs','Groundwork.Diagnostics')
 $packages = @($m.packages)
-# Keep the original WP01 and WP02 package sets verifiable.
+# Preserve the approved historical package sets.
 if ($packages.Count -ge 7) { $ids += 'Groundwork.Rendering' }
 if ($packages.Count -ge 8) { $ids += 'Groundwork.Rendering.D3D12' }
-if ($packages.Count -eq 9) { $ids += 'Groundwork.Voxels' }
+if ($packages.Count -ge 9) { $ids += 'Groundwork.Voxels' }
+if ($packages.Count -eq 10) { $ids += 'Groundwork.Persistence' }
 if ($packages.Count -ne $ids.Count) { throw 'Unexpected package count.' }
 $sourceDir = (Resolve-Path -LiteralPath $PackageDirectory).Path
 $feedDir = (Resolve-Path -LiteralPath $FeedDirectory).Path

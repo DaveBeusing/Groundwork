@@ -19,6 +19,7 @@ try {
  $env:NUGET_PACKAGES = $cache
  $escapedFeed = [System.Security.SecurityElement]::Escape($feed)
  $provider = Test-Path -LiteralPath (Join-Path $feed 'groundwork.rendering.d3d12')
+ $persistence = Test-Path -LiteralPath (Join-Path $feed 'groundwork.persistence')
  $bindingSource = ''
  $bindingMapping = ''
  if ($provider) {
@@ -48,6 +49,7 @@ try {
  $renderingReference = ''
  $providerReference = ''
  $voxelsReference = ''
+ $persistenceReference = ''
  $providerArchitecture = ''
  if (Test-Path -LiteralPath (Join-Path $feed 'groundwork.rendering')) {
    $renderingReference = "<PackageReference Include=`"Groundwork.Rendering`" Version=`"[$Version]`" />"
@@ -61,9 +63,16 @@ try {
    [System.IO.File]::WriteAllText((Join-Path $source 'D3D12PackageProbe.cs'),$probe)
  }
  if (Test-Path -LiteralPath (Join-Path $feed 'groundwork.voxels')) {
-   $voxelsReference = "<PackageReference Include=`"Groundwork.Voxels`" Version=`"[$Version]`" />"
+   if (-not $persistence) {
+     $voxelsReference = "<PackageReference Include=`"Groundwork.Voxels`" Version=`"[$Version]`" />"
+   }
    $probe = 'public static class VoxelPackageProbe { public static System.Type Snapshot => typeof(Groundwork.Voxels.ChunkSnapshot); }'
    [System.IO.File]::WriteAllText((Join-Path $source 'VoxelPackageProbe.cs'),$probe)
+ }
+ if ($persistence) {
+   $persistenceReference = "<PackageReference Include=`"Groundwork.Persistence`" Version=`"[$Version]`" />"
+   $probe = 'public static class PersistencePackageProbe { public static System.Type Codec => typeof(Groundwork.Persistence.SaveCodec); }'
+   [System.IO.File]::WriteAllText((Join-Path $source 'PersistencePackageProbe.cs'),$probe)
  }
  $projectText = @"
 <Project Sdk="Microsoft.NET.Sdk">
@@ -77,6 +86,7 @@ try {
   $renderingReference
   $providerReference
   $voxelsReference
+  $persistenceReference
  </ItemGroup>
 </Project>
 "@
