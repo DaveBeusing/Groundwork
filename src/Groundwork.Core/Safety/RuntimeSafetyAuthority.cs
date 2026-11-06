@@ -432,7 +432,7 @@ public sealed class RuntimeSafetyAuthority
             return;
         }
 
-        if (world is { Settling: true, IsStopping: false, OwnerCount: 0 })
+        if (world is { Settling: true, IsStopping: false, OwnerCount: 0 } && world.Ledger.TryCloseDiagnostics())
         {
             ReleaseWorld(world);
         }
@@ -448,7 +448,7 @@ public sealed class RuntimeSafetyAuthority
         }
 
         world.Settling = true;
-        if (world.OwnerCount == 0)
+        if (world.OwnerCount == 0 && world.Ledger.TryCloseDiagnostics())
         {
             ReleaseWorld(world);
             return ShutdownSettlement.Released;
@@ -475,9 +475,22 @@ public sealed class RuntimeSafetyAuthority
         }
     }
 
+    internal void ReconcileDiagnosticSettlement(WorldId? world)
+    {
+        lock (Gate)
+        {
+            if (_released)
+                return;
+            if (_settling)
+                SettleStopCore();
+            else if (world is { } id && _worlds.TryGetValue(id, out var control) && control.Settling)
+                SettleWorldCore(control);
+        }
+    }
+
     private bool TryReleaseStoppedRuntime()
     {
-        if (!_released && _settling && _worlds.Count == 0 && _outstandingOperations == 0)
+        if (!_released && _settling && _worlds.Count == 0 && _outstandingOperations == 0 && _ledger.TryCloseDiagnostics())
         {
             _ledger.ReleaseStorage();
             UiWake.Close();

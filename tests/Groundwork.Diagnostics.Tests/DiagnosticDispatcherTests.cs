@@ -1,3 +1,4 @@
+using System.Reflection;
 using Groundwork.Core;
 
 namespace Groundwork.Diagnostics.Tests;
@@ -254,6 +255,79 @@ public sealed class DiagnosticDispatcherTests
         await dispatcher.StopAsync(deadline, TimeProvider.System);
         using var available = budget.TryReserveRuntime(Quota);
         Assert.IsNotNull(available);
+    }
+
+    [TestMethod]
+    public async Task StopDeadlineIsEnforcedWhileNormalLeaseReleaseWaitsOnCore()
+    {
+        var (runtime, _) = CreateRuntime(1, TimeSpan.FromMilliseconds(250));
+        const BindingFlags fields = BindingFlags.Instance | BindingFlags.NonPublic;
+        var ledger = typeof(RuntimeSafetyAuthority).GetField("_ledger", fields)!.GetValue(runtime)!;
+        var queue = ledger.GetType().GetField("_normal", fields)!.GetValue(ledger)!;
+        var gate = queue.GetType().GetProperty("Gate", fields)!.GetValue(queue)!;
+        var sinkEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSink = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var returning = new TaskCompletionSource<Thread>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new DiagnosticDispatcher(runtime.Diagnostics, runtime.RuntimeOwnership,
+            new Sink((_, _) =>
+            {
+                sinkEntered.SetResult();
+                releaseSink.Task.WaitAsync(Timeout, CancellationToken.None).GetAwaiter().GetResult();
+                returning.SetResult(Thread.CurrentThread);
+                return ValueTask.CompletedTask;
+            }));
+        Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 1));
+        var active = dispatcher.DrainAsync(1);
+
+        var gateHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseGate = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        Task? holder = null;
+        try
+        {
+            await sinkEntered.Task.WaitAsync(Timeout);
+            holder = Task.Run(() =>
+            {
+                lock (gate)
+                {
+                    gateHeld.SetResult();
+                    releaseGate.Task.WaitAsync(Timeout).GetAwaiter().GetResult();
+                }
+            });
+            await gateHeld.Task.WaitAsync(Timeout);
+            releaseSink.SetResult();
+            var worker = await returning.Task.WaitAsync(Timeout);
+            // The synchronous sink has finished waiting. Its worker can now
+            // block only while returning the normal lease to the held queue.
+            using var watchdog = new CancellationTokenSource(Timeout);
+            while ((worker.ThreadState & ThreadState.WaitSleepJoin) == 0)
+                await Task.Delay(1, watchdog.Token);
+
+            var deadline = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            await Assert.ThrowsExactlyAsync<IncompleteCleanupException>(() =>
+                Task.Run(() => dispatcher.StopAsync(deadline, TimeProvider.System).AsTask()).WaitAsync(Timeout / 2));
+            Assert.IsFalse(active.IsCompleted);
+        }
+        finally
+        {
+            releaseSink.TrySetResult();
+            releaseGate.TrySetResult();
+            if (holder is not null)
+                await holder.WaitAsync(Timeout);
+            await active.WaitAsync(Timeout);
+            var deadline = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            try
+            {
+                await dispatcher.StopAsync(deadline, TimeProvider.System);
+            }
+            catch (IncompleteCleanupException)
+            {
+                // The original deadline has elapsed. Custody ends when cleanup finishes.
+            }
+
+            using var watchdog = new CancellationTokenSource(Timeout);
+            while (runtime.SettleStop() != ShutdownSettlement.Released)
+                await Task.Delay(1, watchdog.Token);
+        }
     }
 
     [TestMethod]

@@ -207,12 +207,13 @@ public sealed class DiagnosticDispatcher
                 // There is one admitted sink write. Stop joins cancellation callbacks
                 // and this drain before releasing its observation.
                 _shutdownDelivery = lease;
-            }
-            else
-            {
-                lease.Dispose();
+                return;
             }
         }
+
+        // A normal completion won the transfer decision. Release can wait on
+        // Core's delivery gate, so it must not hold the dispatcher stop gate.
+        lease.Dispose();
     }
 
     private async Task FinishAsync(Task<int>? active)

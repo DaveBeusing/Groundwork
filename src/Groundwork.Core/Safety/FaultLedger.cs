@@ -24,6 +24,7 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
     private volatile bool _storageReleased;
     private SafetyCondition _conditions;
     private int _contendedEvidenceLoss;
+    private int _diagnosticSettlementQueued;
     private long _contendedStopTimestamp = long.MaxValue;
 
     internal FaultLedger(RuntimeSafetyAuthority runtime, WorldId? world, DiagnosticQuota quota, Action stop)
@@ -177,6 +178,46 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         _requiredCount = 0;
     }
 
+    // Called under the safety gate only when the scope is otherwise ready to release.
+    internal bool TryCloseDiagnostics()
+    {
+        if (Volatile.Read(ref _normal) is { } queue)
+        {
+            Volatile.Write(ref queue.Closing, true);
+            if (!Monitor.TryEnter(queue.Gate))
+                return false;
+            try
+            {
+                if (queue.InFlight)
+                    return false;
+            }
+            finally
+            {
+                Monitor.Exit(queue.Gate);
+            }
+        }
+
+        if (Volatile.Read(ref _emergency) is not { } emergency)
+            return true;
+
+        // The first two slots are written only under the safety gate. A sink
+        // can write its separate slot concurrently without that gate.
+        Volatile.Write(ref emergency.Closing, true);
+        return Interlocked.CompareExchange(ref emergency.Slots[2].State, 3, 0) != 1;
+    }
+
+    private void QueueDiagnosticSettlement()
+    {
+        if (Interlocked.CompareExchange(ref _diagnosticSettlementQueued, 1, 0) != 0)
+            return;
+
+        ThreadPool.UnsafeQueueUserWorkItem(static ledger =>
+        {
+            Volatile.Write(ref ledger._diagnosticSettlementQueued, 0);
+            ledger._runtime.ReconcileDiagnosticSettlement(ledger._world);
+        }, this, preferLocal: false);
+    }
+
     public RuntimeSafetySnapshot Read()
     {
         lock (_runtime.Gate)
@@ -248,17 +289,25 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
 
     bool IDiagnosticReader.TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease)
     {
-        if (Volatile.Read(ref _normal) is { } queue)
+        if (Volatile.Read(ref _normal) is { } queue && !Volatile.Read(ref queue.Closing))
         {
-            lock (queue.Gate)
+            try
             {
-                if (!_storageReleased && queue.Count != 0 && !queue.InFlight && queue.Ticket != ulong.MaxValue)
+                lock (queue.Gate)
                 {
-                    queue.InFlight = true;
-                    observation = queue.Records[queue.Head];
-                    lease = new DiagnosticReadLease(this, ++queue.Ticket);
-                    return true;
+                    if (!Volatile.Read(ref queue.Closing) && queue.Count != 0 && !queue.InFlight && queue.Ticket != ulong.MaxValue)
+                    {
+                        queue.InFlight = true;
+                        observation = queue.Records[queue.Head];
+                        lease = new DiagnosticReadLease(this, ++queue.Ticket);
+                        return true;
+                    }
                 }
+            }
+            finally
+            {
+                if (Volatile.Read(ref queue.Closing))
+                    QueueDiagnosticSettlement();
             }
         }
 
@@ -272,15 +321,23 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         if (Volatile.Read(ref _normal) is not { } queue)
             return;
 
-        lock (queue.Gate)
+        try
         {
-            if (!queue.InFlight || ticket != queue.Ticket)
-                return;
+            lock (queue.Gate)
+            {
+                if (!queue.InFlight || ticket != queue.Ticket)
+                    return;
 
-            queue.Text.AsSpan(queue.Head * _textCapacity, _textCapacity).Clear();
-            queue.Head = (queue.Head + 1) % queue.Records.Length;
-            queue.Count--;
-            queue.InFlight = false;
+                queue.Text.AsSpan(queue.Head * _textCapacity, _textCapacity).Clear();
+                queue.Head = (queue.Head + 1) % queue.Records.Length;
+                queue.Count--;
+                queue.InFlight = false;
+            }
+        }
+        finally
+        {
+            if (Volatile.Read(ref queue.Closing))
+                QueueDiagnosticSettlement();
         }
     }
 
@@ -355,12 +412,12 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
 
     private FaultReportStatus RecordOptional(scoped in FaultObservation observation, bool countCoalesced = true)
     {
-        if (Volatile.Read(ref _normal) is not { } queue || !Monitor.TryEnter(queue.Gate))
+        if (Volatile.Read(ref _normal) is not { } queue || Volatile.Read(ref queue.Closing) || !Monitor.TryEnter(queue.Gate))
             return LoseDelivery(countCoalesced);
 
         try
         {
-            if (_storageReleased || queue.Count == queue.Records.Length)
+            if (Volatile.Read(ref queue.Closing) || queue.Count == queue.Records.Length)
                 return LoseDelivery(countCoalesced);
 
             queue.Records[queue.Tail] = new DiagnosticEvent(observation);
@@ -374,6 +431,8 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         finally
         {
             Monitor.Exit(queue.Gate);
+            if (Volatile.Read(ref queue.Closing))
+                QueueDiagnosticSettlement();
         }
     }
 
@@ -407,6 +466,8 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         slot.Event = summary;
         CopyDetail(text, delivery.Text, index);
         Volatile.Write(ref slot.State, 2);
+        if (index == 2 && Volatile.Read(ref delivery.Closing))
+            QueueDiagnosticSettlement();
         return FaultReportStatus.Recorded;
     }
 
@@ -429,6 +490,7 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         internal int Head;
         internal int Tail;
         internal bool InFlight;
+        internal bool Closing;
         internal ulong Ticket;
     }
 
@@ -436,12 +498,13 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
     {
         internal EmergencySlot[] Slots { get; } = new EmergencySlot[EmergencySummaryCount];
         internal char[] Text { get; } = new char[checked(EmergencySummaryCount * textCapacity)];
+        internal bool Closing;
     }
 
     private struct EmergencySlot
     {
         internal DiagnosticEvent Event;
-        // 0 is empty, 1 is being written, 2 is immutable and visible to readers.
+        // 0 is empty, 1 is being written, 2 is immutable and visible, 3 is closed.
         internal int State;
         internal DiagnosticEvent? Read() => Volatile.Read(ref State) == 2 ? Event : null;
     }
