@@ -81,6 +81,64 @@ public sealed class ChunkMesherTests
     }
 
     [TestMethod]
+    public void TerrainBoundaryEditAndRestoreRebuildTheUnchangedNeighbor()
+    {
+        const int size = ChunkSnapshot.Size;
+        var lowCells = new byte[ChunkSnapshot.CellCount];
+        var highCells = new byte[ChunkSnapshot.CellCount];
+        // Match the WP03 WYU terrain, including the raised back half of the high chunk.
+        for (var z = 0; z < size; z++)
+        {
+            for (var y = 0; y < 4; y++)
+                lowCells.AsSpan(Index(0, y, z), size).Fill(1);
+
+            var height = z < 8 ? 4 : 8;
+            for (var y = 0; y < height; y++)
+                highCells.AsSpan(Index(0, y, z), size).Fill(1);
+        }
+
+        var low = ChunkSnapshot.Create(default, 1, lowCells);
+        var high = ChunkSnapshot.Create(HighCoordinate, 1, highCells);
+        var original = ChunkMesher.BuildPair(low, high);
+
+        var editIndex = Index(15, 3, 4);
+        lowCells[editIndex] = 0;
+        var edited = ChunkSnapshot.Create(default, 2, lowCells);
+        var removed = ChunkMesher.BuildPair(edited, high);
+
+        lowCells[editIndex] = 1;
+        var restored = ChunkSnapshot.Create(default, 3, lowCells);
+        var replacement = ChunkMesher.BuildPair(restored, high);
+
+        Assert.IsTrue(original.Matches(low, high));
+        Assert.IsTrue(removed.Matches(edited, high));
+        Assert.IsTrue(replacement.Matches(restored, high));
+        Assert.IsFalse(original.Matches(edited, high));
+        Assert.IsFalse(removed.Matches(restored, high));
+        Assert.IsFalse(original.Matches(restored, high));
+
+        const int raisedSeamQuads = 4 * 8;
+        Assert.AreEqual(raisedSeamQuads, CountPlaneQuads(original.High, 0, 0));
+        Assert.AreEqual(raisedSeamQuads + 1, CountPlaneQuads(removed.High, 0, 0));
+        Assert.AreEqual(raisedSeamQuads, CountPlaneQuads(replacement.High, 0, 0));
+        Assert.AreEqual(high.Revision, removed.High.Revision);
+
+        ReadOnlySpan<Vector3> exposedFace = [new(0, 3, 4), new(0, 3, 5), new(0, 4, 5), new(0, 4, 4)];
+        var matches = 0;
+        for (var i = 0; i < removed.High.Positions.Length; i += exposedFace.Length)
+        {
+            if (removed.High.Positions.Slice(i, exposedFace.Length).SequenceEqual(exposedFace))
+                matches++;
+        }
+
+        Assert.AreEqual(1, matches);
+        Assert.IsTrue(original.Low.Positions.SequenceEqual(replacement.Low.Positions));
+        Assert.IsTrue(original.Low.Indices.SequenceEqual(replacement.Low.Indices));
+        Assert.IsTrue(original.High.Positions.SequenceEqual(replacement.High.Positions));
+        Assert.IsTrue(original.High.Indices.SequenceEqual(replacement.High.Indices));
+    }
+
+    [TestMethod]
     [DataRow(-1, 0, 0, 0)]
     [DataRow(0, -1, 0, 1)]
     [DataRow(0, 0, -1, 2)]
