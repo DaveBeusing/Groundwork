@@ -3,7 +3,7 @@ param([string] $TestResultsDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$modules = @('Core', 'Platform.Windows', 'Simulation', 'Ecs', 'Jobs', 'Diagnostics', 'Rendering')
+$modules = @('Core', 'Platform.Windows', 'Simulation', 'Ecs', 'Jobs', 'Diagnostics', 'Rendering', 'Rendering.D3D12')
 function Assert-True([bool] $condition, [string] $message) {
     if (-not $condition) { throw $message }
 }
@@ -33,10 +33,21 @@ try {
         [xml] $project = Get-Content $projectPath -Raw
         $packageId = $project.SelectSingleNode('//PropertyGroup/PackageId')
         Assert-True (($null -ne $packageId) -and ($packageId.InnerText -eq $id)) ("Invalid PackageId: " + $id)
-        Assert-True ($project.SelectNodes('//PackageReference').Count -eq 0) ("Unexpected shipping package reference: " + $id)
+        $packages = @($project.SelectNodes('//PackageReference'))
+        if ($module -eq 'Rendering.D3D12') {
+            Assert-True ($packages.Count -eq 1 -and $packages[0].GetAttribute('Include') -ceq 'TerraFX.Interop.Windows' -and
+                $packages[0].GetAttribute('Version') -ceq '[10.0.26100.6]') 'Invalid D3D12 binding reference.'
+        } else {
+            Assert-True ($packages.Count -eq 0) ("Unexpected shipping package reference: " + $id)
+        }
         $refs = @($project.SelectNodes('//ProjectReference') | ForEach-Object { $_.GetAttribute('Include') })
         if ($module -eq 'Core') {
             Assert-True ($refs.Count -eq 0) 'Groundwork.Core must not have project references.'
+        } elseif ($module -eq 'Rendering.D3D12') {
+            $allowed = @('../Groundwork.Core/Groundwork.Core.csproj', '../Groundwork.Platform.Windows/Groundwork.Platform.Windows.csproj',
+                '../Groundwork.Rendering/Groundwork.Rendering.csproj')
+            Assert-True ($refs.Count -eq $allowed.Count -and @($refs | Sort-Object -Unique).Count -eq $refs.Count -and
+                @($refs | Where-Object { $_ -cnotin $allowed }).Count -eq 0) 'Invalid D3D12 project dependencies.'
         } else {
             Assert-True (($refs.Count -eq 1) -and ($refs[0] -eq '../Groundwork.Core/Groundwork.Core.csproj')) ("Invalid dependency for " + $id)
         }
@@ -56,6 +67,7 @@ try {
     )
     Assert-True ($testPaths -contains 'tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj') 'Core tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.Tests/Groundwork.Rendering.Tests.csproj') 'Rendering tests are missing from the solution.'
+    Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj') 'D3D12 tests are missing from the solution.'
     Assert-True (@($testPaths | Sort-Object -Unique).Count -eq $testPaths.Count) 'Duplicate solution test project entry.'
     foreach ($path in $testPaths) {
         Assert-True ($approvedTests.ContainsKey($path)) ("Unexpected test project: " + $path)

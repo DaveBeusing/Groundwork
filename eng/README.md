@@ -5,9 +5,9 @@ They do not edit root build settings or publish a release.
 
 ## Producer
 
-Build and pack the seven Groundwork modules, including Rendering, from the
-pinned source SHA using an identical unique prerelease PackageVersion into a
-clean output directory.
+Build and pack the eight Groundwork modules, including Rendering and its
+D3D12 provider, from the pinned source SHA using an identical unique
+prerelease PackageVersion into a clean output directory.
 Run eng/New-PackageManifest.ps1 with PackageDirectory, Version, SourceCommit,
 BuildId and OutputManifest parameters. It validates the expected package
 names, nuspec ID/version, sizes and SHA-256 hashes before writing a manifest.
@@ -26,7 +26,9 @@ unexpected package sets, wrong names/versions, size/hash changes, and package
 coordinate overwrite with different bytes. The feed is hierarchical and outside
 both worktrees. If an interrupted staging leaves a partial feed, discard the
 isolated feed before retrying; multi-package staging is not transactional.
-The original six-package WP01 archives remain valid inputs for staging.
+The original six-package WP01 and seven-package WP02 foundation archives remain
+valid inputs for staging. The D3D12 consumer verifies the exact TerraFX
+package before compiling against the provider.
 
 ## Not yet completed
 

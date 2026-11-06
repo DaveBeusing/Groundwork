@@ -1,0 +1,28 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0-windows7.0": {
+      "TerraFX.Interop.Windows": {
+        "type": "Direct",
+        "requested": "[10.0.26100.6, 10.0.26100.6]",
+        "resolved": "10.0.26100.6",
+        "contentHash": "QjL9vliSWmscUv6A7bjvsryHjYnY0norqvCNcLXSdEy1VIIzMF6FiS7BuvLTBuGUeN9FY4zJbU65OsHEv7jG9A=="
+      },
+      "groundwork.core": {
+        "type": "Project"
+      },
+      "groundwork.platform.windows": {
+        "type": "Project",
+        "dependencies": {
+          "Groundwork.Core": "[0.1.0, )"
+        }
+      },
+      "groundwork.rendering": {
+        "type": "Project",
+        "dependencies": {
+          "Groundwork.Core": "[0.1.0, )"
+        }
+      }
+    }
+  }
+}
