@@ -260,7 +260,12 @@ public sealed partial class D3D12Renderer
         if (chain is null)
             chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight);
         else if (!Matches(snapshot, chain))
-            chain.Resize(snapshot.ClientWidth, snapshot.ClientHeight);
+        {
+            if (_resize is { } resize)
+                resize(chain, snapshot.ClientWidth, snapshot.ClientHeight);
+            else
+                chain.Resize(snapshot.ClientWidth, snapshot.ClientHeight);
+        }
         return SurfaceApplication.Applied;
     }
 

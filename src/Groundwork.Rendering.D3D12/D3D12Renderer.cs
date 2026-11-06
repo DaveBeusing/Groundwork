@@ -14,6 +14,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly bool _useWarp;
     private readonly TimeSpan _startupTimeout;
     private readonly TimeSpan _operationTimeout;
+    private readonly Action<WindowsSwapChain, int, int>? _resize;
     private readonly RendererFrameAdmission _admission = new();
     private readonly Lock _lifecycle = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -35,6 +36,13 @@ public sealed partial class D3D12Renderer : IRenderer
         (_window, _ownership, _useWarp) = (window, ownership, useWarp);
         _startupTimeout = ValidateTimeout(startupTimeout ?? TimeSpan.FromSeconds(5), nameof(startupTimeout));
         _operationTimeout = ValidateTimeout(operationTimeout ?? TimeSpan.FromSeconds(2), nameof(operationTimeout));
+    }
+
+    internal D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, TimeSpan operationTimeout,
+        Action<WindowsSwapChain, int, int> resize)
+        : this(window, ownership, useWarp: true, operationTimeout: operationTimeout)
+    {
+        _resize = resize;
     }
 
     public RendererSnapshot Read() => _admission.Read();
