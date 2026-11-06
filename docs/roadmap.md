@@ -21,8 +21,8 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 | WP02 · D3D12 rendering (complete) | Portable renderer boundary, Windows target lease, D3D12 provider and diagnostics | Opt-in D3D12 cube | [WARP, NVIDIA and native shutdown evidence](wp02-handover.md) |
 | WP03 · Static two-chunk terrain (complete) | Immutable voxel data, seam-aware meshing and a fixed D3D12 mesh pair | Visible terrain composed from two adjacent chunks | [Clean source and package integration on Windows](wp03-handover.md) |
 | WP04 · Editable terrain (complete) | Revision-based rebuild of both neighboring meshes, atomic replacement and safe GPU retirement | Repeatable voxel edit at the existing chunk boundary | [Clean Windows integration handover](wp04-handover.md) |
-| WP05 · Walkable region | Bounded chunk loading, meshing, unloading and collision queries for active terrain | First-person movement in a small seeded region | [Proposed contract and fixed route](architecture/wp05-walkable-region-contract.md) |
-| WP06 · Durable world changes | Versioned storage for seed, generator version and terrain edits, with interrupted-write recovery | Save and resume position, inventory and edited terrain | Restart restores the same edits. After an interrupted write the last valid save remains loadable. |
+| WP05 · Walkable region (complete) | Bounded chunk loading, meshing, unloading and collision queries for active terrain | First-person movement in a small seeded region | [Clean Windows integration handover](wp05-handover.md) |
+| WP06 · Durable world changes | Versioned storage for seed, generator version and terrain edits, with interrupted-write recovery | Save and resume position, inventory and edited terrain | [Proposed format and recovery contract](architecture/wp06-save-recovery-contract.md) |
 | WP07 · Playable prototype | Stable interfaces and diagnostics for the features the game exercises | Short single-player loop with exploration, resource extraction, one modular construction and a clear goal | A new player can complete, save and resume the loop without developer commands. Playtest feedback informs the next priority. |
 | WP08 · Spherical planet | Planet coordinates, local precision, consistent gravity and terrain detail transitions | Traversable route on a small spherical world | A reproducible route crosses region and detail boundaries without visible cracks, collision gaps or control jumps. |
 | WP09 · Surface to orbit | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to an edited landing site | A complete flight succeeds without a scene switch. Landing position and saved terrain edits agree on return. |
@@ -31,11 +31,10 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 ## Planning and verification
 
 - Detail the next milestone before implementation. Review the
-  [WP05 walkable region contract](architecture/wp05-walkable-region-contract.md).
+  [WP06 save and recovery contract](architecture/wp06-save-recovery-contract.md).
   Each contract states ownership, failure behavior, budgets and acceptance.
-- Before freezing the WP06 save format, prototype whether chunk addresses
-  and local coordinates can carry over to a sphere. Use the result to
-  inform the format and keep planet implementation in WP08.
+- The WP06 address probe distinguishes flat save addresses from a future
+  planetary address domain. Planet implementation remains in WP08.
 - Agree on reference hardware and budgets before accepting a performance
   claim. For streaming, record memory, queue bounds and frame times on a
   repeatable route. For deterministic state, record the seed, generator
