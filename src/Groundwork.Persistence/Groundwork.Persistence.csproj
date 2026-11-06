@@ -3,10 +3,12 @@
     <AssemblyName>Groundwork.Persistence</AssemblyName>
     <RootNamespace>Groundwork.Persistence</RootNamespace>
     <PackageId>Groundwork.Persistence</PackageId>
-    <Description>Portable versioned save data and terrain delta validation.</Description>
+    <Description>Versioned save data, terrain validation and Windows NTFS slots.</Description>
     <IsPackable>true</IsPackable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Groundwork.Persistence.Tests" />
     <AssemblyMetadata Include="WorkPackage" Value="WP06" />
     <ProjectReference Include="../Groundwork.Voxels/Groundwork.Voxels.csproj" />
   </ItemGroup>
