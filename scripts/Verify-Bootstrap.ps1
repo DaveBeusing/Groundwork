@@ -3,7 +3,7 @@ param([string] $TestResultsDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$modules = @('Core', 'Platform.Windows', 'Simulation', 'Ecs', 'Jobs', 'Diagnostics', 'Rendering', 'Rendering.D3D12', 'Voxels')
+$modules = @('Core', 'Platform.Windows', 'Simulation', 'Ecs', 'Jobs', 'Diagnostics', 'Rendering', 'Rendering.D3D12', 'Voxels', 'Persistence')
 function Assert-True([bool] $condition, [string] $message) {
     if (-not $condition) { throw $message }
 }
@@ -43,6 +43,8 @@ try {
         $refs = @($project.SelectNodes('//ProjectReference') | ForEach-Object { $_.GetAttribute('Include') })
         if ($module -in @('Core', 'Voxels')) {
             Assert-True ($refs.Count -eq 0) ("$id must not have project references.")
+        } elseif ($module -eq 'Persistence') {
+            Assert-True (($refs.Count -eq 1) -and ($refs[0] -ceq '../Groundwork.Voxels/Groundwork.Voxels.csproj')) 'Invalid Persistence project dependencies.'
         } elseif ($module -eq 'Rendering.D3D12') {
             $allowed = @('../Groundwork.Core/Groundwork.Core.csproj', '../Groundwork.Platform.Windows/Groundwork.Platform.Windows.csproj',
                 '../Groundwork.Rendering/Groundwork.Rendering.csproj')
@@ -69,6 +71,7 @@ try {
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.Tests/Groundwork.Rendering.Tests.csproj') 'Rendering tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj') 'D3D12 tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Voxels.Tests/Groundwork.Voxels.Tests.csproj') 'Voxel tests are missing from the solution.'
+    Assert-True ($testPaths -contains 'tests/Groundwork.Persistence.Tests/Groundwork.Persistence.Tests.csproj') 'Persistence tests are missing from the solution.'
     Assert-True (@($testPaths | Sort-Object -Unique).Count -eq $testPaths.Count) 'Duplicate solution test project entry.'
     foreach ($path in $testPaths) {
         Assert-True ($approvedTests.ContainsKey($path)) ("Unexpected test project: " + $path)

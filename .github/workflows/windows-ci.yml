@@ -66,7 +66,7 @@ jobs:
           $buildId = "$env:GITHUB_RUN_ID.$env:GITHUB_RUN_ATTEMPT"
           $packageDir = 'artifacts/packages'
           New-Item -ItemType Directory -Path $packageDir -Force | Out-Null
-          foreach ($module in @('Core','Platform.Windows','Simulation','Ecs','Jobs','Diagnostics','Rendering','Rendering.D3D12','Voxels')) {
+          foreach ($module in @('Core','Platform.Windows','Simulation','Ecs','Jobs','Diagnostics','Rendering','Rendering.D3D12','Voxels','Persistence')) {
             & dotnet pack "src/Groundwork.$module/Groundwork.$module.csproj" -c Release --no-build --no-restore "-p:PackageVersion=$version" -o $packageDir
             if ($LASTEXITCODE -ne 0) { throw "Package build failed: $module" }
           }

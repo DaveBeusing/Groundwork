@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Persistence</AssemblyName>
+    <RootNamespace>Groundwork.Persistence</RootNamespace>
+    <PackageId>Groundwork.Persistence</PackageId>
+    <Description>Portable versioned save data and terrain delta validation.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP06" />
+    <ProjectReference Include="../Groundwork.Voxels/Groundwork.Voxels.csproj" />
+  </ItemGroup>
+</Project>
