@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace Groundwork.Rendering.D3D12;
 
-internal enum RendererStage : uint { Startup = 1, Resize, Submit, Present, Retire, Visibility, Cleanup }
+internal enum RendererStage : uint { Startup = 1, Resize, Submit, Present, Retire, Visibility, Cleanup, MeshReplacement }
 
 internal sealed class RendererWatchdog(Action<RendererStage, ulong?> timeout) : IDisposable
 {
@@ -35,6 +35,10 @@ internal sealed class RendererWatchdog(Action<RendererStage, ulong?> timeout) : 
             return true;
         }
     }
+
+    // The render owner reads this only during its current operation. A timer
+    // can expire it only after the same monotonic deadline.
+    internal bool IsWithinDeadline => Stopwatch.GetTimestamp() < _deadline;
 
     internal bool TryAdvance(RendererStage stage)
     {

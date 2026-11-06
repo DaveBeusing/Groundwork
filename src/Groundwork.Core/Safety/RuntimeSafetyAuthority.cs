@@ -7,6 +7,13 @@ public interface IRuntimeStopControl
     RuntimeDeadline RequestStop(HostStopReason reason);
 }
 
+/// <summary>Observes the terminal runtime admission fence without taking the authority lock.</summary>
+/// <remarks>Once closed, the fence never reopens. This observation grants no native work permit.</remarks>
+public interface IRuntimeAdmissionFence
+{
+    bool IsOpen { get; }
+}
+
 [SuppressMessage("Design", "CA1001:Types that own disposable fields should be disposable", Justification = "The runtime authority owns the wake handle through terminal custody.")]
 public sealed class RuntimeWakeSignal
 {
@@ -567,8 +574,10 @@ public sealed class RuntimeSafetyAuthority
         return deadline;
     }
 
-    private sealed class StopPort(RuntimeSafetyAuthority authority) : IRuntimeStopControl
+    private sealed class StopPort(RuntimeSafetyAuthority authority) : IRuntimeStopControl, IRuntimeAdmissionFence
     {
+        public bool IsOpen => authority.TryAuthorizePublication();
+
         public RuntimeDeadline RequestStop(HostStopReason reason)
         {
             if (!Enum.IsDefined(reason))

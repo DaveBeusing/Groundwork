@@ -15,7 +15,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private ID3D12Fence* _fence;
     private ID3D12RootSignature* _root;
     private ID3D12PipelineState* _pipeline;
-    private ID3D12Resource* _geometry;
+    private ID3D12Resource* _cubeGeometry;
     private ID3D12Resource* _depth;
     private ID3D12DescriptorHeap* _depthHeap;
     private int _depthWidth;
@@ -63,7 +63,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             if (meshes is null)
                 CreateCubeGeometry();
             else
-                _meshGeometry = CreateMeshGeometry(meshes);
+                ActiveMeshGeometry = PrepareMeshGeometry(meshes);
             foreach (var frame in _frames)
                 frame.Initialize(_device);
         }
@@ -223,12 +223,14 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             frame.Dispose();
         Release(_depth);
         Release(_depthHeap);
-        Release(_geometry);
+        ActiveMeshGeometry?.Dispose();
+        ActiveMeshGeometry = null;
+        Release(_cubeGeometry);
         Release(_pipeline);
         Release(_root);
         Release(_fence);
         Release(_queue);
-        _depth = _geometry = null;
+        _depth = _cubeGeometry = null;
         _depthHeap = null;
         _pipeline = null;
         _root = null;

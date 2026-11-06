@@ -17,6 +17,21 @@ public sealed class WarpRetirementTests
     }
 
     [TestMethod]
+    public void GeometryRetirementWaitsForDrawAndPostPresentSignals()
+    {
+        var retirement = new GpuRetirement();
+        var draw = retirement.BeginSubmission();
+        retirement.CompleteSignal(draw);
+        Assert.IsFalse(retirement.IsIdle(draw - 1));
+
+        var present = retirement.BeginSubmission();
+        Assert.IsFalse(retirement.IsIdle(present));
+        retirement.CompleteSignal(present);
+        Assert.IsFalse(retirement.IsIdle(draw));
+        Assert.IsTrue(retirement.IsIdle(present));
+    }
+
+    [TestMethod]
     public void RemovedDeviceSentinelIsNotSuccessfulRetirement()
     {
         var retirement = new GpuRetirement();
