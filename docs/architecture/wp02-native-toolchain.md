@@ -27,14 +27,18 @@ in the build-tool directory. [TerraFX source](https://github.com/terrafx/terrafx
   and commit the SDK-generated lockfile. Keep the binding types and unsafe
   code inside that provider. Its public API uses the accepted managed renderer
   and Windows target capability types.
-- Use Windows' inbox D3D12 and DXGI. Verify resolution to the Windows system
-  binaries. If bootstrap imports need explicit search policy, restrict them
-  to System32. Use only the inbox ABI required for this milestone. Provider
-  deployment requires neither Agility SDK binaries nor a native C++ helper.
+- Use Windows' inbox D3D12 and DXGI. Before the first native call, constrain
+  bootstrap loading to System32 using provider-owned imports with explicit
+  System32 search policy. Use TerraFX for the native types and COM vtables.
+  Verify in an isolated process that colocated lookalike `d3d12.dll` and
+  `dxgi.dll` files cannot supply the bootstrap entry points. Use only the
+  inbox ABI required for this milestone. Provider deployment requires
+  neither Agility SDK binaries nor a native C++ helper.
 - The render owner acquires and releases native references explicitly. Each
   successful COM creation or query transfers one reference to an identified
-  owner. Release partial initialization in reverse order and hold the runtime
-  lease until final cleanup or custody. Keep native pointers out of managed
+  owner. Release partial initialization in reverse order. Hold the runtime
+  lease through any custody until CPU and GPU quiescence and final native
+  cleanup are proved. Keep native pointers out of managed
   frame values. Borrow the HWND only under an admitted Windows operation.
 - Require feature level 11_0 and separately query shader model 6.0 with
   `CheckFeatureSupport`. Report missing hardware capability clearly. WARP
@@ -42,9 +46,11 @@ in the build-tool directory. [TerraFX source](https://github.com/terrafx/terrafx
 - Extend the shipping dependency gate with the single exact TerraFX reference
   for this provider. In isolated consumption, map `Groundwork.*` to the
   verified local feed and TerraFX's exact ID to NuGet.org. Use a fresh cache,
-  the committed lock and NuGet audit. Validate the TerraFX package against the
-  reviewed digest and NuGet signature. Keep both the portable package and
-  existing six-package archives consumable under their original rules.
+  the committed lock and NuGet audit. Before building, validate the restored
+  TerraFX package against the reviewed digest and NuGet signature. Compile a
+  provider reference in the isolated consumer and check the provider package
+  excludes DXC binaries. Continue to verify the original six-package WP01
+  and seven-package WP02 foundation sets alongside the new provider set.
 
 ## Shader build
 
