@@ -28,19 +28,19 @@ public sealed partial class D3D12Renderer
                 ?? throw new InvalidOperationException("The runtime denied the renderer's lifetime lease.");
             target = _window.TryAcquirePresentationTarget()
                 ?? throw new InvalidOperationException("An open and unattached Windows presentation target is required.");
-            if (ShouldStop(target))
+            if (ShouldStop(target) || !watchdog.TryAdvance(stage))
                 return;
 
             gpu = new GpuDevice(_useWarp);
             var snapshot = target.Read();
-            if (IsDrawable(snapshot) && !TryApplySurface(gpu, target, ref chain) && !ShouldStop(target))
+            if (IsDrawable(snapshot) && ApplySurface(gpu, target, watchdog, stage, ref chain) == SurfaceApplication.Denied && !ShouldStop(target))
                 throw new InvalidOperationException("The runtime denied initial swap-chain admission.");
 
-            if (!watchdog.Complete())
+            if (!watchdog.Complete() || ShouldStop(target))
                 return;
             lock (_lifecycle)
             {
-                if (ShouldStop(target))
+                if (Stopping || target.Revoked.IsCompleted)
                     return;
 
                 _admission.TrySetSurface(chain is null ? RenderSurfaceState.Suspended : RenderSurfaceState.Drawable,
@@ -102,7 +102,8 @@ public sealed partial class D3D12Renderer
                     continue;
                 }
 
-                watchdog.Complete();
+                if (!watchdog.Complete())
+                    break;
                 pendingRetirement = false;
                 if (ShouldStop(target))
                     break;
@@ -121,9 +122,10 @@ public sealed partial class D3D12Renderer
                 stage = RendererStage.Resize;
                 if (!watchdog.Begin(stage, null, _operationTimeout))
                     break;
-                var applied = TryApplySurface(gpu, target, ref chain);
-                watchdog.Complete();
-                if (!applied)
+                var applied = ApplySurface(gpu, target, watchdog, stage, ref chain);
+                if (!watchdog.Complete())
+                    break;
+                if (applied != SurfaceApplication.Applied)
                 {
                     _wake!.WaitOne(ProgressPollMilliseconds);
                     continue;
@@ -149,8 +151,9 @@ public sealed partial class D3D12Renderer
                 stage = RendererStage.Visibility;
                 if (!watchdog.Begin(stage, null, _operationTimeout))
                     break;
-                occluded = TryPresent(target, chain!, testOnly: true) != PresentResult.Presented;
-                watchdog.Complete();
+                occluded = TryPresent(target, chain!, watchdog, testOnly: true) != PresentResult.Presented;
+                if (!watchdog.Complete())
+                    break;
                 if (occluded)
                     continue;
                 redraw |= current.HasValue;
@@ -180,9 +183,10 @@ public sealed partial class D3D12Renderer
             if (!watchdog.Begin(stage, frameSequence, _operationTimeout))
                 break;
 
-            if (!TrySubmitFrame(gpu, target, chain, frame))
+            if (!TrySubmitFrame(gpu, target, chain, watchdog, frame))
             {
-                watchdog.Complete();
+                if (!watchdog.Complete())
+                    break;
                 _admission.RecordSkipped();
                 _wake!.WaitOne(ProgressPollMilliseconds);
                 continue;
@@ -190,8 +194,9 @@ public sealed partial class D3D12Renderer
 
             pendingRetirement = true;
             stage = RendererStage.Present;
-            watchdog.UpdateStage(stage);
-            var result = TryPresent(target, chain, testOnly: false);
+            var result = TryPresent(target, chain, watchdog, testOnly: false);
+            if (!watchdog.TryAdvance(RendererStage.Retire))
+                break;
             if (result == PresentResult.Presented)
             {
                 _admission.RecordPresented(frame.Sequence);
@@ -205,7 +210,6 @@ public sealed partial class D3D12Renderer
                     lastProbe = Stopwatch.GetTimestamp();
             }
 
-            watchdog.UpdateStage(RendererStage.Retire);
         }
     }
 
@@ -243,31 +247,40 @@ public sealed partial class D3D12Renderer
         }
     }
 
-    private bool TryApplySurface(GpuDevice gpu, WindowsPresentationTargetLease target, ref WindowsSwapChain? chain)
+    private SurfaceApplication ApplySurface(GpuDevice gpu, WindowsPresentationTargetLease target,
+        RendererWatchdog watchdog, RendererStage stage, ref WindowsSwapChain? chain)
     {
         using var operation = TryBegin(target);
-        if (operation is null || !IsDrawable(operation.Snapshot))
-            return false;
+        if (operation is null)
+            return SurfaceApplication.Denied;
+        if (!IsDrawable(operation.Snapshot) || !watchdog.TryAdvance(stage))
+            return SurfaceApplication.Suspended;
 
         var snapshot = operation.Snapshot;
         if (chain is null)
-            chain = new WindowsSwapChain(gpu, operation.WindowHandle, snapshot.ClientWidth, snapshot.ClientHeight);
+            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight);
         else if (!Matches(snapshot, chain))
             chain.Resize(snapshot.ClientWidth, snapshot.ClientHeight);
-        return true;
+        return SurfaceApplication.Applied;
     }
+
+    private enum SurfaceApplication { Denied, Suspended, Applied }
 
     private bool TrySubmitFrame(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,
-        in RenderFrame frame)
+        RendererWatchdog watchdog, in RenderFrame frame)
     {
         using var operation = TryBegin(target);
-        return operation is not null && Matches(operation.Snapshot, chain) && gpu.TryRender(chain.CurrentBuffer, frame);
+        return operation is not null && Matches(operation.Snapshot, chain) && watchdog.TryAdvance(RendererStage.Submit) &&
+            gpu.TryRender(chain.CurrentBuffer, frame);
     }
 
-    private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain, bool testOnly)
+    private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,
+        RendererWatchdog watchdog, bool testOnly)
     {
         using var operation = TryBegin(target);
-        return operation is not null && Matches(operation.Snapshot, chain) ? chain.Present(testOnly) : PresentResult.Busy;
+        return operation is not null && Matches(operation.Snapshot, chain) &&
+            watchdog.TryAdvance(testOnly ? RendererStage.Visibility : RendererStage.Present)
+            ? chain.Present(testOnly) : PresentResult.Busy;
     }
 
     private WindowsPresentationOperation? TryBegin(WindowsPresentationTargetLease target) =>

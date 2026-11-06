@@ -39,7 +39,27 @@ public sealed class RendererWatchdogTests
         Assert.IsTrue(watchdog.Begin(RendererStage.Startup, null, TimeSpan.FromSeconds(10)));
         watchdog.Complete();
         Assert.IsTrue(watchdog.Begin(RendererStage.Submit, 1, TimeSpan.FromSeconds(10)));
-        watchdog.UpdateStage(RendererStage.Retire);
+        Assert.IsTrue(watchdog.TryAdvance(RendererStage.Retire));
         watchdog.Complete();
+    }
+
+    [TestMethod]
+    public async Task ClaimedExpiryDeniesPresentBeforeTheFaultCallbackReturns()
+    {
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var release = new ManualResetEventSlim();
+        using var watchdog = new RendererWatchdog((_, _) =>
+        {
+            entered.TrySetResult();
+            release.Wait(TimeSpan.FromSeconds(10));
+        });
+        try
+        {
+            Assert.IsTrue(watchdog.Begin(RendererStage.Submit, 1, TimeSpan.FromMilliseconds(100)));
+            await entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            Assert.IsFalse(watchdog.TryAdvance(RendererStage.Present));
+            Assert.IsFalse(watchdog.Complete());
+        }
+        finally { release.Set(); }
     }
 }

@@ -36,13 +36,23 @@ internal sealed class RendererWatchdog(Action<RendererStage, ulong?> timeout) : 
         }
     }
 
-    internal void UpdateStage(RendererStage stage)
+    internal bool TryAdvance(RendererStage stage)
     {
+        (RendererStage Stage, ulong? Sequence) expired;
         lock (_gate)
         {
-            if (_armed)
+            if (!_armed)
+                return false;
+            if (Stopwatch.GetTimestamp() < _deadline)
+            {
                 _stage = stage;
+                return true;
+            }
+            expired = Expire();
         }
+
+        timeout(expired.Stage, expired.Sequence);
+        return false;
     }
 
     internal bool Complete()

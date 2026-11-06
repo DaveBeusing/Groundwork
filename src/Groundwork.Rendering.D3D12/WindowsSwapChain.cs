@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Groundwork.Platform.Windows;
 using Microsoft.Win32.SafeHandles;
 using TerraFX.Interop.DirectX;
 using TerraFX.Interop.Windows;
@@ -24,7 +25,7 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
     private WaitHandle? _latency;
     private bool _frameReady;
 
-    internal WindowsSwapChain(GpuDevice gpu, nint hwnd, int width, int height)
+    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height)
     {
         _gpu = gpu;
         IDXGISwapChain1* initial = null;
@@ -44,12 +45,12 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
 
         try
         {
-            Check(gpu.Factory->CreateSwapChainForHwnd((IUnknown*)gpu.Queue, (HWND)hwnd,
+            Check(gpu.Factory->CreateSwapChainForHwnd((IUnknown*)gpu.Queue, (HWND)operation.WindowHandle,
                 &descriptor, null, null, &initial));
             IDXGISwapChain3* chain = null;
             Check(initial->QueryInterface(__uuidof<IDXGISwapChain3>(), (void**)&chain));
             _chain = chain;
-            Check(gpu.Factory->MakeWindowAssociation((HWND)hwnd, 2)); // DXGI_MWA_NO_ALT_ENTER
+            Check(gpu.Factory->MakeWindowAssociation((HWND)operation.WindowHandle, 2)); // DXGI_MWA_NO_ALT_ENTER
             Check(_chain->SetMaximumFrameLatency(1));
             var latencyHandle = (nint)_chain->GetFrameLatencyWaitableObject();
             if (latencyHandle == 0)
