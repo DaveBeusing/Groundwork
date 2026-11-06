@@ -47,15 +47,23 @@ try {
     $approvedTests = @{}
     foreach ($module in $modules) {
         $id = 'Groundwork.' + $module
-        $approvedTests["tests/$id.Tests/$id.Tests.csproj"] = "../../src/$id/$id.csproj"
+        $approvedTests["tests/$id.Tests/$id.Tests.csproj"] = @("../../src/$id/$id.csproj")
     }
+    $approvedTests['tests/Groundwork.Simulation.Tests/Groundwork.Simulation.Tests.csproj'] += @(
+        '../../src/Groundwork.Diagnostics/Groundwork.Diagnostics.csproj',
+        '../../src/Groundwork.Ecs/Groundwork.Ecs.csproj',
+        '../../src/Groundwork.Jobs/Groundwork.Jobs.csproj'
+    )
     Assert-True ($testPaths -contains 'tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj') 'Core tests are missing from the solution.'
     Assert-True (@($testPaths | Sort-Object -Unique).Count -eq $testPaths.Count) 'Duplicate solution test project entry.'
     foreach ($path in $testPaths) {
         Assert-True ($approvedTests.ContainsKey($path)) ("Unexpected test project: " + $path)
         [xml] $project = Get-Content -LiteralPath $path -Raw
         $refs = @($project.SelectNodes('//ProjectReference') | ForEach-Object { $_.GetAttribute('Include') })
-        Assert-True (($refs.Count -eq 1) -and ($refs[0] -eq $approvedTests[$path])) ("Invalid test dependency: " + $path)
+        $expectedRefs = $approvedTests[$path]
+        Assert-True (($refs.Count -eq $expectedRefs.Count) -and
+            (@($refs | Sort-Object -Unique).Count -eq $refs.Count) -and
+            (@($refs | Where-Object { $_ -cnotin $expectedRefs }).Count -eq 0)) ("Invalid test dependencies: " + $path)
     }
     foreach ($file in Get-ChildItem -LiteralPath 'tests' -Filter '*.csproj' -Recurse -File) {
         $relativePath = [System.IO.Path]::GetRelativePath($root, $file.FullName).Replace('\', '/')

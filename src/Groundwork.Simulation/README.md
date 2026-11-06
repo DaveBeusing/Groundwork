@@ -28,6 +28,30 @@ iteration's settled metrics, including time already dropped at the cap. The coor
 callback can leave a later writer revision, so the pipeline owns authoritative
 failure reporting for its internal state.
 
+### Host recovery boundary
+
+For resumable recovery, the coordinator applies a recovery pause after a tick's
+observer frame has been published and `AdvanceAsync` has returned, before
+starting another tick. Configure `MaxStepsPerIteration = 1` when the host needs
+to review evidence between every tick. Use the current writer-owned
+`CommitResults` stamp and pending fault generation to open the Core review.
+During the pause, the committed writer state and last published observer frame
+remain visible. Pending evidence and the pause fence subsequent publication.
+
+Drive a paused iteration before attempting recovery so the driver can account
+for the final running sample and exclude time spent paused. `RequestResume`
+only clears user pause. To continue, the host must establish isolation and
+coherence, then obtain and apply a fresh Core-authorized continuation for the
+current stamp and generation. The default diagnostics policy classifies a
+recoverable job fault as pause on each review. A host that supports recovery
+must configure a policy when opening the world that can verify the conditions
+for continuation.
+
+An interrupted active tick is terminal. The host must fence and settle that
+world while preserving the prior observer frame and the last confirmed writer
+barrier for diagnosis. Parking an active callback through recovery would hide
+the pause from the driver's time accounting.
+
 ## Verification
 
 Run the solution gate for the test suites. Run the scheduler-only benchmark
