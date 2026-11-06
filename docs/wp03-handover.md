@@ -53,9 +53,10 @@ join, then verified that the near mesh retained its numeric depth when the
 far mesh drew later. The automated mesher tests cover internal face
 suppression, canonical ordering, signed coordinates and rebuilding after a
 neighbor revision changes. The desktop tests exercised resize, minimize,
-restore and native close. When a native resize call was held, Core stopped
-while the render owner and window retained custody. The tests then released
-the call and verified complete settlement.
+restore and native close. The fixture paused an admitted resize callback
+before it invoked native resize. Core stopped while the render owner and
+window retained custody. Releasing the callback let native resize complete,
+and the tests verified complete settlement.
 
 All ten focused Groundwork cases and the WYU terrain smoke reported active
 Debug Layer and DRED. WARP selected Microsoft Basic Render Driver
@@ -88,16 +89,16 @@ also passed.
 The Groundwork readback uses controlled portable geometry for numeric
 color and depth assertions. The WYU run builds the actual voxel fixture
 from the published packages and exercises native presentation and shutdown.
-The blocked-operation desktop fixture holds resize. A dedicated regression
-for overflow during partial upload of extreme translated coordinates
+The blocked-operation desktop fixture pauses the admitted resize callback.
+A dedicated regression for overflow during partial upload of extreme translated coordinates
 remains outside this run. The provider rejects that input, and the WP03
 chunk bounds keep the fixture within exactly representable coordinates.
 
 ## Reproduce
 
 Use clean clones of the two baseline commits, PowerShell 7 and an unlocked
-Windows x64 desktop with Graphics Tools. Run the following in Groundwork
-with a fresh results directory and package cache.
+Windows x64 desktop with Graphics Tools and a hardware D3D12 adapter.
+Run the following in Groundwork with a fresh results directory and package cache.
 
 ```powershell
 $env:CI = 'true'
@@ -118,8 +119,10 @@ if ($LASTEXITCODE -ne 0) { throw 'Windows platform desktop tests failed.' }
 ```
 
 Run each filter in a separate process so debug configuration precedes
-device creation. Verify the active Debug Layer, DRED and live-object counts
-in the focused TRX reports. Use the immutable release directory as the
+device creation. Check the passed counts in the TRX reports (14 provider
+desktop, 7 WARP terrain, 3 hardware terrain and 9 platform desktop).
+Verify active Debug Layer, DRED and live-object counts in the focused
+reports. Use the immutable release directory as the
 package input to `eng/Test-PackageIntegrity.ps1` and
 `eng/Test-IsolatedNuGetConsumer.ps1` with the manifest digest, source commit
 and version above. In WYU, follow the
@@ -132,8 +135,8 @@ command. Launch `--terrain` to inspect the two-chunk fixture.
 The [WP03 contract](architecture/wp03-two-chunk-terrain-contract.md) landed
 in [Groundwork #36](https://github.com/DaveBeusing/Groundwork/pull/36).
 [Groundwork #38](https://github.com/DaveBeusing/Groundwork/pull/38) implements
-the portable renderer handoff, [#37](https://github.com/DaveBeusing/Groundwork/pull/37)
-implements chunk storage and meshing, and [#39](https://github.com/DaveBeusing/Groundwork/pull/39)
+chunk storage and meshing, [#37](https://github.com/DaveBeusing/Groundwork/pull/37)
+implements the portable renderer handoff, and [#39](https://github.com/DaveBeusing/Groundwork/pull/39)
 implements D3D12 rendering and retirement of the pair.
 [WYU #6](https://github.com/DaveBeusing/wyu/pull/6) pins the archive and
 composes the terrain scene. Both integration clones remained clean after testing.
