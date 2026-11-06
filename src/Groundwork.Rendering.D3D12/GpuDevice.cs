@@ -20,6 +20,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private ID3D12DescriptorHeap* _depthHeap;
     private int _depthWidth;
     private int _depthHeight;
+    private int _nextFrame;
     private GpuRetirement _retirement;
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false)
@@ -107,7 +108,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         var completed = _fence->GetCompletedValue();
         if (completed == ulong.MaxValue)
             throw new GpuNativeException("Read GPU retirement fence after device removal", RemovedReason);
-        var context = _frames[(int)(_retirement.Submitted % (ulong)_frames.Length)];
+        var context = _frames[_nextFrame];
         if (!_retirement.CanReuse(completed, context.Retirement))
             return false;
         Check(context.Allocator->Reset(), "Reset allocator");
@@ -115,12 +116,22 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         Record(context.Commands, target, frame, subsequent, readback);
         Check(context.Commands->Close(), "Close command list");
         var commands = (ID3D12CommandList*)context.Commands;
-        var next = _retirement.BeginSubmission();
+        var next = BeginQueueWork();
         _queue->ExecuteCommandLists(1, &commands);
-        Check(_queue->Signal(_fence, next), "Signal queue");
-        _retirement.CompleteSignal(next);
+        Check(SignalQueueWork(next), "Signal queue");
         context.Retirement = next;
+        _nextFrame = (_nextFrame + 1) % _frames.Length;
         return true;
+    }
+
+    internal ulong BeginQueueWork() => _retirement.BeginSubmission();
+
+    internal HRESULT SignalQueueWork(ulong value)
+    {
+        var result = _queue->Signal(_fence, value);
+        if (result.Value >= 0)
+            _retirement.CompleteSignal(value);
+        return result;
     }
 
     public void Dispose()
