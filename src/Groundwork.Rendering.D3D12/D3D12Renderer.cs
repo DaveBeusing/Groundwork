@@ -12,6 +12,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly WindowsHostModule _window;
     private readonly IRuntimeOwnership _ownership;
     private readonly bool _useWarp;
+    private readonly D3D12DiagnosticsOptions _diagnosticsOptions;
     private readonly TimeSpan _startupTimeout;
     private readonly TimeSpan _operationTimeout;
     private readonly Action<WindowsSwapChain, int, int>? _resize;
@@ -19,6 +20,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly Lock _lifecycle = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private D3D12DiagnosticsSnapshot _diagnostics = new(null, false, false, null, null);
     private EngineModuleContext? _context;
     private AutoResetEvent? _wake;
     private ExceptionDispatchInfo? _primary;
@@ -30,22 +32,32 @@ public sealed partial class D3D12Renderer : IRenderer
 
     public D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, bool useWarp = false,
         TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+        : this(default, window, ownership, useWarp, startupTimeout, operationTimeout)
+    {
+    }
+
+    public D3D12Renderer(D3D12DiagnosticsOptions diagnostics, WindowsHostModule window, IRuntimeOwnership ownership,
+        bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
     {
         ArgumentNullException.ThrowIfNull(window);
         ArgumentNullException.ThrowIfNull(ownership);
         (_window, _ownership, _useWarp) = (window, ownership, useWarp);
+        _diagnosticsOptions = diagnostics;
         _startupTimeout = ValidateTimeout(startupTimeout ?? TimeSpan.FromSeconds(5), nameof(startupTimeout));
         _operationTimeout = ValidateTimeout(operationTimeout ?? TimeSpan.FromSeconds(2), nameof(operationTimeout));
     }
 
     internal D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, TimeSpan operationTimeout,
-        Action<WindowsSwapChain, int, int> resize)
-        : this(window, ownership, useWarp: true, operationTimeout: operationTimeout)
+        Action<WindowsSwapChain, int, int> resize, bool useWarp = true, D3D12DiagnosticsOptions diagnostics = default)
+        : this(diagnostics, window, ownership, useWarp, operationTimeout: operationTimeout)
     {
         _resize = resize;
     }
 
     public RendererSnapshot Read() => _admission.Read();
+
+    /// <summary>Reads the last published native diagnostics without calling the graphics driver.</summary>
+    public D3D12DiagnosticsSnapshot ReadDiagnostics() => Volatile.Read(ref _diagnostics);
 
     public RenderSubmissionResult TrySubmit(in RenderFrame frame)
     {
