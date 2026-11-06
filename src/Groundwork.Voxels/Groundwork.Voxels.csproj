@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Voxels</AssemblyName>
+    <RootNamespace>Groundwork.Voxels</RootNamespace>
+    <PackageId>Groundwork.Voxels</PackageId>
+    <Description>Portable immutable voxel chunks and deterministic surface meshing.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP03" />
+  </ItemGroup>
+</Project>
