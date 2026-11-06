@@ -68,10 +68,12 @@ teardown. A native close can initiate the same stop concurrently.
 
 ### Simulation and observer boundary
 
-WYU submits from its coordinator after `AdvanceAsync` returns. If the next
-simulation wake is already due, the coordinator can skip rendering and service
-the retained simulation debt. Rendering has no authority to advance the
-simulation, change the 60/20 Hz cadence or hold up a world barrier.
+WYU submits from its coordinator after `AdvanceAsync` returns. A stopped
+iteration supplies no frame, including clear-only frames. If the iteration's
+non-null `NextWakeTimestamp` is already due on the same monotonic clock, the
+coordinator can skip rendering and service the retained simulation debt.
+Rendering has no authority to advance the simulation, change the 60/20 Hz
+cadence or hold up a world barrier.
 
 For observer-derived data, the coordinator acquires at most one published
 snapshot lease per extraction, checks the expected world and current tick
@@ -109,14 +111,25 @@ wake handles. Never hold a platform or Core lock across a driver call. DXGI
 can depend on message dispatch while a presentation call is in flight.
 [Microsoft DXGI threading guidance](https://learn.microsoft.com/en-us/windows/win32/direct3darticles/dxgi-best-practices)
 
+Before creating provider resources or starting native work, acquire a
+runtime ownership lease that strongly retains the render owner. Hold this
+lease through proved CPU and GPU quiescence, COM and handle cleanup, and
+any process custody. It outlives both individual admission permits and
+target release when device-only cleanup remains. Budget one lifetime credit
+and one in-flight operation credit for the renderer in addition to the host
+and world reservations. Denial at startup fails the attachment. Denial during
+running work skips admission and reports capacity or terminal closure.
+
 1. Close or runtime stop latches terminal intent and revokes the target's
-   admission of create, resize and present. An operation admitted before the
-   revoke may return. New admission checks both the live target generation
-   and the runtime stop fence. Use a short-lived Core ownership permit for
-   each admitted native operation, followed by the local target admission
-   check without nested locks. If either check fails, release any permit
-   and skip the call. Operations racing Core stop or platform revoke are
-   settled as previously admitted work.
+   admission of swap-chain creation, resize, `ExecuteCommandLists`, and
+   present, including visibility probes. Each new operation needs a
+   short-lived Core ownership permit followed by a local target admission
+   check, without nested locks. If either check fails, release any permit and
+   skip the call. An operation with both grants may settle after revocation.
+   Signaling a retirement fence for already-submitted work and releasing
+   resources are settlement operations and may run after the admission fence.
+   For example, a stopped frame that submitted commands but lost permission
+   to present still needs a retirement fence.
 2. The STA continues pumping during renderer drain. It never synchronously
    joins the renderer or waits for a GPU fence. The render owner fences new
    submissions, drains or retains outstanding work, and acknowledges release
@@ -171,9 +184,15 @@ remains the native destruction owner. [Win32 `DestroyWindow` rules](https://lear
   or present. Occlusion or busy presentation is a suspended or skipped frame,
   with a paced wake or visibility probe. No tight retry loop.
   [Resize buffer rules](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-resizebuffers) · [Present outcomes](https://learn.microsoft.com/en-us/windows/win32/api/dxgi/nf-dxgi-idxgiswapchain-present)
-- **Faults and deadlines.** Startup and resize use finite host-configured
-  budgets with proposed defaults of five and two seconds. Shutdown always uses
-  the Core deadline. Report first failure and cleanup separately with numeric
+- **Faults and deadlines.** Use finite host-configured budgets for startup,
+  resize, native present and retirement of outstanding GPU work. Proposed
+  defaults are five seconds for startup and two seconds for each running
+  operation. A watchdog independent of the render owner races completion
+  against each absolute deadline. On expiry it latches terminal failure and
+  requests Core stop even if the owner remains inside the driver. Idle and
+  occluded pacing alone do not consume a progress budget. Late completion
+  settles custody and cannot publish a new ready state. Shutdown uses the
+  Core deadline. Report first failure and cleanup separately with numeric
   stage, HRESULT, device-removal reason and last frame sequence where available.
   Bound diagnostic storage and DRED capture. Configure optional process-wide
   DRED settings before device creation. Device reset or removal is terminal
@@ -198,6 +217,11 @@ remains the native destruction owner. [Win32 `DestroyWindow` rules](https://lear
    resize storms, close during startup/resize/present, external destruction,
    timeout custody with late acknowledgment, and unchanged renderer-free WP01
    smoke. Prove the pump remains responsive during a blocked fake native call.
+   Exercise denied lifetime and admission credits, and stop between submit
+   and present. With no user close, inject a stuck resize and present and
+   verify that the watchdog initiates stop while retaining the blocked
+   operation. Delayed GPU completion or device-only cleanup after HWND
+   acknowledgment must keep runtime settlement incomplete.
 3. Add the D3D12 provider. Exercise allocator and fence ownership with fake
    completion, delayed GPU, signal failure, device removal and repeat stop.
    Require WARP offscreen clear, transform and depth readback on a designated
