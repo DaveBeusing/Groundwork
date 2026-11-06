@@ -40,6 +40,38 @@ public interface IFaultReporter
     FaultReportStatus TryReport(scoped in FaultObservation observation);
 }
 
+/// <summary>A bounded structured diagnostic record. Operational exceptions stay on their original path.</summary>
+public readonly record struct DiagnosticEvent(
+    FaultClass Classification, FaultSeverity Severity, FaultSubsystem Subsystem, FaultOrigin Origin,
+    uint Code, long Timestamp, FaultContext Context)
+{
+    internal DiagnosticEvent(scoped in FaultObservation observation)
+        : this(observation.Classification, observation.Severity, observation.Subsystem, observation.Origin,
+            observation.Code, observation.Timestamp, observation.Context) { }
+}
+
+public readonly record struct DiagnosticEmergencySnapshot(
+    DiagnosticEvent? Primary, DiagnosticEvent? Cleanup, DiagnosticEvent? Sink);
+
+/// <summary>Host-only drain and independent emergency observation for one runtime or world.</summary>
+public interface IDiagnosticReader
+{
+    bool TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease);
+    DiagnosticEmergencySnapshot ReadEmergency();
+    void RecordSinkFailure(uint code, long timestamp);
+}
+
+/// <summary>Holds a normal diagnostic slot until the host or sink releases the event.</summary>
+public readonly struct DiagnosticReadLease : IDisposable
+{
+    private readonly FaultLedger? _owner;
+    private readonly ulong _ticket;
+
+    internal DiagnosticReadLease(FaultLedger owner, ulong ticket) => (_owner, _ticket) = (owner, ticket);
+
+    public void Dispose() => _owner?.ReleaseDiagnostic(_ticket);
+}
+
 public sealed record OperationalFailure(
     FaultClass Classification, FaultSubsystem Subsystem, FaultContext Context,
     ExceptionDispatchInfo Exception);
@@ -97,6 +129,15 @@ public interface IFaultEvidenceReader
 {
     FaultEvidenceReadStatus CopyPending(
         ulong generation, Span<RequiredFaultEvidence> destination, out int count);
+
+    /// <summary>Reads one entry from the exact pending generation and returns the total entry count.</summary>
+    /// <remarks>Readers that implement only bulk copy fail closed for indexed review.</remarks>
+    FaultEvidenceReadStatus ReadPending(ulong generation, int index, out RequiredFaultEvidence record, out int count)
+    {
+        record = default;
+        count = 0;
+        return FaultEvidenceReadStatus.InsufficientCapacity;
+    }
 }
 
 public enum SupervisorAction : byte { StopWorld, PauseForRecovery, ContinueAtSafeBarrier }

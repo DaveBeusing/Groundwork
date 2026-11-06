@@ -1,0 +1,16 @@
+{
+  "version": 1,
+  "dependencies": {
+    "net10.0": {
+      "groundwork.core": {
+        "type": "Project"
+      },
+      "groundwork.diagnostics": {
+        "type": "Project",
+        "dependencies": {
+          "Groundwork.Core": "[0.1.0, )"
+        }
+      }
+    }
+  }
+}

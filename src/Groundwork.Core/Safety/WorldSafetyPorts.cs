@@ -10,6 +10,7 @@ public sealed class WorldSafetyPorts
         Reporter = new FaultReporterPort(control.Ledger);
         State = new SafetyStatePort(control.Ledger);
         Evidence = new FaultEvidencePort(control.Ledger);
+        Diagnostics = new DiagnosticReaderPort(control.Ledger);
         Writer = new WriterPort(control);
         Coordinator = new ReviewPort(control);
         Supervisor = new SupervisorPort(control);
@@ -18,6 +19,7 @@ public sealed class WorldSafetyPorts
     public IFaultReporter Reporter { get; }
     public IRuntimeSafetyState State { get; }
     public IFaultEvidenceReader Evidence { get; }
+    public IDiagnosticReader Diagnostics { get; }
     public IWorldCoherenceIssuer Writer { get; }
     public IBarrierReviewControl Coordinator { get; }
     public ISafeBarrierSupervisor Supervisor { get; }
@@ -63,6 +65,16 @@ internal sealed class FaultEvidencePort(FaultLedger ledger) : IFaultEvidenceRead
     public FaultEvidenceReadStatus CopyPending(
         ulong generation, Span<RequiredFaultEvidence> destination, out int count)
         => ledger.CopyPending(generation, destination, out count);
+    public FaultEvidenceReadStatus ReadPending(ulong generation, int index, out RequiredFaultEvidence record, out int count)
+        => ledger.ReadPending(generation, index, out record, out count);
+}
+
+internal sealed class DiagnosticReaderPort(IDiagnosticReader reader) : IDiagnosticReader
+{
+    public bool TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease)
+        => reader.TryAcquire(out observation, out lease);
+    public DiagnosticEmergencySnapshot ReadEmergency() => reader.ReadEmergency();
+    public void RecordSinkFailure(uint code, long timestamp) => reader.RecordSinkFailure(code, timestamp);
 }
 
 internal sealed class WorldControl
@@ -202,7 +214,7 @@ internal sealed class WorldControl
                 return null;
             }
 
-            var deadline = _runtime.Clock.Start(_runtime.SupervisorDuration);
+            var deadline = _runtime.Clock.StartFromTrustedSample(_runtime.SupervisorDuration);
             if (deadline.ForcedExpired || _lastRequest == ulong.MaxValue)
             {
                 StopWorld();
@@ -222,7 +234,7 @@ internal sealed class WorldControl
         IRuntimeWorkLease ownership;
         lock (Gate)
         {
-            if (!IsCurrent(request) || _policyStarted || request.Deadline.IsExpired(_runtime.Clock.Provider))
+            if (!IsCurrent(request) || _policyStarted || request.Deadline.IsExpiredForSettlement())
             {
                 throw new InvalidOperationException("The review request is no longer available.");
             }
@@ -244,7 +256,7 @@ internal sealed class WorldControl
         ArgumentNullException.ThrowIfNull(decision);
         lock (Gate)
         {
-            if (!IsCurrent(decision.Request) || decision.Request.Deadline.IsExpired(_runtime.Clock.Provider) ||
+            if (!IsCurrent(decision.Request) || decision.Request.Deadline.IsExpiredForSettlement() ||
                 !TryPassContendedFences())
             {
                 return DecisionApplication.Rejected;
