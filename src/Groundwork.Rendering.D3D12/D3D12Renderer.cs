@@ -20,6 +20,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly Lock _lifecycle = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private RenderMeshPair? _meshes;
     private D3D12DiagnosticsSnapshot _diagnostics = new(null, false, false, null, null);
     private EngineModuleContext? _context;
     private AutoResetEvent? _wake;
@@ -48,10 +49,21 @@ public sealed partial class D3D12Renderer : IRenderer
     }
 
     internal D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, TimeSpan operationTimeout,
-        Action<WindowsSwapChain, int, int> resize, bool useWarp = true, D3D12DiagnosticsOptions diagnostics = default)
+        Action<WindowsSwapChain, int, int> resize, bool useWarp = true, D3D12DiagnosticsOptions diagnostics = default,
+        RenderMeshPair? meshes = null)
         : this(diagnostics, window, ownership, useWarp, operationTimeout: operationTimeout)
     {
         _resize = resize;
+        _meshes = meshes;
+    }
+
+    /// <summary>Creates a renderer that uploads a fixed mesh pair during startup.</summary>
+    public static D3D12Renderer CreateWithMeshes(WindowsHostModule window, IRuntimeOwnership ownership,
+        RenderMeshPair pair, D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
+        TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        return new D3D12Renderer(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout) { _meshes = pair };
     }
 
     public RendererSnapshot Read() => _admission.Read();
@@ -192,6 +204,7 @@ public sealed partial class D3D12Renderer : IRenderer
         {
             _admission.BeginStop();
             _admission.MarkStopped();
+            _meshes = null;
             _wake?.Dispose();
             _wake = null;
             _ready.TrySetResult();

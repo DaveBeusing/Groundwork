@@ -44,7 +44,8 @@ jobs:
           [xml]$report = Get-Content -LiteralPath $reportPath -Raw
           $passed = @($report.TestRun.Results.UnitTestResult | Where-Object outcome -eq 'Passed' | ForEach-Object testName)
           foreach ($test in @('ClearWritesTheExpectedRgbaAndDepth', 'AsymmetricWorldViewAndProjectionPutTheCubeAtThePredictedPixel',
-            'DepthReadbackPreservesTheNearCubeWhenTheFarCubeDrawsLast')) {
+            'DepthReadbackPreservesTheNearCubeWhenTheFarCubeDrawsLast',
+            'WarpTerrainReadbackDrawsBothMeshesAndPreservesNearestDepth')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }
 

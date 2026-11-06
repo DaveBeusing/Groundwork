@@ -89,12 +89,15 @@ internal sealed unsafe partial class GpuDevice
                 Check(_device->CreateGraphicsPipelineState(&description,
                     __uuidof<ID3D12PipelineState>(), (void**)pipeline), "Create graphics pipeline");
         }
+    }
 
-        _vertices = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
+    private void CreateCubeGeometry()
+    {
+        _geometry = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
             Buffer(VertexCount * VertexStride), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
         var unread = new D3D12_RANGE();
         void* mapped = null;
-        Check(_vertices->Map(0, &unread, &mapped), "Map cube vertices");
+        Check(_geometry->Map(0, &unread, &mapped), "Map cube vertices");
         try
         {
             ReadOnlySpan<byte> indices =
@@ -118,7 +121,7 @@ internal sealed unsafe partial class GpuDevice
         }
         finally
         {
-            _vertices->Unmap(0, null);
+            _geometry->Unmap(0, null);
         }
     }
 
@@ -145,18 +148,21 @@ internal sealed unsafe partial class GpuDevice
         {
             var viewport = new D3D12_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
             var scissor = new TerraFX.Interop.Windows.RECT { right = target.Width, bottom = target.Height };
-            var vertices = new D3D12_VERTEX_BUFFER_VIEW
-            {
-                BufferLocation = _vertices->GetGPUVirtualAddress(),
-                SizeInBytes = VertexCount * VertexStride,
-                StrideInBytes = VertexStride,
-            };
             commands->RSSetViewports(1, &viewport);
             commands->RSSetScissorRects(1, &scissor);
             commands->OMSetRenderTargets(1, &rtv, false, &dsv);
             commands->SetGraphicsRootSignature(_root);
             commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            commands->IASetVertexBuffers(0, 1, &vertices);
+            if (_meshGeometry is null)
+            {
+                var vertices = new D3D12_VERTEX_BUFFER_VIEW
+                {
+                    BufferLocation = _geometry->GetGPUVirtualAddress(),
+                    SizeInBytes = VertexCount * VertexStride,
+                    StrideInBytes = VertexStride,
+                };
+                commands->IASetVertexBuffers(0, 1, &vertices);
+            }
             Draw(commands, target, scene);
             if (subsequent is { } next)
                 Draw(commands, target, next);
@@ -169,13 +175,21 @@ internal sealed unsafe partial class GpuDevice
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT);
     }
 
-    private static void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene)
+    private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene)
     {
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
         var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint);
         commands->SetGraphicsRoot32BitConstants(0, 20, &constants, 0);
-        commands->DrawInstanced(VertexCount, 1, 0, 0);
+        if (_meshGeometry is { } meshes)
+        {
+            DrawMesh(commands, meshes.First);
+            DrawMesh(commands, meshes.Second);
+        }
+        else
+        {
+            commands->DrawInstanced(VertexCount, 1, 0, 0);
+        }
     }
 
     private readonly record struct DrawConstants(Matrix4x4 WorldViewProjection, Vector4 Tint);

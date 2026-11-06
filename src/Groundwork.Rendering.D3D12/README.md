@@ -6,6 +6,11 @@ host. Start the renderer before submitting frames and stop frame production
 before teardown. `useWarp: true` explicitly selects the software adapter for
 verification. Default construction selects a compatible hardware adapter.
 
+Use `D3D12Renderer.CreateWithMeshes` to provide a fixed `RenderMeshPair` for
+the lifetime of the renderer. The render owner uploads the pair at startup
+and draws it with the camera, transform and tint in `RenderScene`. A frame
+without a scene clears the target. See the [WP03 terrain contract](../../docs/architecture/wp03-two-chunk-terrain-contract.md).
+
 The provider builds its cube shaders from the pinned and verified DXC tool.
 The resulting package contains the embedded DXIL, the shader build provenance
 and the TerraFX notice. Build and test with x64 PowerShell 7 and the repository's
@@ -23,4 +28,13 @@ session. On an interactive desktop, also run the swap-chain smoke case.
 
 ```powershell
 dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=WindowsDesktopSmoke'
+```
+
+Run the terrain WARP and hardware filters in separate processes on an
+interactive Windows desktop. With Windows Graphics Tools installed, verify
+active Debug Layer, zero errors and zero live child objects in the TRX output.
+
+```powershell
+dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12TerrainWarp' --logger trx
+dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12TerrainHardware' --logger trx
 ```
