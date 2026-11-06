@@ -13,6 +13,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
     private readonly WindowsHostOptions _options;
     private readonly RuntimeWakeSignal _wake;
     private readonly IRuntimeOwnership _ownership;
+    private readonly PresentationTarget _presentation;
     private readonly Lock _lifecycle = new();
     private readonly Lock _faults = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -33,6 +34,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
         ArgumentNullException.ThrowIfNull(uiWake);
         ArgumentNullException.ThrowIfNull(ownership);
         (_options, _wake, _ownership) = (options, uiWake, ownership);
+        _presentation = new PresentationTarget(ownership);
     }
 
     /// <summary>Contains the first operational failure and separate cleanup failures after the host stops.</summary>
@@ -41,6 +43,10 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
     public InputSnapshot Capture() => Volatile.Read(ref _input)?.Capture() ?? EmptyInput;
 
     public HostWindowSnapshot Read() => Volatile.Read(ref _windowState).Snapshot;
+
+    /// <summary>Attaches one Windows renderer after the native host has started.</summary>
+    public WindowsPresentationTargetLease? TryAcquirePresentationTarget() =>
+        _ready.Task.IsCompletedSuccessfully && !StopRequested ? _presentation.TryAcquire() : null;
 
     public ValueTask InitializeAsync(EngineModuleContext context, CancellationToken cancellationToken)
     {
@@ -161,6 +167,7 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
         if (closeWithoutThread)
         {
             _ready.TrySetCanceled(CancellationToken.None);
+            _presentation.Dispose();
             Finish();
         }
 
@@ -202,7 +209,10 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
 
     private void MarkStop()
     {
-        Interlocked.Exchange(ref _stopRequested, 1);
+        if (Interlocked.Exchange(ref _stopRequested, 1) == 0)
+        {
+            _presentation.Revoke(PresentationTargetRevocation.Closing);
+        }
     }
 
     private RuntimeDeadline? RequestStop(HostStopReason reason)
@@ -372,8 +382,9 @@ public sealed partial class WindowsHostModule : IEngineModule, IInputSource, IHo
             return;
         }
 
-        Volatile.Write(ref _windowState,
-            new WindowState(new HostWindowSnapshot(phase, width, height, focused, checked(current.Revision + 1))));
+        var snapshot = new HostWindowSnapshot(phase, width, height, focused, checked(current.Revision + 1));
+        Volatile.Write(ref _windowState, new WindowState(snapshot));
+        _presentation.Publish(snapshot);
     }
 
     private enum Stage { Created, Initialized, Starting, ClosingWithoutThread, Closed }

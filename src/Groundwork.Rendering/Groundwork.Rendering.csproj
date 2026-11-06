@@ -1,0 +1,13 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <AssemblyName>Groundwork.Rendering</AssemblyName>
+    <RootNamespace>Groundwork.Rendering</RootNamespace>
+    <PackageId>Groundwork.Rendering</PackageId>
+    <Description>Portable Groundwork renderer contracts and frame admission.</Description>
+    <IsPackable>true</IsPackable>
+  </PropertyGroup>
+  <ItemGroup>
+    <AssemblyMetadata Include="WorkPackage" Value="WP02" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+  </ItemGroup>
+</Project>

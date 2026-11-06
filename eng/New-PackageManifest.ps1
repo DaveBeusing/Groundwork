@@ -10,9 +10,9 @@ $ErrorActionPreference = 'Stop'
 if ($SourceCommit -notmatch '^[a-fA-F0-9]{40}$') { throw 'Invalid source commit.' }
 if ($Version -notmatch '^0\.1\.0-dev\.[0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*$') { throw 'Invalid prerelease version.' }
 if ([string]::IsNullOrWhiteSpace($BuildId)) { throw 'Build identity required.' }
-$ids = @('Groundwork.Core','Groundwork.Platform.Windows','Groundwork.Simulation','Groundwork.Ecs','Groundwork.Jobs','Groundwork.Diagnostics')
+$ids = @('Groundwork.Core','Groundwork.Platform.Windows','Groundwork.Simulation','Groundwork.Ecs','Groundwork.Jobs','Groundwork.Diagnostics','Groundwork.Rendering')
 $files = @(Get-ChildItem -LiteralPath $PackageDirectory -Filter '*.nupkg' -File)
-if ($files.Count -ne 6) { throw "Expected six packages, found $($files.Count)." }
+if ($files.Count -ne $ids.Count) { throw "Expected $($ids.Count) packages, found $($files.Count)." }
 Add-Type -AssemblyName System.IO.Compression
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 $entries = @()
