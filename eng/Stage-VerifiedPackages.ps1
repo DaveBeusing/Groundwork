@@ -13,12 +13,14 @@ $m = Get-Content -LiteralPath $ManifestPath -Raw | ConvertFrom-Json
 if ($m.schemaVersion -ne 1 -or $m.sourceCommit -ine $ExpectedSourceCommit) { throw 'Wrong manifest schema or source commit.' }
 $ids = @('Groundwork.Core','Groundwork.Platform.Windows','Groundwork.Simulation','Groundwork.Ecs','Groundwork.Jobs','Groundwork.Diagnostics')
 $packages = @($m.packages)
-if ($packages.Count -ne 6) { throw 'Unexpected package count.' }
+# Previously pinned WP01 artifacts still contain exactly the original six modules.
+if ($packages.Count -eq $ids.Count + 1) { $ids += 'Groundwork.Rendering' }
+if ($packages.Count -ne $ids.Count) { throw 'Unexpected package count.' }
 $sourceDir = (Resolve-Path -LiteralPath $PackageDirectory).Path
 $feedDir = (Resolve-Path -LiteralPath $FeedDirectory).Path
 if ($feedDir -ieq $sourceDir) { throw 'Source and feed may not be the same.' }
 $sourceFiles = @(Get-ChildItem -LiteralPath $sourceDir -Filter '*.nupkg' -File)
-if ($sourceFiles.Count -ne 6) { throw 'Extra or missing package files.' }
+if ($sourceFiles.Count -ne $ids.Count) { throw 'Extra or missing package files.' }
 $seen = @()
 $plan = @()
 foreach ($p in $packages) {
@@ -86,4 +88,4 @@ foreach ($item in $plan) {
    [System.IO.File]::WriteAllText($shaTarget, $sha512, [System.Text.Encoding]::ASCII)
  }
 }
-Write-Host 'PASS: six package hashes and immutable feed coordinates verified.'
+Write-Host "PASS: $($ids.Count) package hashes and immutable feed coordinates verified."

@@ -31,7 +31,8 @@ try {
  $baselineFeed = Join-Path $fixtureRoot 'positive-feed'
  New-Item -ItemType Directory -Path $baselineFeed | Out-Null
  & $stageScript -ManifestPath $manifest -PackageDirectory $packages -FeedDirectory $baselineFeed -ExpectedManifestSha256 $ExpectedManifestSha256 -ExpectedSourceCommit $ExpectedSourceCommit
- if ((Get-ChildItem -LiteralPath $baselineFeed -Recurse -Filter '*.nupkg' -File).Count -ne 6) { throw 'Positive staging produced the wrong number of packages.' }
+ $packageCount = @(Get-ChildItem -LiteralPath $packages -Filter '*.nupkg' -File).Count
+ if (@(Get-ChildItem -LiteralPath $baselineFeed -Recurse -Filter '*.nupkg' -File).Count -ne $packageCount) { throw 'Positive staging produced the wrong number of packages.' }
 
  $modifiedManifest = Join-Path $fixtureRoot 'modified.json'
  Copy-Item -LiteralPath $manifest -Destination $modifiedManifest

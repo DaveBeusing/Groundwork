@@ -36,6 +36,12 @@ try {
  $nugetConfig = Join-Path $source 'NuGet.Config'
  [System.IO.File]::WriteAllText($nugetConfig,$config)
  $project = Join-Path $source 'Consumer.csproj'
+ $renderingReference = ''
+ if (Test-Path -LiteralPath (Join-Path $feed 'groundwork.rendering')) {
+   $renderingReference = "<PackageReference Include=`"Groundwork.Rendering`" Version=`"[$Version]`" />"
+   $probe = 'public static class RendererPackageProbe { public static System.Type Contract => typeof(Groundwork.Rendering.IRenderer); }'
+   [System.IO.File]::WriteAllText((Join-Path $source 'RendererPackageProbe.cs'),$probe)
+ }
  $projectText = @"
 <Project Sdk="Microsoft.NET.Sdk">
  <PropertyGroup>
@@ -44,6 +50,7 @@ try {
  </PropertyGroup>
  <ItemGroup>
   <PackageReference Include="Groundwork.Core" Version="[$Version]" />
+  $renderingReference
  </ItemGroup>
 </Project>
 "@

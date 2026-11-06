@@ -3,7 +3,7 @@ param([string] $TestResultsDirectory)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 $root = (Resolve-Path (Join-Path $PSScriptRoot '..')).Path
-$modules = @('Core', 'Platform.Windows', 'Simulation', 'Ecs', 'Jobs', 'Diagnostics')
+$modules = @('Core', 'Platform.Windows', 'Simulation', 'Ecs', 'Jobs', 'Diagnostics', 'Rendering')
 function Assert-True([bool] $condition, [string] $message) {
     if (-not $condition) { throw $message }
 }
@@ -20,7 +20,7 @@ try {
     [xml] $solution = Get-Content 'Groundwork.slnx' -Raw
     $paths = @($solution.SelectNodes('/Solution/Folder[@Name="/src/"]/Project') | ForEach-Object { $_.GetAttribute('Path') })
     $testPaths = @($solution.SelectNodes('/Solution/Folder[@Name="/tests/"]/Project') | ForEach-Object { $_.GetAttribute('Path') })
-    Assert-True ($paths.Count -eq $modules.Count) 'Solution must contain the six approved shipping projects.'
+    Assert-True ($paths.Count -eq $modules.Count) 'Solution must contain the approved shipping projects.'
     Assert-True ($solution.SelectNodes('//Project').Count -eq ($paths.Count + $testPaths.Count)) 'Unexpected solution project entry.'
     [xml] $props = Get-Content 'Directory.Build.props' -Raw
     $version = $props.SelectSingleNode('//PropertyGroup/Version')
@@ -55,6 +55,7 @@ try {
         '../../src/Groundwork.Jobs/Groundwork.Jobs.csproj'
     )
     Assert-True ($testPaths -contains 'tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj') 'Core tests are missing from the solution.'
+    Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.Tests/Groundwork.Rendering.Tests.csproj') 'Rendering tests are missing from the solution.'
     Assert-True (@($testPaths | Sort-Object -Unique).Count -eq $testPaths.Count) 'Duplicate solution test project entry.'
     foreach ($path in $testPaths) {
         Assert-True ($approvedTests.ContainsKey($path)) ("Unexpected test project: " + $path)

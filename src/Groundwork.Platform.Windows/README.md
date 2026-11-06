@@ -10,6 +10,23 @@ The input producer runs only on the window thread. The simulation consumer captu
 
 The stop wait uses Core's settlement deadline and the caller's wait token. Core bounds teardown using its last trusted clock sample and system watchdog without invoking the injected clock during the wait. An expired deadline reports incomplete cleanup while the owner continues teardown. This keeps the runtime from releasing the window or its wake early.
 
+## Presentation target
+
+After startup, a Windows renderer can acquire the exclusive target using
+`TryAcquirePresentationTarget`. Read its coherent window snapshot and wait
+for revisions separately from the host's terminal UI wake. Each native
+operation needs a scoped admission from the target. Use its HWND only during
+that operation. The renderer retains its own runtime ownership until GPU work
+and device cleanup are settled.
+
+Close revokes admission and leaves the STA dispatching messages while the
+provider settles already-admitted work. Dispose the target lease only after
+releasing swap-chain references. The STA destroys its window after the lease
+acknowledgment and all admitted operations end. At the runtime deadline the
+host reports incomplete cleanup while it retains the live target. Hosts
+without a presentation lease follow the normal Win32 shutdown path. See the
+[WP02 contract](../../docs/architecture/wp02-d3d12-renderer-contract.md).
+
 ## Verification
 
 Run the lane's locked project restore and normal tests on Windows. Run the smoke category separately on an unlocked interactive desktop. The smoke owns a uniquely named window and checks resize, focus loss and reacquisition, minimize/restore, native close, class unregistration, and retained-wake shutdown while idle. The handle-count delta is recorded as an observation because the runner can allocate unrelated handles.

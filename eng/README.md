@@ -5,10 +5,11 @@ They do not edit root build settings or publish a release.
 
 ## Producer
 
-Build and pack all six Groundwork modules from the pinned source SHA using an
-identical unique prerelease PackageVersion into a clean output directory.
+Build and pack the seven Groundwork modules, including Rendering, from the
+pinned source SHA using an identical unique prerelease PackageVersion into a
+clean output directory.
 Run eng/New-PackageManifest.ps1 with PackageDirectory, Version, SourceCommit,
-BuildId and OutputManifest parameters. It validates the six expected package
+BuildId and OutputManifest parameters. It validates the expected package
 names, nuspec ID/version, sizes and SHA-256 hashes before writing a manifest.
 It refuses to overwrite existing manifests.
 
@@ -25,6 +26,7 @@ unexpected package sets, wrong names/versions, size/hash changes, and package
 coordinate overwrite with different bytes. The feed is hierarchical and outside
 both worktrees. If an interrupted staging leaves a partial feed, discard the
 isolated feed before retrying; multi-package staging is not transactional.
+The original six-package WP01 archives remain valid inputs for staging.
 
 ## Not yet completed
 

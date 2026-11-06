@@ -13,6 +13,7 @@ public sealed partial class WindowsHostModule
     [ThreadStatic] private static WindowsHostModule? s_uiHost;
     private nint _window;
     private bool _minimized;
+    private bool _destroyingWindow;
     private int _modalDepth;
 
     private void RunUiThread(object? state)
@@ -59,6 +60,7 @@ public sealed partial class WindowsHostModule
             }
 
             UpdateSize(_window, _minimized, starting: false);
+            _presentation.Open(_window, Read());
             _ready.TrySetResult();
             Pump(wake.DangerousGetHandle());
         }
@@ -69,6 +71,8 @@ public sealed partial class WindowsHostModule
         finally
         {
             _ready.TrySetCanceled();
+            DrainPresentationTarget();
+            _presentation.Dispose();
             var nativeReleased = ReleaseWindow(atom, instance);
             if (wakeRetained)
             {
@@ -143,22 +147,80 @@ public sealed partial class WindowsHostModule
                 throw new InvalidOperationException($"Unexpected Win32 wait result {result}.");
             }
 
-            for (var i = 0; i < MessageBatchLimit && !StopRequested; i++)
-            {
-                if (!Win32.PeekMessage(out var message, 0, 0, 0, Win32.RemoveMessage))
-                {
-                    break;
-                }
+            DispatchPendingMessages(draining: false);
+        }
+    }
 
-                if (message.Id == Win32.Quit)
+    private void DispatchPendingMessages(bool draining)
+    {
+        for (var i = 0; i < MessageBatchLimit && (draining || !StopRequested); i++)
+        {
+            if (!Win32.PeekMessage(out var message, 0, 0, 0, Win32.RemoveMessage))
+            {
+                return;
+            }
+
+            if (message.Id == Win32.Quit)
+            {
+                if (!draining)
                 {
                     RequestStop(HostStopReason.WindowClose);
                     return;
                 }
 
-                Win32.TranslateMessage(message);
-                Win32.DispatchMessage(message);
+                continue;
             }
+
+            Win32.TranslateMessage(message);
+            Win32.DispatchMessage(message);
+        }
+    }
+
+    private unsafe void DrainPresentationTarget()
+    {
+        _presentation.Revoke(PresentationTargetRevocation.Closing);
+        if (_presentation.DrainWake is null)
+        {
+            return;
+        }
+
+        try
+        {
+            if (_window != 0)
+            {
+                BeginClosing(_window);
+            }
+        }
+        catch (Exception error)
+        {
+            RecordFailure(error, FaultClass.UnknownCritical, FaultOrigin.Cleanup);
+        }
+
+        // DXGI can wait for messages on this STA. Keep pumping until the renderer
+        // releases its attachment, even if the coordinator has entered custody.
+        var useMessageWait = true;
+        while (_presentation.DrainWake is { } acknowledged)
+        {
+            if (useMessageWait)
+            {
+                var handle = acknowledged.SafeWaitHandle.DangerousGetHandle();
+                var result = Win32.MsgWaitForMultipleObjectsEx(
+                    1, &handle, Win32.Infinite, Win32.AllInput, Win32.InputAvailable);
+                if (result != Win32.WaitObject && result != Win32.WaitObject + 1)
+                {
+                    Exception error = result == Win32.WaitFailed ? Win32.Error(nameof(Win32.MsgWaitForMultipleObjectsEx)) :
+                        new InvalidOperationException($"Unexpected Win32 drain wait result {result}.");
+                    RecordFailure(error, FaultClass.UnknownCritical, FaultOrigin.Cleanup);
+                    useMessageWait = false;
+                }
+            }
+            else
+            {
+                // A failed native message wait does not authorize destroying the HWND.
+                acknowledged.WaitOne((int)ModalStopPollMilliseconds);
+            }
+
+            DispatchPendingMessages(draining: true);
         }
     }
 
@@ -176,6 +238,7 @@ public sealed partial class WindowsHostModule
                 RecordFailure(error, FaultClass.UnknownCritical, FaultOrigin.Cleanup);
             }
 
+            _destroyingWindow = true;
             if (!Win32.DestroyWindow(_window))
             {
                 RecordFailure(Win32.Error(nameof(Win32.DestroyWindow)), FaultClass.IncompleteCleanup, FaultOrigin.Cleanup);
@@ -228,7 +291,12 @@ public sealed partial class WindowsHostModule
             if (_window == window)
             {
                 _window = 0;
-                if (!StopRequested)
+                if (!_destroyingWindow && _presentation.Revoke(PresentationTargetRevocation.NativeDestroyed))
+                {
+                    FailUi(new InvalidOperationException("The attached presentation window was destroyed unexpectedly."));
+                    BeginClosing(window);
+                }
+                else if (!StopRequested)
                 {
                     RequestStop(HostStopReason.WindowClose);
                     BeginClosing(window);
