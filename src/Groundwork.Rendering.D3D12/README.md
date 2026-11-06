@@ -11,6 +11,15 @@ the lifetime of the renderer. The render owner uploads the pair at startup
 and draws it with the camera, transform and tint in `RenderScene`. A frame
 without a scene clears the target. See the [WP03 terrain contract](../../docs/architecture/wp03-two-chunk-terrain-contract.md).
 
+Use `D3D12Renderer.CreateWithMeshReplacement` to opt in to WP04. Initialize
+the renderer with Core's runtime stop control so the owner can observe its
+admission fence. The initial pair is generation 1. Declare newer intent on
+`MeshReplacement` before dispatching a build, then submit the complete
+immutable pair for that generation. Read the installed and presented
+generations from the same port. Accepted submission queues the pair. The
+render owner installs it only after prior draw and presentation work retires.
+See the [WP04 contract](../../docs/architecture/wp04-mesh-replacement-contract.md).
+
 The provider builds its cube shaders from the pinned and verified DXC tool.
 The resulting package contains the embedded DXIL, the shader build provenance
 and the TerraFX notice. Build and test with x64 PowerShell 7 and the repository's
@@ -37,4 +46,6 @@ active Debug Layer, zero errors and zero live child objects in the TRX output.
 ```powershell
 dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12TerrainWarp' --logger trx
 dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12TerrainHardware' --logger trx
+dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12MeshReplacementWarp' --logger trx
+dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12MeshReplacementHardware' --logger trx
 ```

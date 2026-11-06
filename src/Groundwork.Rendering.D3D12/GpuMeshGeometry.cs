@@ -6,31 +6,38 @@ namespace Groundwork.Rendering.D3D12;
 
 internal sealed unsafe partial class GpuDevice
 {
-    private readonly MeshGeometry? _meshGeometry;
+    // The render owner exclusively mutates both handles. Tests can observe the count during custody.
+    internal MeshGeometry? ActiveMeshGeometry;
+    private int _liveMeshBuffers;
 
-    private MeshGeometry CreateMeshGeometry(RenderMeshPair meshes)
+    internal int LiveMeshBuffers => Volatile.Read(ref _liveMeshBuffers);
+
+    internal MeshGeometry PrepareMeshGeometry(RenderMeshPair meshes)
     {
         var bytes = checked(MeshBytes(meshes.First.Mesh) + MeshBytes(meshes.Second.Mesh));
         if (bytes == 0)
-            return default;
+            return new MeshGeometry(this, null, meshes);
+        if (LiveMeshBuffers >= 2)
+            throw new InvalidOperationException("The active and private mesh buffers already occupy both geometry slots.");
 
-        _geometry = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
+        var resource = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
             Buffer((ulong)bytes), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
-        var unread = new D3D12_RANGE();
-        void* mapped = null;
-        Check(_geometry->Map(0, &unread, &mapped), "Map mesh geometry");
+        Interlocked.Increment(ref _liveMeshBuffers);
         try
         {
-            var address = _geometry->GetGPUVirtualAddress();
-            var offset = 0;
-            var first = PackMesh(meshes.First, (byte*)mapped, address, ref offset);
-            var second = PackMesh(meshes.Second, (byte*)mapped, address, ref offset);
-            return new(first, second);
+            return new MeshGeometry(this, resource, meshes);
         }
-        finally
+        catch
         {
-            _geometry->Unmap(0, null);
+            ReleaseMeshBuffer(resource);
+            throw;
         }
+    }
+
+    private void ReleaseMeshBuffer(ID3D12Resource* resource)
+    {
+        Release(resource);
+        Interlocked.Decrement(ref _liveMeshBuffers);
     }
 
     private static int MeshBytes(RenderMesh mesh) => checked(
@@ -87,5 +94,50 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices, uint IndexCount);
-    private readonly record struct MeshGeometry(PackedMesh First, PackedMesh Second);
+    internal sealed class MeshGeometry : IDisposable
+    {
+        private readonly GpuDevice _owner;
+        private readonly PackedMesh _first;
+        private readonly PackedMesh _second;
+        private ID3D12Resource* _resource;
+
+        internal MeshGeometry(GpuDevice owner, ID3D12Resource* resource, RenderMeshPair meshes)
+        {
+            _owner = owner;
+            _resource = resource;
+            if (resource == null)
+                return;
+
+            var unread = new D3D12_RANGE();
+            void* mapped = null;
+            Check(resource->Map(0, &unread, &mapped), "Map mesh geometry");
+            try
+            {
+                var address = resource->GetGPUVirtualAddress();
+                var offset = 0;
+                _first = PackMesh(meshes.First, (byte*)mapped, address, ref offset);
+                _second = PackMesh(meshes.Second, (byte*)mapped, address, ref offset);
+            }
+            finally
+            {
+                resource->Unmap(0, null);
+            }
+        }
+
+        internal void Draw(ID3D12GraphicsCommandList* commands)
+        {
+            DrawMesh(commands, _first);
+            DrawMesh(commands, _second);
+        }
+
+        public void Dispose()
+        {
+            var resource = _resource;
+            if (resource == null)
+                return;
+
+            _resource = null;
+            _owner.ReleaseMeshBuffer(resource);
+        }
+    }
 }

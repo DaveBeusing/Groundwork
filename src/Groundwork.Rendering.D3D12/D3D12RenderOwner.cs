@@ -60,7 +60,7 @@ public sealed partial class D3D12Renderer
             // A revoked HWND can invalidate an operation between the grant and handle access.
             var destroyed = target?.Revoked.IsCompletedSuccessfully == true &&
                 target.Revoked.Result == PresentationTargetRevocation.NativeDestroyed;
-            if (!Stopping || destroyed)
+            if ((!Stopping && _meshRuntimeFence is not { IsOpen: false }) || destroyed)
             {
                 var removed = gpu?.RemovedReason;
                 Fail(stage, error, removed < 0 ? removed : null, frameSequence);
@@ -170,6 +170,31 @@ public sealed partial class D3D12Renderer
                 redraw = true;
             }
 
+            if (_admission.MeshReplacement is { } meshes && meshes.TryTake(out var candidate))
+            {
+                stage = RendererStage.MeshReplacement;
+                frameSequence = current?.Sequence;
+                if (!watchdog.Begin(stage, frameSequence, _operationTimeout))
+                    break;
+                var installed = TryInstallMesh(gpu, target, chain!, watchdog, meshes, candidate);
+                if (!watchdog.Complete() || ShouldStop(target))
+                    break;
+                redraw |= installed;
+
+                // Frames can arrive while the upload is in progress, including
+                // a clear-only frame. Preserve the normal latest-only order.
+                if (_admission.TryTakeLatest(out latest))
+                {
+                    current = latest;
+                    redraw = true;
+                }
+                if (!redraw)
+                {
+                    _wake!.WaitOne(ProgressPollMilliseconds);
+                    continue;
+                }
+            }
+
             if (!redraw || current is not { } frame)
             {
                 _wake!.WaitOne();
@@ -203,7 +228,10 @@ public sealed partial class D3D12Renderer
                 break;
             if (result == PresentResult.Presented)
             {
-                _admission.RecordPresented(frame.Sequence);
+                if (frame.Scene.HasValue && _admission.MeshReplacement is { } meshAdmission)
+                    meshAdmission.RecordPresented(frame.Sequence, meshAdmission.ReadMeshReplacement().InstalledGeneration);
+                else
+                    _admission.RecordPresented(frame.Sequence);
                 redraw = false;
             }
             else
@@ -215,6 +243,57 @@ public sealed partial class D3D12Renderer
             }
 
         }
+    }
+
+    private bool TryInstallMesh(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,
+        RendererWatchdog watchdog, RendererFrameAdmission.MeshPairAdmission meshes,
+        RendererFrameAdmission.MeshPairAdmission.Candidate candidate)
+    {
+        GpuDevice.MeshGeometry? prepared = null;
+        var retry = false;
+        try
+        {
+            using var operation = TryBegin(target);
+            if (operation is null || !Matches(operation.Snapshot, chain) ||
+                !CanCommitMesh(target, operation.Snapshot, watchdog))
+            {
+                retry = true;
+                return false;
+            }
+
+            if (gpu.IsRemoved)
+                throw new InvalidOperationException("The Direct3D 12 device was removed before mesh replacement.");
+            if (!gpu.IsIdle)
+                throw new InvalidOperationException("Cannot replace geometry before GPU retirement.");
+
+            prepared = gpu.PrepareMeshGeometry(candidate.Pair);
+            _beforeMeshInstallation?.Invoke(gpu);
+            var installed = meshes.TryInstall<GpuDevice.MeshGeometry?>(candidate, ref gpu.ActiveMeshGeometry, ref prepared,
+                () => CanCommitMesh(target, operation.Snapshot, watchdog));
+            if (installed)
+                _afterMeshInstallation?.Invoke();
+            retry = !installed;
+            return installed;
+        }
+        finally
+        {
+            // On success this is the retired old handle. Otherwise this is
+            // private, unsubmitted geometry. Neither needs a new queue signal.
+            prepared?.Dispose();
+            meshes.ReleaseCandidate(candidate, retry);
+        }
+    }
+
+    private bool CanCommitMesh(WindowsPresentationTargetLease target, HostWindowSnapshot admitted,
+        RendererWatchdog watchdog)
+    {
+        // The window publishes revisions monotonically. If the subsequent
+        // terminal fence and deadline checks pass, they were also open at
+        // this snapshot read, which is the commit point. All reads are
+        // nonblocking and the portable gate serializes local stop and intent.
+        var snapshot = _window.Read();
+        return snapshot.Revision == admitted.Revision && IsDrawable(snapshot) && !target.Revoked.IsCompleted &&
+            _meshRuntimeFence!.IsOpen && watchdog.IsWithinDeadline;
     }
 
     private void ObserveTargetChanges(WindowsPresentationTargetLease target, ulong revision, ref Task? notification)
@@ -298,14 +377,28 @@ public sealed partial class D3D12Renderer
             ? chain.Present(testOnly) : PresentResult.Busy;
     }
 
-    private WindowsPresentationOperation? TryBegin(WindowsPresentationTargetLease target) =>
-        Stopping ? null : target.TryBeginOperation();
+    private WindowsPresentationOperation? TryBegin(WindowsPresentationTargetLease target)
+    {
+        if (Stopping)
+            return null;
+
+        var operation = target.TryBeginOperation();
+        if (operation is not null && _meshRuntimeFence is { } fence && (Stopping || !fence.IsOpen))
+        {
+            // The window permit was acquired first. Both renderer fences must
+            // still be open to use it, even when a test isolates the authorities.
+            operation.Dispose();
+            return null;
+        }
+
+        return operation;
+    }
 
     private bool ShouldStop(WindowsPresentationTargetLease target)
     {
         if (target.Revoked.IsCompletedSuccessfully && target.Revoked.Result == PresentationTargetRevocation.NativeDestroyed)
             Fail(RendererStage.Present, new InvalidOperationException("The native presentation window was destroyed."), null, null);
-        return Stopping || target.Revoked.IsCompleted;
+        return Stopping || target.Revoked.IsCompleted || _meshRuntimeFence is { IsOpen: false };
     }
 
     private bool Stopping => _admission.Read().Lifecycle is RendererLifecycle.Stopping or RendererLifecycle.Stopped;

@@ -21,6 +21,9 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private RenderMeshPair? _meshes;
+    private IRuntimeAdmissionFence? _meshRuntimeFence;
+    private readonly Action<GpuDevice>? _beforeMeshInstallation;
+    private readonly Action? _afterMeshInstallation;
     private D3D12DiagnosticsSnapshot _diagnostics = new(null, false, false, null, null);
     private EngineModuleContext? _context;
     private AutoResetEvent? _wake;
@@ -66,6 +69,36 @@ public sealed partial class D3D12Renderer : IRenderer
         return new D3D12Renderer(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout) { _meshes = pair };
     }
 
+    private D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, RenderMeshPair pair,
+        D3D12DiagnosticsOptions diagnostics, bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout,
+        Action<GpuDevice>? beforeMeshInstallation, Action? afterMeshInstallation)
+        : this(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        _meshes = pair;
+        _admission = RendererFrameAdmission.CreateWithMeshReplacement();
+        MeshReplacement = new MeshReplacementPort(this, _admission.MeshReplacement!);
+        _beforeMeshInstallation = beforeMeshInstallation;
+        _afterMeshInstallation = afterMeshInstallation;
+    }
+
+    /// <summary>Creates a renderer with an initial pair that can be replaced at runtime.</summary>
+    /// <remarks>Initialization requires a runtime stop control that exposes its admission fence.</remarks>
+    public static D3D12Renderer CreateWithMeshReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
+        RenderMeshPair pair, D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
+        TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+        => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout, null, null);
+
+    internal static D3D12Renderer CreateWithMeshReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
+        RenderMeshPair pair, Action<GpuDevice> beforeMeshInstallation, D3D12DiagnosticsOptions diagnostics = default,
+        bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null,
+        Action? afterMeshInstallation = null)
+        => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout,
+            beforeMeshInstallation, afterMeshInstallation);
+
+    /// <summary>The optional mesh replacement capability, available on opted-in renderers.</summary>
+    public IRenderMeshReplacement? MeshReplacement { get; }
+
     public RendererSnapshot Read() => _admission.Read();
 
     /// <summary>Reads the last published native diagnostics without calling the graphics driver.</summary>
@@ -88,11 +121,16 @@ public sealed partial class D3D12Renderer : IRenderer
         cancellationToken.ThrowIfCancellationRequested();
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException("The Direct3D 12 provider requires Windows 11 x64.");
+        var meshFence = context.StopControl as IRuntimeAdmissionFence;
+        if (MeshReplacement is not null && meshFence is null)
+            throw new ArgumentException("Mesh replacement requires a runtime admission fence.", nameof(context));
+
         var timestamp = context.Clock.GetTimestamp();
         lock (_lifecycle)
         {
             _admission.MarkInitialized();
             _context = context;
+            _meshRuntimeFence = MeshReplacement is null ? null : meshFence;
             _faultTimestamp = timestamp;
         }
 
@@ -267,6 +305,23 @@ public sealed partial class D3D12Renderer : IRenderer
             _admission.RecordCleanupFault(new RenderFaultSummary((uint)RendererStage.Cleanup,
                 reportingError.HResult, null, null), incomplete: false);
         }
+    }
+
+    private sealed class MeshReplacementPort(D3D12Renderer owner, RendererFrameAdmission.MeshPairAdmission admission)
+        : IRenderMeshReplacement
+    {
+        public MeshReplacementSubmissionResult TryDeclareMeshGeneration(ulong generation) =>
+            admission.TryDeclareMeshGeneration(generation);
+
+        public MeshReplacementSubmissionResult TrySubmitMeshPair(ulong generation, RenderMeshPair? pair)
+        {
+            var result = admission.TrySubmitMeshPair(generation, pair);
+            if (result == MeshReplacementSubmissionResult.Accepted)
+                owner.Wake();
+            return result;
+        }
+
+        public MeshReplacementSnapshot ReadMeshReplacement() => admission.ReadMeshReplacement();
     }
 
     private static TimeSpan ValidateTimeout(TimeSpan timeout, string parameterName)

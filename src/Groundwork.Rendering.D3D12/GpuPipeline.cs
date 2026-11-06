@@ -93,11 +93,11 @@ internal sealed unsafe partial class GpuDevice
 
     private void CreateCubeGeometry()
     {
-        _geometry = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
+        _cubeGeometry = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
             Buffer(VertexCount * VertexStride), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
         var unread = new D3D12_RANGE();
         void* mapped = null;
-        Check(_geometry->Map(0, &unread, &mapped), "Map cube vertices");
+        Check(_cubeGeometry->Map(0, &unread, &mapped), "Map cube vertices");
         try
         {
             ReadOnlySpan<byte> indices =
@@ -121,7 +121,7 @@ internal sealed unsafe partial class GpuDevice
         }
         finally
         {
-            _geometry->Unmap(0, null);
+            _cubeGeometry->Unmap(0, null);
         }
     }
 
@@ -153,11 +153,11 @@ internal sealed unsafe partial class GpuDevice
             commands->OMSetRenderTargets(1, &rtv, false, &dsv);
             commands->SetGraphicsRootSignature(_root);
             commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            if (_meshGeometry is null)
+            if (ActiveMeshGeometry is null)
             {
                 var vertices = new D3D12_VERTEX_BUFFER_VIEW
                 {
-                    BufferLocation = _geometry->GetGPUVirtualAddress(),
+                    BufferLocation = _cubeGeometry->GetGPUVirtualAddress(),
                     SizeInBytes = VertexCount * VertexStride,
                     StrideInBytes = VertexStride,
                 };
@@ -181,10 +181,9 @@ internal sealed unsafe partial class GpuDevice
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
         var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint);
         commands->SetGraphicsRoot32BitConstants(0, 20, &constants, 0);
-        if (_meshGeometry is { } meshes)
+        if (ActiveMeshGeometry is { } meshes)
         {
-            DrawMesh(commands, meshes.First);
-            DrawMesh(commands, meshes.Second);
+            meshes.Draw(commands);
         }
         else
         {
