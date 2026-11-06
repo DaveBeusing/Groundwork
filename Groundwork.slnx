@@ -8,6 +8,7 @@
     <Project Path="src/Groundwork.Diagnostics/Groundwork.Diagnostics.csproj" />
     <Project Path="src/Groundwork.Rendering/Groundwork.Rendering.csproj" />
     <Project Path="src/Groundwork.Rendering.D3D12/Groundwork.Rendering.D3D12.csproj" />
+    <Project Path="src/Groundwork.Voxels/Groundwork.Voxels.csproj" />
   </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj" />
@@ -18,5 +19,6 @@
     <Project Path="tests/Groundwork.Rendering.Tests/Groundwork.Rendering.Tests.csproj" />
     <Project Path="tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj" />
     <Project Path="tests/Groundwork.Simulation.Tests/Groundwork.Simulation.Tests.csproj" />
+    <Project Path="tests/Groundwork.Voxels.Tests/Groundwork.Voxels.Tests.csproj" />
   </Folder>
 </Solution>

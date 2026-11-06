@@ -47,6 +47,7 @@ try {
  $project = Join-Path $source 'Consumer.csproj'
  $renderingReference = ''
  $providerReference = ''
+ $voxelsReference = ''
  $providerArchitecture = ''
  if (Test-Path -LiteralPath (Join-Path $feed 'groundwork.rendering')) {
    $renderingReference = "<PackageReference Include=`"Groundwork.Rendering`" Version=`"[$Version]`" />"
@@ -59,6 +60,11 @@ try {
    $probe = '[System.Runtime.Versioning.SupportedOSPlatform("windows10.0.22000")] public static class D3D12PackageProbe { public static System.Type Provider => typeof(Groundwork.Rendering.D3D12.D3D12Renderer); }'
    [System.IO.File]::WriteAllText((Join-Path $source 'D3D12PackageProbe.cs'),$probe)
  }
+ if (Test-Path -LiteralPath (Join-Path $feed 'groundwork.voxels')) {
+   $voxelsReference = "<PackageReference Include=`"Groundwork.Voxels`" Version=`"[$Version]`" />"
+   $probe = 'public static class VoxelPackageProbe { public static System.Type Snapshot => typeof(Groundwork.Voxels.ChunkSnapshot); }'
+   [System.IO.File]::WriteAllText((Join-Path $source 'VoxelPackageProbe.cs'),$probe)
+ }
  $projectText = @"
 <Project Sdk="Microsoft.NET.Sdk">
  <PropertyGroup>
@@ -70,6 +76,7 @@ try {
   <PackageReference Include="Groundwork.Core" Version="[$Version]" />
   $renderingReference
   $providerReference
+  $voxelsReference
  </ItemGroup>
 </Project>
 "@
