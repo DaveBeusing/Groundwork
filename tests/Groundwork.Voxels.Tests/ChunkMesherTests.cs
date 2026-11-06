@@ -201,6 +201,69 @@ public sealed class ChunkMesherTests
         Assert.ThrowsExactly<ArgumentException>(() => ChunkMesher.BuildPair(first, second));
     }
 
+    [TestMethod]
+    [DataRow(0, -1, 0, 0)]
+    [DataRow(1, 1, 0, 0)]
+    [DataRow(2, 0, -1, 0)]
+    [DataRow(3, 0, 1, 0)]
+    [DataRow(4, 0, 0, -1)]
+    [DataRow(5, 0, 0, 1)]
+    public void SixFaceMeshingSuppressesSolidNeighborsAndExposesAir(int face, int dx, int dy, int dz)
+    {
+        var coordinate = new ChunkCoordinate(-1, 1, -2);
+        var neighborCoordinate = new ChunkCoordinate(coordinate.X + dx, coordinate.Y + dy, coordinate.Z + dz);
+        var cells = new byte[ChunkSnapshot.CellCount];
+        var neighborCells = new byte[ChunkSnapshot.CellCount];
+        var axis = face / 2;
+        var positive = face % 2 == 1;
+        var ownEdge = positive ? 15 : 0;
+        var neighborEdge = 15 - ownEdge;
+        var plane = positive ? 16 : 0;
+        cells[Index(axis == 0 ? ownEdge : 8, axis == 1 ? ownEdge : 8, axis == 2 ? ownEdge : 8)] = 1;
+        neighborCells[Index(axis == 0 ? neighborEdge : 8, axis == 1 ? neighborEdge : 8, axis == 2 ? neighborEdge : 8)] = 1;
+        var center = ChunkSnapshot.Create(coordinate, 1, cells);
+        var neighbors = ExteriorNeighbors();
+        neighbors[face] = new(ChunkSnapshot.Create(neighborCoordinate, 1, neighborCells));
+
+        var touching = ChunkMesher.Build(center, neighbors);
+        AssertQuads(touching, 5);
+        Assert.AreEqual(0, CountPlaneQuads(touching, axis, plane));
+
+        Array.Clear(neighborCells);
+        neighbors[face] = new(ChunkSnapshot.Create(neighborCoordinate, 2, neighborCells));
+        var air = ChunkMesher.Build(center, neighbors);
+        AssertQuads(air, 6);
+        Assert.AreEqual(1, CountPlaneQuads(air, axis, plane));
+
+        neighbors[face] = ChunkNeighbor.ExteriorAir;
+        var exterior = ChunkMesher.Build(center, neighbors);
+        Assert.IsTrue(exterior.Positions.SequenceEqual(air.Positions));
+        Assert.IsTrue(exterior.Indices.SequenceEqual(air.Indices));
+    }
+
+    [TestMethod]
+    public void SixFaceMeshingRejectsMissingAndMisplacedObservationsEvenForAnEmptyChunk()
+    {
+        var cells = new byte[ChunkSnapshot.CellCount];
+        var center = ChunkSnapshot.Create(default, 1, cells);
+        var neighbors = ExteriorNeighbors();
+        AssertQuads(ChunkMesher.Build(center, neighbors), 0);
+        Assert.ThrowsExactly<ArgumentException>(() => ChunkMesher.Build(center, neighbors.AsSpan(1)));
+
+        neighbors[1] = default;
+        Assert.ThrowsExactly<ArgumentException>(() => ChunkMesher.Build(center, neighbors));
+
+        neighbors[1] = new(ChunkSnapshot.Create(new(-1, 0, 0), 1, cells));
+        Assert.ThrowsExactly<ArgumentException>(() => ChunkMesher.Build(center, neighbors));
+    }
+
+    private static ChunkNeighbor[] ExteriorNeighbors()
+    {
+        var neighbors = new ChunkNeighbor[6];
+        Array.Fill(neighbors, ChunkNeighbor.ExteriorAir);
+        return neighbors;
+    }
+
     private static void AssertQuads(ChunkMesh mesh, int expected)
     {
         Assert.AreEqual(expected * 4, mesh.Positions.Length);
