@@ -2,7 +2,25 @@ using System.Numerics;
 
 namespace Groundwork.Voxels;
 
-/// <summary>Builds deterministic solid-to-air surfaces for one face-adjacent chunk pair.</summary>
+/// <summary>One observed neighbor in a six-face meshing input.</summary>
+public readonly record struct ChunkNeighbor
+{
+    public ChunkNeighbor(ChunkSnapshot snapshot)
+    {
+        ArgumentNullException.ThrowIfNull(snapshot);
+        Snapshot = snapshot;
+    }
+
+    private ChunkNeighbor(bool isExterior) => IsExterior = isExterior;
+
+    /// <summary>Known air beyond the generated world. The default value represents missing data.</summary>
+    public static ChunkNeighbor ExteriorAir { get; } = new(true);
+
+    internal ChunkSnapshot? Snapshot { get; }
+    internal bool IsExterior { get; }
+}
+
+/// <summary>Builds deterministic solid-to-air surfaces for chunks and face-adjacent pairs.</summary>
 public static class ChunkMesher
 {
     public const int MaximumQuadsPerChunk = 6 * ChunkSnapshot.CellCount;
@@ -33,17 +51,56 @@ public static class ChunkMesher
             throw new ArgumentException("The chunks must share exactly one face.", nameof(second));
         }
 
-        var direction = new Vector3(x, y, z);
         if (x + y + z < 0)
         {
             (first, second) = (second, first);
-            direction = -direction;
         }
 
-        return new(first, second, BuildMesh(first, second, direction), BuildMesh(second, first, -direction));
+        // BuildPair has always treated the other five sides as exterior air.
+        var exterior = ChunkNeighbor.ExteriorAir;
+        Span<ChunkNeighbor> neighbors = [exterior, exterior, exterior, exterior, exterior, exterior];
+        var negativeFace = x != 0 ? 0 : y != 0 ? 2 : 4;
+        neighbors[negativeFace + 1] = new(second);
+        var low = BuildMesh(first, neighbors);
+        neighbors[negativeFace + 1] = exterior;
+        neighbors[negativeFace] = new(first);
+        return new(first, second, low, BuildMesh(second, neighbors));
     }
 
-    private static ChunkMesh BuildMesh(ChunkSnapshot chunk, ChunkSnapshot neighbor, Vector3 neighborDirection)
+    /// <summary>Builds a chunk with observations in -X, +X, -Y, +Y, -Z, +Z order.</summary>
+    /// <exception cref="ArgumentException">A face is missing or contains a snapshot at the wrong coordinate.</exception>
+    public static ChunkMesh Build(ChunkSnapshot chunk, ReadOnlySpan<ChunkNeighbor> neighbors)
+    {
+        ArgumentNullException.ThrowIfNull(chunk);
+        if (neighbors.Length != Faces.Length)
+        {
+            throw new ArgumentException("Exactly six face observations are required.", nameof(neighbors));
+        }
+
+        for (var face = 0; face < Faces.Length; face++)
+        {
+            var neighbor = neighbors[face];
+            if (neighbor.Snapshot is { } snapshot)
+            {
+                var normal = Faces[face].Normal;
+                var coordinate = chunk.Coordinate;
+                var expected = new ChunkCoordinate(coordinate.X + (int)normal.X,
+                    coordinate.Y + (int)normal.Y, coordinate.Z + (int)normal.Z);
+                if (snapshot.Coordinate != expected)
+                {
+                    throw new ArgumentException($"Face {face} requires neighbor {expected}.", nameof(neighbors));
+                }
+            }
+            else if (!neighbor.IsExterior)
+            {
+                throw new ArgumentException($"Face {face} has no neighbor observation.", nameof(neighbors));
+            }
+        }
+
+        return BuildMesh(chunk, neighbors);
+    }
+
+    private static ChunkMesh BuildMesh(ChunkSnapshot chunk, ReadOnlySpan<ChunkNeighbor> neighbors)
     {
         // Remember visible faces so the output arrays can be allocated at their exact size.
         Span<byte> visibility = stackalloc byte[ChunkSnapshot.CellCount];
@@ -56,7 +113,7 @@ public static class ChunkMesher
                 var position = LocalPosition(cell);
                 for (var face = 0; face < Faces.Length; face++)
                 {
-                    if (!IsSolidNeighbor(chunk, neighbor, position, Faces[face].Normal, neighborDirection))
+                    if (!IsSolidNeighbor(chunk, neighbors[face].Snapshot, position, Faces[face].Normal))
                     {
                         mask |= (byte)(1 << face);
                         quadCount++;
@@ -107,8 +164,7 @@ public static class ChunkMesher
         return new(cell % size, cell / size % size, cell / (size * size));
     }
 
-    private static bool IsSolidNeighbor(ChunkSnapshot chunk, ChunkSnapshot neighbor, Vector3 position, Vector3 normal,
-        Vector3 neighborDirection)
+    private static bool IsSolidNeighbor(ChunkSnapshot chunk, ChunkSnapshot? neighbor, Vector3 position, Vector3 normal)
     {
         const int size = ChunkSnapshot.Size;
         var x = (int)(position.X + normal.X);
@@ -119,7 +175,7 @@ public static class ChunkMesher
             return chunk.IsSolid(ChunkSnapshot.Index(x, y, z));
         }
 
-        return normal == neighborDirection && neighbor.IsSolid(ChunkSnapshot.Index(
+        return neighbor is not null && neighbor.IsSolid(ChunkSnapshot.Index(
             x - size * (int)normal.X, y - size * (int)normal.Y, z - size * (int)normal.Z));
     }
 
