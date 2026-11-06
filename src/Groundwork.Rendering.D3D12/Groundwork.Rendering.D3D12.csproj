@@ -1,0 +1,38 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <GenerateSupportedOSPlatformAttribute>false</GenerateSupportedOSPlatformAttribute>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <PackageId>Groundwork.Rendering.D3D12</PackageId>
+    <Description>Groundwork Direct3D 12 renderer for Windows x64.</Description>
+    <IsPackable>true</IsPackable>
+    <TargetsForTfmSpecificContentInPackage>$(TargetsForTfmSpecificContentInPackage);PackShaderProvenance</TargetsForTfmSpecificContentInPackage>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
+    <ProjectReference Include="../Groundwork.Platform.Windows/Groundwork.Platform.Windows.csproj" />
+    <ProjectReference Include="../Groundwork.Rendering/Groundwork.Rendering.csproj" />
+    <PackageReference Include="TerraFX.Interop.Windows" Version="[10.0.26100.6]" GeneratePathProperty="true" />
+    <InternalsVisibleTo Include="Groundwork.Rendering.D3D12.Tests" />
+    <None Update="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />
+  </ItemGroup>
+  <Target Name="BuildD3D12Shaders" BeforeTargets="PrepareForBuild" Condition="'$(DesignTimeBuild)' != 'true'">
+    <PropertyGroup>
+      <_ShaderDirectory>$([System.IO.Path]::GetFullPath('$(IntermediateOutputPath)shaders', '$(MSBuildProjectDirectory)'))</_ShaderDirectory>
+      <_DxcArguments Condition="'$(DxcPackagePath)' != ''">-DxcPackagePath &quot;$(DxcPackagePath)&quot;</_DxcArguments>
+      <_DxcArguments Condition="'$(ContinuousIntegrationBuild)' == 'true'">$(_DxcArguments) -VerifyDeterminism</_DxcArguments>
+    </PropertyGroup>
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../eng/Confirm-D3D12Binding.ps1&quot; -PackagePath &quot;$(PkgTerraFX_Interop_Windows)/terrafx.interop.windows.10.0.26100.6.nupkg&quot;" />
+    <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../eng/Build-D3D12Shaders.ps1&quot; -OutputDirectory &quot;$(_ShaderDirectory)&quot; $(_DxcArguments)" />
+    <ItemGroup>
+      <EmbeddedResource Include="$(_ShaderDirectory)/Cube.vs.dxil" LogicalName="Cube.vs.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/Cube.ps.dxil" LogicalName="Cube.ps.dxil" WithCulture="false" />
+    </ItemGroup>
+  </Target>
+  <Target Name="PackShaderProvenance">
+    <ItemGroup>
+      <TfmSpecificPackageFile Include="$(IntermediateOutputPath)shaders/shader-provenance.json" PackagePath="/" />
+    </ItemGroup>
+  </Target>
+</Project>

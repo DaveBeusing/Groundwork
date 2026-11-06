@@ -18,18 +18,27 @@ try {
  & $stage -ManifestPath $ManifestPath -PackageDirectory $PackageDirectory -FeedDirectory $feed -ExpectedManifestSha256 $ExpectedManifestSha256 -ExpectedSourceCommit $ExpectedSourceCommit
  $env:NUGET_PACKAGES = $cache
  $escapedFeed = [System.Security.SecurityElement]::Escape($feed)
+ $provider = Test-Path -LiteralPath (Join-Path $feed 'groundwork.rendering.d3d12')
+ $bindingSource = ''
+ $bindingMapping = ''
+ if ($provider) {
+   $bindingSource = '<add key="nuget.org" value="https://api.nuget.org/v3/index.json" />'
+   $bindingMapping = '<packageSource key="nuget.org"><package pattern="TerraFX.Interop.Windows" /></packageSource>'
+ }
  $config = @"
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
  <packageSources>
   <clear />
   <add key="verified-groundwork" value="$escapedFeed" />
+  $bindingSource
  </packageSources>
  <packageSourceMapping>
   <clear />
   <packageSource key="verified-groundwork">
    <package pattern="Groundwork.*" />
   </packageSource>
+  $bindingMapping
  </packageSourceMapping>
 </configuration>
 "@
@@ -37,20 +46,30 @@ try {
  [System.IO.File]::WriteAllText($nugetConfig,$config)
  $project = Join-Path $source 'Consumer.csproj'
  $renderingReference = ''
+ $providerReference = ''
+ $providerArchitecture = ''
  if (Test-Path -LiteralPath (Join-Path $feed 'groundwork.rendering')) {
    $renderingReference = "<PackageReference Include=`"Groundwork.Rendering`" Version=`"[$Version]`" />"
    $probe = 'public static class RendererPackageProbe { public static System.Type Contract => typeof(Groundwork.Rendering.IRenderer); }'
    [System.IO.File]::WriteAllText((Join-Path $source 'RendererPackageProbe.cs'),$probe)
+ }
+ if ($provider) {
+   $providerReference = "<PackageReference Include=`"Groundwork.Rendering.D3D12`" Version=`"[$Version]`" />"
+   $providerArchitecture = '<PlatformTarget>x64</PlatformTarget>'
+   $probe = '[System.Runtime.Versioning.SupportedOSPlatform("windows10.0.22000")] public static class D3D12PackageProbe { public static System.Type Provider => typeof(Groundwork.Rendering.D3D12.D3D12Renderer); }'
+   [System.IO.File]::WriteAllText((Join-Path $source 'D3D12PackageProbe.cs'),$probe)
  }
  $projectText = @"
 <Project Sdk="Microsoft.NET.Sdk">
  <PropertyGroup>
   <TargetFramework>net10.0-windows</TargetFramework>
   <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  $providerArchitecture
  </PropertyGroup>
  <ItemGroup>
   <PackageReference Include="Groundwork.Core" Version="[$Version]" />
   $renderingReference
+  $providerReference
  </ItemGroup>
 </Project>
 "@
@@ -60,6 +79,9 @@ try {
  if (-not (Test-Path (Join-Path $source 'packages.lock.json'))) { throw 'Missing generated lockfile.' }
  & dotnet restore $project --configfile $nugetConfig --locked-mode
  if ($LASTEXITCODE -ne 0) { throw 'Locked restore failed.' }
+ if ($provider) {
+   & (Join-Path $PSScriptRoot 'Confirm-D3D12Binding.ps1') -PackagePath (Join-Path $cache 'terrafx.interop.windows/10.0.26100.6/terrafx.interop.windows.10.0.26100.6.nupkg')
+ }
  & dotnet build $project -c Release --no-restore
  if ($LASTEXITCODE -ne 0) { throw 'Consumer build failed.' }
  [System.IO.File]::WriteAllText($project,$projectText.Replace("[$Version]",'[0.1.0-dev.0.0]'))
