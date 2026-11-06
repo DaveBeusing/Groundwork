@@ -1,7 +1,7 @@
 # Groundwork
 
 Groundwork is a reusable C# / .NET 10 game engine, independent from Worlds Yet
-Unseen. Windows is the initial target; Direct3D 12 and gameplay are later work.
+Unseen. Windows is the initial target, with a Direct3D 12 provider.
 
 WP01 Core provides shared host contracts and the state authority for job,
 world and safety coordination. The six approved modules and their dependency
@@ -13,6 +13,9 @@ Changes are made through scoped PRs targeting master.
 
 The [WP01 foundation handover](docs/wp01-handover.md) records the verified
 engine and WYU baselines, reproduction steps and WP02 entry conditions.
+
+The [Groundwork and WYU roadmap](docs/roadmap.md) tracks completed handovers
+and planned milestones across both repositories.
 
 ## License
 
