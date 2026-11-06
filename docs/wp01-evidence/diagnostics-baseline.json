@@ -1,0 +1,189 @@
+{
+  "SchemaVersion": 1,
+  "Environment": {
+    "OperatingSystem": "Microsoft Windows 10.0.26300",
+    "Runtime": ".NET 10.0.14",
+    "ProcessArchitecture": 1,
+    "Processor": "Intel64 Family 6 Model 198 Stepping 2, GenuineIntel",
+    "LogicalProcessors": 24,
+    "GcAvailableMemoryBytes": 68137205760,
+    "ServerGc": false,
+    "StopwatchFrequency": 10000000,
+    "Configuration": "Release",
+    "Label": "g00-b0c3a94c97fb8d65481c91b0545c0c9e53d6500c"
+  },
+  "Method": "Sequential producer on one thread. Stopwatch elapsed time and current-thread allocated bytes, divided by operations per sample. Median across samples.",
+  "Warmup": 20000,
+  "Iterations": 100000,
+  "Samples": 5,
+  "Scenarios": [
+    {
+      "Name": "empty-loop",
+      "Workload": "Empty delegate, included as a measurement control.",
+      "MedianNanosecondsPerOperation": 0.738,
+      "MedianBytesPerOperation": 0,
+      "Samples": [
+        {
+          "NanosecondsPerOperation": 0.796,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 0.747,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 0.733,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 0.738,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 0.727,
+          "BytesPerOperation": 0
+        }
+      ]
+    },
+    {
+      "Name": "disabled-counter",
+      "Workload": "One counter call with diagnostics disabled.",
+      "MedianNanosecondsPerOperation": 5.315,
+      "MedianBytesPerOperation": 0,
+      "Samples": [
+        {
+          "NanosecondsPerOperation": 5.509,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 5.315,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 5.296,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 5.285,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 5.337,
+          "BytesPerOperation": 0
+        }
+      ]
+    },
+    {
+      "Name": "enabled-counter",
+      "Workload": "One counter increment with diagnostics enabled.",
+      "MedianNanosecondsPerOperation": 69.248,
+      "MedianBytesPerOperation": 0,
+      "Samples": [
+        {
+          "NanosecondsPerOperation": 69.248,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 68.578,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 72.068,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 68.703,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 71.866,
+          "BytesPerOperation": 0
+        }
+      ]
+    },
+    {
+      "Name": "enabled-duration",
+      "Workload": "One premeasured tick duration converted and recorded.",
+      "MedianNanosecondsPerOperation": 290.288,
+      "MedianBytesPerOperation": 0,
+      "Samples": [
+        {
+          "NanosecondsPerOperation": 290.375,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 291.089,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 290.288,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 206.82,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 32.147,
+          "BytesPerOperation": 0
+        }
+      ]
+    },
+    {
+      "Name": "optional-roundtrip",
+      "Workload": "One numeric optional event recorded, acquired and released on one thread, without a sink.",
+      "MedianNanosecondsPerOperation": 151.067,
+      "MedianBytesPerOperation": 0,
+      "Samples": [
+        {
+          "NanosecondsPerOperation": 1616.975,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 235.569,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 151.067,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 150.748,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 150.777,
+          "BytesPerOperation": 0
+        }
+      ]
+    },
+    {
+      "Name": "optional-saturated",
+      "Workload": "One numeric optional report rejected with 15 queued events and one held lease.",
+      "MedianNanosecondsPerOperation": 86.428,
+      "MedianBytesPerOperation": 0,
+      "Samples": [
+        {
+          "NanosecondsPerOperation": 87.805,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 86.91,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 86.428,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 86.256,
+          "BytesPerOperation": 0
+        },
+        {
+          "NanosecondsPerOperation": 86.268,
+          "BytesPerOperation": 0
+        }
+      ]
+    }
+  ]
+}

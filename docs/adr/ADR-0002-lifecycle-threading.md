@@ -5,6 +5,9 @@
 **Date:** 2026-11-02  
 **Trace:** [Groundwork #1](https://github.com/DaveBeusing/Groundwork/issues/1)
 
+WP01 implementation and Windows lifecycle evidence are recorded in the
+[foundation handover](../wp01-handover.md).
+
 ## Context
 
 Windows window handling, simulation state and asynchronous jobs have incompatible ownership requirements. A common lifecycle and safe shutdown policy are needed before independently developed modules are combined.

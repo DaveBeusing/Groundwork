@@ -15,6 +15,12 @@ Use `Groundwork.slnx` with the existing `/src/` folder and a new `/tests/` folde
 | L3B | `tests/Groundwork.Jobs.Tests/` | `net10.0` | `src/Groundwork.Jobs/` |
 | L5 | `tests/Groundwork.Diagnostics.Tests/` | `net10.0` | `src/Groundwork.Diagnostics/` |
 
+The composed recovery regression in [PR #28](https://github.com/DaveBeusing/Groundwork/pull/28)
+adds ECS, Jobs and Diagnostics references to the Simulation test project. The
+gate allowlists that exact test-only dependency set. The six shipping modules
+follow the original dependency rules below. See the [WP01 handover](../wp01-handover.md)
+for the executed matrix.
+
 The project shape below uses `Groundwork.Core.Tests` as the example. `net10.0` is inherited from `Directory.Build.props`. L1 sets `<TargetFramework>net10.0-windows</TargetFramework>` in its test project to match the tested assembly. All projects inherit C# 14, nullable analysis, recommended .NET analyzers, warnings as errors, deterministic builds, `artifacts/` outputs and lock-file generation. Explicitly opt out of assembly-level test parallelization at first using `[assembly: DoNotParallelize]`. Concurrency and race tests start their own controlled workers. MSTest runs through the SDK's default VSTest driver and the TRX logger.
 
 ```xml
@@ -33,7 +39,7 @@ The project shape below uses `Groundwork.Core.Tests` as the example. `net10.0` i
 
 Use the repository `NuGet.Config` and its mapped `nuget.org` source. The package pin is from the installed .NET SDK 10.0.403 template. Apply the repository's NuGet audit to the test dependency graph. Any future dependency change is a test-infrastructure change with its own generated lock diff.
 
-In the wiring change, update the structural portion of `scripts/Verify-Bootstrap.ps1` to compare the solution paths under `/src/` with the existing six shipping project paths. Separately require each path under `/tests/` to match the table and have exactly one direct project reference, to its corresponding production project. A shipping project may never reference a test project or the MSTest packages. Reject unexpected solution entries and test projects on disk that were omitted from the solution. Keep the existing six-entry packaging allowlist and dependency check. The verified package graph remains the five runtime assemblies pointing only to Core. G00 verifies the full six-entry test roster after all implementation lanes land.
+The structural portion of `scripts/Verify-Bootstrap.ps1` checks the solution paths under `/src/` against the six shipping projects. Each path under `/tests/` must match the approved test roster and reference set. Shipping projects must never reference test projects or MSTest. The gate rejects unexpected solution entries and test projects on disk that were omitted from the solution. The verified package graph remains the five runtime assemblies pointing only to Core.
 
 ## Lock files and the Windows CI gate
 

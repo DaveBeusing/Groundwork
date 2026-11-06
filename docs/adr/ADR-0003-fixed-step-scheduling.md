@@ -1,6 +1,7 @@
 # ADR-0003 — Fixed-step simulation and bounded overload recovery
 
-**Status:** Proposed ADR; scheduling policy **user-approved** on 2026-11-02; implementation not yet present  
+**Status:** Scheduling policy **user-approved** on 2026-11-02. Implemented in [PR #18](https://github.com/DaveBeusing/Groundwork/pull/18) and verified in the [WP01 handover](../wp01-handover.md).
+
 **Owner:** L2 / C00  
 **Trace:** [Groundwork #1](https://github.com/DaveBeusing/Groundwork/issues/1)
 

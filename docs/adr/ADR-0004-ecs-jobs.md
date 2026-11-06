@@ -1,6 +1,7 @@
 # ADR-0004 — ECS identity, read lifetimes, job access and deterministic commit
 
-**Status:** Proposed ADR; design policies **user-approved** on 2026-11-02; API and implementation pending  
+**Status:** Design policies **user-approved** on 2026-11-02. ECS and Jobs implementations landed in [PR #19](https://github.com/DaveBeusing/Groundwork/pull/19) and [PR #20](https://github.com/DaveBeusing/Groundwork/pull/20). See the [WP01 handover](../wp01-handover.md).
+
 **Owners:** C00, L3A and L3B  
 **Trace:** [Groundwork #1](https://github.com/DaveBeusing/Groundwork/issues/1), [#5](https://github.com/DaveBeusing/Groundwork/issues/5), [#6](https://github.com/DaveBeusing/Groundwork/issues/6)
 
