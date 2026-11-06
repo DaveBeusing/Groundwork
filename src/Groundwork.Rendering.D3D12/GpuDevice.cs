@@ -15,7 +15,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private ID3D12Fence* _fence;
     private ID3D12RootSignature* _root;
     private ID3D12PipelineState* _pipeline;
-    private ID3D12Resource* _vertices;
+    private ID3D12Resource* _geometry;
     private ID3D12Resource* _depth;
     private ID3D12DescriptorHeap* _depthHeap;
     private int _depthWidth;
@@ -23,7 +23,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private int _nextFrame;
     private GpuRetirement _retirement;
 
-    internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false)
+    internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null)
     {
         try
         {
@@ -60,6 +60,10 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             fixed (ID3D12Fence** fence = &_fence)
                 Check(_device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, __uuidof<ID3D12Fence>(), (void**)fence), "CreateFence");
             CreatePipeline();
+            if (meshes is null)
+                CreateCubeGeometry();
+            else
+                _meshGeometry = CreateMeshGeometry(meshes);
             foreach (var frame in _frames)
                 frame.Initialize(_device);
         }
@@ -219,12 +223,12 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             frame.Dispose();
         Release(_depth);
         Release(_depthHeap);
-        Release(_vertices);
+        Release(_geometry);
         Release(_pipeline);
         Release(_root);
         Release(_fence);
         Release(_queue);
-        _depth = _vertices = null;
+        _depth = _geometry = null;
         _depthHeap = null;
         _pipeline = null;
         _root = null;

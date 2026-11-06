@@ -31,7 +31,8 @@ public sealed partial class D3D12Renderer
             if (ShouldStop(target) || !watchdog.TryAdvance(stage))
                 return;
 
-            gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred);
+            gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
+                Interlocked.Exchange(ref _meshes, null));
             Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
                 gpu.DredEnabled, null, null));
             var snapshot = target.Read();
@@ -72,6 +73,7 @@ public sealed partial class D3D12Renderer
         }
         finally
         {
+            _meshes = null;
             CloseAdmission();
             _ready.TrySetResult();
             SettleOwner(gpu, chain, target, lifetime, watchdog);

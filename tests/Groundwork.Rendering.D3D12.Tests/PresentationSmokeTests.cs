@@ -56,7 +56,7 @@ public sealed partial class PresentationSmokeTests
     public Task HardwareSwapChainPresentsThroughResizeMinimizeRestoreAndNativeClose() =>
         VerifySwapChainLifecycle(useWarp: false, minimizeDuringStartup: false);
 
-    private static async Task VerifySwapChainLifecycle(bool useWarp, bool minimizeDuringStartup)
+    private static async Task VerifySwapChainLifecycle(bool useWarp, bool minimizeDuringStartup, RenderMeshPair? meshes = null)
     {
         Assert.IsTrue(Environment.UserInteractive, "Run this test on an interactive Windows desktop.");
         using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -71,9 +71,12 @@ public sealed partial class PresentationSmokeTests
         using var gate = new StartupOperationGate(targetOwners);
         await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32),
             runtime.UiWake, minimizeDuringStartup ? gate : targetOwners);
-        await using var renderer = useWarp
-            ? new D3D12Renderer(window, rendererOwners, useWarp: true, startupTimeout: TimeSpan.FromSeconds(15))
-            : new D3D12Renderer(QualificationDiagnostics, window, rendererOwners, startupTimeout: TimeSpan.FromSeconds(15));
+        var diagnosticsRequested = !useWarp || meshes is not null;
+        var diagnostics = diagnosticsRequested ? QualificationDiagnostics : default;
+        var startupTimeout = TimeSpan.FromSeconds(15);
+        await using var renderer = meshes is null
+            ? new D3D12Renderer(diagnostics, window, rendererOwners, useWarp, startupTimeout)
+            : D3D12Renderer.CreateWithMeshes(window, rendererOwners, meshes, diagnostics, useWarp, startupTimeout);
         try
         {
             await window.InitializeAsync(context, token);
@@ -101,7 +104,7 @@ public sealed partial class PresentationSmokeTests
                 Assert.IsTrue(ShowWindowAsync(hwnd, 9));
             }
 
-            var frame = new RenderFrame(1, new Vector4(0.1f, 0.2f, 0.3f, 1), new RenderScene(
+            var frame = meshes is not null ? CreateTerrainFrame() : new RenderFrame(1, new Vector4(0.1f, 0.2f, 0.3f, 1), new RenderScene(
                 Matrix4x4.CreateRotationY(0.3f), new Vector4(1, 0.5f, 0.25f, 1),
                 Matrix4x4.CreateLookAt(new Vector3(1, 1, 3), Vector3.Zero, Vector3.UnitY), 1, 0.1f, 10));
             var submit = Stopwatch.GetTimestamp();
@@ -134,7 +137,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(0, rendererOwners.Active);
             Assert.AreEqual(ShutdownSettlement.Released, runtime.SettleStop());
             Console.WriteLine($"Native close to settled stop {Stopwatch.GetElapsedTime(close).TotalMilliseconds:F3} ms.");
-            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: !useWarp);
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested);
         }
         finally
         {
@@ -155,7 +158,7 @@ public sealed partial class PresentationSmokeTests
     public Task HardwareBlockedResizeStopsCoreAndRetainsOwnershipUntilTheCallReturns() =>
         VerifyBlockedResize(useWarp: false, rejectDiagnostics: false);
 
-    private static async Task VerifyBlockedResize(bool useWarp, bool rejectDiagnostics)
+    private static async Task VerifyBlockedResize(bool useWarp, bool rejectDiagnostics, RenderMeshPair? meshes = null)
     {
         Assert.IsTrue(Environment.UserInteractive, "Run this test on an interactive Windows desktop.");
         using var watchdog = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -172,6 +175,7 @@ public sealed partial class PresentationSmokeTests
         using var release = new ManualResetEventSlim();
 
         await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32), runtime.UiWake, targetOwners);
+        var diagnosticsRequested = !useWarp || meshes is not null;
         await using var renderer = new D3D12Renderer(window, rendererOwners, TimeSpan.FromSeconds(1), (chain, width, height) =>
         {
             // Stall the already-admitted resize, then let it complete against the native swap chain.
@@ -180,7 +184,7 @@ public sealed partial class PresentationSmokeTests
                 throw new TimeoutException("The resize fixture did not release the driver call.");
             chain.Resize(width, height);
             Volatile.Write(ref resizeReturned, true);
-        }, useWarp, diagnostics: useWarp ? default : QualificationDiagnostics);
+        }, useWarp, diagnostics: diagnosticsRequested ? QualificationDiagnostics : default, meshes: meshes);
 
         try
         {
@@ -191,6 +195,11 @@ public sealed partial class PresentationSmokeTests
             AssertAdapter(renderer.ReadDiagnostics().Adapter, useWarp);
             var hwnd = FindWindow(null, title);
             Assert.AreNotEqual(nint.Zero, hwnd);
+            if (meshes is not null)
+            {
+                Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmit(CreateTerrainFrame()));
+                await AwaitStatus(renderer, static state => state.LastPresentedSequence == 1, token);
+            }
             Assert.IsTrue(SetWindowPos(hwnd, 0, 0, 0, 480, 340, 0x0016));
             await entered.Task.WaitAsync(token);
             var blocked = Stopwatch.GetTimestamp();
@@ -226,7 +235,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(1, reporter.Primary);
             Assert.AreEqual(1, reporter.Cleanup);
             Console.WriteLine($"Late driver release to settled stop {Stopwatch.GetElapsedTime(unblocked).TotalMilliseconds:F3} ms.");
-            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: !useWarp);
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested);
         }
         finally
         {
