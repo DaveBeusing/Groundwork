@@ -31,7 +31,9 @@ public sealed partial class D3D12Renderer
             if (ShouldStop(target) || !watchdog.TryAdvance(stage))
                 return;
 
-            gpu = new GpuDevice(_useWarp);
+            gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred);
+            Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
+                gpu.DredEnabled, null, null));
             var snapshot = target.Read();
             if (IsDrawable(snapshot) && ApplySurface(gpu, target, watchdog, stage, ref chain) == SurfaceApplication.Denied && !ShouldStop(target))
                 throw new InvalidOperationException("The runtime denied initial swap-chain admission.");
@@ -233,10 +235,16 @@ public sealed partial class D3D12Renderer
             while (gpu is not null && !gpu.IsRemoved && !gpu.IsIdle)
                 _wake!.WaitOne(ProgressPollMilliseconds);
 
+            // Stop has already closed admission. Keep the device and lifetime lease during diagnostics.
+            if (gpu?.CaptureDred() is { } removal)
+                Volatile.Write(ref _diagnostics, _diagnostics with { DeviceRemoval = removal });
+
             watchdog.Dispose();
             chain?.Dispose();
             target?.Dispose();
             gpu?.Dispose();
+            if (gpu?.FinalDebugSummary is { } debugMessages)
+                Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
             lifetime?.Dispose();
             Finish();
         }

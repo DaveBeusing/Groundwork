@@ -15,6 +15,10 @@ internal static unsafe partial class GpuNative
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static partial int CreateDevice(IUnknown* adapter, D3D_FEATURE_LEVEL level, Guid* iid, void** result);
 
+    [LibraryImport("d3d12.dll", EntryPoint = "D3D12GetDebugInterface")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    internal static partial int GetDebugInterface(Guid* iid, void** result);
+
     [LibraryImport("d3d12.dll", EntryPoint = "D3D12SerializeRootSignature")]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     internal static partial int SerializeRootSignature(

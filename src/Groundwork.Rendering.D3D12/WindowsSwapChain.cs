@@ -91,9 +91,22 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
 
     internal PresentResult Present(bool testOnly)
     {
-        if (!testOnly)
-            _frameReady = false;
-        var result = _chain->Present(testOnly ? 0u : 1u, testOnly ? PresentTest : 0u);
+        if (testOnly)
+            return ClassifyPresent(_chain->Present(0, PresentTest));
+
+        _frameReady = false;
+        // DXGI queues presentation on the same command queue after the draw fence.
+        // Buffer release and resize must also wait for that queue work to retire.
+        var retirement = _gpu.BeginQueueWork();
+        var result = _chain->Present(1, 0);
+        var signal = _gpu.SignalQueueWork(retirement);
+        var outcome = ClassifyPresent(result);
+        GpuNative.Check(signal, "Signal presentation queue");
+        return outcome;
+    }
+
+    private static PresentResult ClassifyPresent(HRESULT result)
+    {
         return result.Value switch
         {
             0 => PresentResult.Presented,

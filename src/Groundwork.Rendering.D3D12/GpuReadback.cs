@@ -10,6 +10,19 @@ internal sealed unsafe partial class GpuDevice
     internal static OffscreenFrame RenderOffscreen(int width, int height, in RenderFrame frame, RenderScene? subsequent = null)
     {
         var gpu = new GpuDevice(warp: true);
+        try
+        {
+            return RenderOffscreen(gpu, width, height, frame, subsequent);
+        }
+        finally
+        {
+            if (gpu.IsIdle || gpu.IsRemoved)
+                gpu.Dispose();
+        }
+    }
+
+    internal static OffscreenFrame RenderOffscreen(GpuDevice gpu, int width, int height, in RenderFrame frame, RenderScene? subsequent = null)
+    {
         ID3D12Resource* color = null;
         GpuTarget? target = null;
         Readback? readback = null;
@@ -22,15 +35,15 @@ internal sealed unsafe partial class GpuDevice
             color = null;
             readback = new Readback(gpu._device, target.Buffer, gpu._depth);
             if (!gpu.TryRender(target, frame, subsequent, readback))
-                throw new InvalidOperationException("The initial WARP allocator was unavailable.");
+                throw new InvalidOperationException("The initial GPU allocator was unavailable.");
 
             long started = Stopwatch.GetTimestamp();
             while (!gpu.IsIdle)
             {
                 if (gpu.IsRemoved)
-                    throw new GpuNativeException("Read WARP frame after device removal", gpu.RemovedReason);
+                    throw new GpuNativeException("Read GPU frame after device removal", gpu.RemovedReason);
                 if (Stopwatch.GetElapsedTime(started) >= TimeSpan.FromSeconds(10))
-                    throw new TimeoutException("WARP readback did not retire.");
+                    throw new TimeoutException("GPU readback did not retire.");
                 Thread.Sleep(1);
             }
 
@@ -44,7 +57,6 @@ internal sealed unsafe partial class GpuDevice
                 readback?.Dispose();
                 target?.Dispose();
                 Release(color);
-                gpu.Dispose();
             }
         }
     }

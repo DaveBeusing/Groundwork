@@ -20,15 +20,40 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private ID3D12DescriptorHeap* _depthHeap;
     private int _depthWidth;
     private int _depthHeight;
+    private int _nextFrame;
     private GpuRetirement _retirement;
 
-    internal GpuDevice(bool warp)
+    internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false)
     {
         try
         {
             fixed (IDXGIFactory4** factory = &_factory)
                 Check(CreateFactory(0, __uuidof<IDXGIFactory4>(), (void**)factory), "CreateDXGIFactory2");
-            _device = OpenDevice(warp);
+            lock (DiagnosticStartup)
+            {
+                // Reserve an in-flight open before releasing the lock. An existing
+                // device for the same adapter can be returned by D3D12CreateDevice.
+                if (Volatile.Read(ref _activeDevices) == 0)
+                {
+                    if (!Volatile.Read(ref _openedDevice))
+                        _debugLayerEnabled |= enableDebugLayer && !_debugLayerEnabled && TryEnableDebugLayer();
+                    _dredEnabled |= enableDred && !_dredEnabled && TryEnableDred();
+                }
+                DebugLayerEnabled = enableDebugLayer && _debugLayerEnabled;
+                DredEnabled = enableDred && _dredEnabled;
+                Interlocked.Increment(ref _activeDevices);
+            }
+            try
+            {
+                _device = OpenDevice(warp);
+            }
+            catch
+            {
+                Interlocked.Decrement(ref _activeDevices);
+                throw;
+            }
+            if (DebugLayerEnabled)
+                ConfigureDebugQueue();
             var queueDescription = new D3D12_COMMAND_QUEUE_DESC();
             fixed (ID3D12CommandQueue** queue = &_queue)
                 Check(_device->CreateCommandQueue(&queueDescription, __uuidof<ID3D12CommandQueue>(), (void**)queue), "CreateCommandQueue");
@@ -83,7 +108,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         var completed = _fence->GetCompletedValue();
         if (completed == ulong.MaxValue)
             throw new GpuNativeException("Read GPU retirement fence after device removal", RemovedReason);
-        var context = _frames[(int)(_retirement.Submitted % (ulong)_frames.Length)];
+        var context = _frames[_nextFrame];
         if (!_retirement.CanReuse(completed, context.Retirement))
             return false;
         Check(context.Allocator->Reset(), "Reset allocator");
@@ -91,12 +116,22 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         Record(context.Commands, target, frame, subsequent, readback);
         Check(context.Commands->Close(), "Close command list");
         var commands = (ID3D12CommandList*)context.Commands;
-        var next = _retirement.BeginSubmission();
+        var next = BeginQueueWork();
         _queue->ExecuteCommandLists(1, &commands);
-        Check(_queue->Signal(_fence, next), "Signal queue");
-        _retirement.CompleteSignal(next);
+        Check(SignalQueueWork(next), "Signal queue");
         context.Retirement = next;
+        _nextFrame = (_nextFrame + 1) % _frames.Length;
         return true;
+    }
+
+    internal ulong BeginQueueWork() => _retirement.BeginSubmission();
+
+    internal HRESULT SignalQueueWork(ulong value)
+    {
+        var result = _queue->Signal(_fence, value);
+        if (result.Value >= 0)
+            _retirement.CompleteSignal(value);
+        return result;
     }
 
     public void Dispose()
@@ -114,7 +149,9 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             Check(_factory->EnumWarpAdapter(__uuidof<IDXGIAdapter1>(), (void**)&adapter), "EnumWarpAdapter");
             try
             {
-                var device = TryOpenDevice(adapter);
+                DXGI_ADAPTER_DESC1 description;
+                Check(adapter->GetDesc1(&description), "GetDesc1");
+                var device = TryOpenDevice(adapter, description);
                 return device != null ? device : throw new PlatformNotSupportedException("WARP lacks feature level 11_0 or shader model 6.0.");
             }
             finally
@@ -136,7 +173,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 Check(adapter->GetDesc1(&description), "GetDesc1");
                 if ((description.Flags & (uint)DXGI_ADAPTER_FLAG.DXGI_ADAPTER_FLAG_SOFTWARE) == 0)
                 {
-                    var device = TryOpenDevice(adapter);
+                    var device = TryOpenDevice(adapter, description);
                     if (device != null)
                         return device;
                 }
@@ -150,19 +187,30 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         throw new PlatformNotSupportedException("No hardware adapter supports D3D12 feature level 11_0 and shader model 6.0.");
     }
 
-    private static ID3D12Device* TryOpenDevice(IDXGIAdapter1* adapter)
+    private ID3D12Device* TryOpenDevice(IDXGIAdapter1* adapter, DXGI_ADAPTER_DESC1 description)
     {
         ID3D12Device* device = null;
         if (CreateDevice((IUnknown*)adapter, D3D_FEATURE_LEVEL.D3D_FEATURE_LEVEL_11_0, __uuidof<ID3D12Device>(), (void**)&device) < 0)
             return null;
 
+        Volatile.Write(ref _openedDevice, true);
         var shader = new D3D12_FEATURE_DATA_SHADER_MODEL { HighestShaderModel = D3D_SHADER_MODEL.D3D_SHADER_MODEL_6_0 };
-        if (device->CheckFeatureSupport(D3D12_FEATURE.D3D12_FEATURE_SHADER_MODEL, &shader, (uint)sizeof(D3D12_FEATURE_DATA_SHADER_MODEL)).Value >= 0 &&
-            shader.HighestShaderModel >= D3D_SHADER_MODEL.D3D_SHADER_MODEL_6_0)
-            return device;
+        try
+        {
+            if (device->CheckFeatureSupport(D3D12_FEATURE.D3D12_FEATURE_SHADER_MODEL, &shader,
+                (uint)sizeof(D3D12_FEATURE_DATA_SHADER_MODEL)).Value < 0 ||
+                shader.HighestShaderModel < D3D_SHADER_MODEL.D3D_SHADER_MODEL_6_0)
+                return null;
 
-        Release(device);
-        return null;
+            Adapter = DescribeAdapter(adapter, description);
+            var selected = device;
+            device = null;
+            return selected;
+        }
+        finally
+        {
+            Release(device);
+        }
     }
 
     private void ReleaseResources()
@@ -176,16 +224,27 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         Release(_root);
         Release(_fence);
         Release(_queue);
-        Release(_device);
-        Release(_factory);
         _depth = _vertices = null;
         _depthHeap = null;
         _pipeline = null;
         _root = null;
         _fence = null;
         _queue = null;
-        _device = null;
-        _factory = null;
+        try
+        {
+            FinishDebugReport();
+        }
+        finally
+        {
+            if (_device != null)
+            {
+                Release(_device);
+                Interlocked.Decrement(ref _activeDevices);
+            }
+            Release(_factory);
+            _device = null;
+            _factory = null;
+        }
     }
 
     private sealed class Frame : IDisposable
