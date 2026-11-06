@@ -40,6 +40,27 @@ public interface IFaultReporter
     FaultReportStatus TryReport(scoped in FaultObservation observation);
 }
 
+/// <summary>A bounded structured diagnostic record. Operational exceptions stay on their original path.</summary>
+public readonly record struct DiagnosticEvent(
+    FaultClass Classification, FaultSeverity Severity, FaultSubsystem Subsystem, FaultOrigin Origin,
+    uint Code, long Timestamp, FaultContext Context)
+{
+    internal DiagnosticEvent(scoped in FaultObservation observation)
+        : this(observation.Classification, observation.Severity, observation.Subsystem, observation.Origin,
+            observation.Code, observation.Timestamp, observation.Context) { }
+}
+
+public readonly record struct DiagnosticEmergencySnapshot(
+    DiagnosticEvent? Primary, DiagnosticEvent? Cleanup, DiagnosticEvent? Sink);
+
+/// <summary>Host-only drain and independent emergency observation for one runtime or world.</summary>
+public interface IDiagnosticReader
+{
+    bool TryRead(out DiagnosticEvent observation);
+    DiagnosticEmergencySnapshot ReadEmergency();
+    void RecordSinkFailure(uint code, long timestamp);
+}
+
 public sealed record OperationalFailure(
     FaultClass Classification, FaultSubsystem Subsystem, FaultContext Context,
     ExceptionDispatchInfo Exception);

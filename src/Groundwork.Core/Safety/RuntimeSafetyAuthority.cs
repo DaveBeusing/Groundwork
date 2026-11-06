@@ -77,7 +77,7 @@ public sealed class RuntimeSafetyAuthority
 
     private RuntimeSafetyAuthority(
         DeadlineClock clock, long shutdown, long borrowedDrain, long supervisorResponse,
-        ProcessRuntimeReservation reservation)
+        ProcessRuntimeReservation reservation, int runtimeDiagnosticRecords, long runtimeDiagnosticBytes)
     {
         Clock = clock;
         ShutdownDuration = shutdown;
@@ -89,15 +89,22 @@ public sealed class RuntimeSafetyAuthority
         {
             Diagnostics = diagnosticQuota with
             {
+                NormalRecords = diagnosticQuota.NormalRecords - runtimeDiagnosticRecords,
+                NormalBytes = diagnosticQuota.NormalBytes - runtimeDiagnosticBytes,
                 EmergencyRecords = diagnosticQuota.EmergencyRecords - FaultLedger.EmergencySummaryCount,
                 EmergencyBytes = diagnosticQuota.EmergencyBytes -
                     (long)FaultLedger.EmergencySummaryCount * diagnosticQuota.MaxPayloadBytesPerRecord
             }
         });
         _ownership = new OwnershipScope(this, null, reservation.Quota.OutstandingOperations);
-        _ledger = new FaultLedger(this, null, reservation.Quota.Diagnostics, StopFromFault);
+        _ledger = new FaultLedger(this, null, diagnosticQuota with
+        {
+            NormalRecords = runtimeDiagnosticRecords,
+            NormalBytes = runtimeDiagnosticBytes,
+        }, StopFromFault);
         Reporter = new FaultReporterPort(_ledger);
         State = new SafetyStatePort(_ledger);
+        Diagnostics = new DiagnosticReaderPort(_ledger);
         StopControl = new StopPort(this);
         UiWake = new RuntimeWakeSignal();
         try
@@ -113,9 +120,19 @@ public sealed class RuntimeSafetyAuthority
 
     public static RuntimeSafetyAuthority Create(
         TimeProvider clock, RuntimeTimingLimits timing, ProcessRuntimeReservation reservation)
+        => Create(clock, timing, reservation, 0);
+
+    /// <summary>Sets aside part of the runtime's normal diagnostic quota for host events.</summary>
+    public static RuntimeSafetyAuthority Create(
+        TimeProvider clock, RuntimeTimingLimits timing, ProcessRuntimeReservation reservation, int runtimeDiagnosticRecords)
     {
         ArgumentNullException.ThrowIfNull(clock);
         ArgumentNullException.ThrowIfNull(reservation);
+        ArgumentOutOfRangeException.ThrowIfNegative(runtimeDiagnosticRecords);
+        var quota = reservation.Quota.Diagnostics;
+        var runtimeDiagnosticBytes = (long)runtimeDiagnosticRecords * quota.MaxPayloadBytesPerRecord;
+        if (runtimeDiagnosticRecords > quota.NormalRecords || runtimeDiagnosticBytes > quota.NormalBytes)
+            throw new ArgumentOutOfRangeException(nameof(runtimeDiagnosticRecords));
         var domain = new DeadlineClock(clock);
         var shutdown = domain.GetDuration(timing.Shutdown);
         var borrowedDrain = domain.GetDuration(timing.BorrowedDrain);
@@ -127,7 +144,8 @@ public sealed class RuntimeSafetyAuthority
 
         try
         {
-            return new RuntimeSafetyAuthority(domain, shutdown, borrowedDrain, supervisor, reservation);
+            return new RuntimeSafetyAuthority(domain, shutdown, borrowedDrain, supervisor, reservation,
+                runtimeDiagnosticRecords, runtimeDiagnosticBytes);
         }
         catch
         {
@@ -139,6 +157,7 @@ public sealed class RuntimeSafetyAuthority
     public IRuntimeStopControl StopControl { get; }
     public IFaultReporter Reporter { get; }
     public IRuntimeSafetyState State { get; }
+    public IDiagnosticReader Diagnostics { get; }
     public RuntimeWakeSignal UiWake { get; }
     public RuntimeWakeSignal SimulationWake { get; }
     public IRuntimeOwnership RuntimeOwnership => _ownership;

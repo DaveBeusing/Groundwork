@@ -42,6 +42,20 @@ public interface IFaultReporter
     FaultReportStatus TryReport(scoped in FaultObservation observation);
 }
 
+public readonly record struct DiagnosticEvent(
+    FaultClass Classification, FaultSeverity Severity, FaultSubsystem Subsystem, FaultOrigin Origin,
+    uint Code, long Timestamp, FaultContext Context);
+
+public readonly record struct DiagnosticEmergencySnapshot(
+    DiagnosticEvent? Primary, DiagnosticEvent? Cleanup, DiagnosticEvent? Sink);
+
+public interface IDiagnosticReader
+{
+    bool TryRead(out DiagnosticEvent observation);
+    DiagnosticEmergencySnapshot ReadEmergency();
+    void RecordSinkFailure(uint code, long timestamp);
+}
+
 public sealed record OperationalFailure(
     FaultClass Classification, FaultSubsystem Subsystem, FaultContext Context,
     ExceptionDispatchInfo Exception);
@@ -59,6 +73,8 @@ public sealed class IncompleteCleanupException : Exception
 The reporting capability determines the admissible world. A world-scoped observation must agree with that world, including its job, source and targets. When a source and its originating tick or phase are both present, they must agree. A runtime-scoped reporter handles host and startup errors. The monotonic timestamp aids diagnostics. The authority uses registration order for publication decisions. Severity, timestamps, correlation and user-visible fault fields confer no authority. Producers supply bounded redacted text. Ingress copies at most the configured span prefixes into reserved storage and never retains caller memory. An unknown classification or malformed required scope or target latches `EvidenceLost`. For optional details, overflow increments delivery loss. `Coalesced` means an event received no new individual record. The snapshot counters distinguish repeating, coalesced and lost delivery.
 
 `OperationalFailure` remains on the owning operation's result or exception path and preserves the original stack through `ExceptionDispatchInfo`. `RuntimeFailure` keeps cleanup entries separate and in observation order. Construction rejects a default cleanup array. Cleanup storage is charged to the operation until handed to its caller. L5 retains only bounded copied fault summaries. The typed incomplete-cleanup exception signals that ownership transferred to custody. It exposes no retained resource.
+
+The host diagnostic reader drains numeric summaries from a bounded FIFO and observes first emergency summaries without consuming them. The sink receives structured values without free text or exception objects. The required evidence reader remains the source of target details for recovery. An optional delivery loss never clears or substitutes for required evidence. Record sink failure through the host reader after disabling the failed sink. That path writes directly to reserved emergency storage and calls no sink.
 
 ## Safety state and authority
 
@@ -152,9 +168,13 @@ public sealed class RuntimeSafetyAuthority
     public static RuntimeSafetyAuthority Create(
         TimeProvider clock, RuntimeTimingLimits timing, ProcessRuntimeReservation reservation)
         => throw new NotSupportedException();
+    public static RuntimeSafetyAuthority Create(
+        TimeProvider clock, RuntimeTimingLimits timing, ProcessRuntimeReservation reservation, int runtimeDiagnosticRecords)
+        => throw new NotSupportedException();
     public IRuntimeStopControl StopControl => throw new NotSupportedException();
     public IFaultReporter Reporter => throw new NotSupportedException();
     public IRuntimeSafetyState State => throw new NotSupportedException();
+    public IDiagnosticReader Diagnostics => throw new NotSupportedException();
     public RuntimeWakeSignal UiWake => throw new NotSupportedException();
     public RuntimeWakeSignal SimulationWake => throw new NotSupportedException();
     public IRuntimeOwnership RuntimeOwnership => throw new NotSupportedException();
@@ -173,6 +193,7 @@ public sealed class WorldSafetyPorts
     internal WorldSafetyPorts() { }
     public IFaultReporter Reporter => throw new NotSupportedException();
     public IRuntimeSafetyState State => throw new NotSupportedException();
+    public IDiagnosticReader Diagnostics => throw new NotSupportedException();
     public IFaultEvidenceReader Evidence => throw new NotSupportedException();
     public IWorldCoherenceIssuer Writer => throw new NotSupportedException();
     public IBarrierReviewControl Coordinator => throw new NotSupportedException();
@@ -274,6 +295,8 @@ Deadlines are Core-issued values tied to the injected clock by identity. A defau
 The coordinator requests a Core-issued borrowed drain deadline through `CreateBorrowedDrainDeadline` and passes it to the borrow barrier port. The deadline uses the configured borrowed-drain budget and the authority's clock domain. Core uses the last trusted injected-clock sample at issuance, then checks trusted samples and the system watchdog while waiting and when the final pin releases. The drain does not invoke the injected clock or timer. An explicit sample through `IsExpired` or `GetRemaining` outside the drain can shorten the remaining budget.
 
 `GetRemainingForSettlement` validates the clock identity and returns the smaller of the remaining budget at the latest trusted sample and the remaining system-monotonic watchdog budget. It clamps negative results to zero and does not invoke the supplied clock or its timer. Use it when waiting for shutdown cleanup. Terminal stop issuance for a runtime or a world uses the last trusted sample for an injected clock.
+
+Supervisor issuance and decision checks also use trusted samples and the watchdog. The runtime diagnostic overload charges host normal records at the configured maximum payload per slot and subtracts the reservation before admitting world queues. The original overload reserves no host normal slots. Emergency storage is independent of the normal queues.
 
 Core orders world and runtime publication through one runtime gate. When a producer cannot acquire the gate for required fault evidence, it sets a monotonic evidence-loss fence without waiting. A world reporter fences its own world and wakes Simulation. A runtime reporter fences all its worlds and wakes the UI and Simulation. Optional telemetry contention uses delivery loss and leaves the publication fences unchanged.
 

@@ -106,12 +106,6 @@ internal sealed class DeadlineClock
         return (long)units;
     }
 
-    internal RuntimeDeadline Start(long duration)
-    {
-        var valid = TryRead(out var now);
-        return At(now, duration, valid);
-    }
-
     internal RuntimeDeadline StartFromTrustedSample(long duration)
     {
         var now = ReferenceEquals(Provider, TimeProvider.System) ? TimeProvider.System.GetTimestamp() : LastTimestamp;
