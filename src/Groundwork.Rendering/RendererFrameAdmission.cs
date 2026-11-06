@@ -4,12 +4,13 @@ namespace Groundwork.Rendering;
 /// Maintains one pending frame and coherent status for a renderer provider.
 /// The provider owns its render wake, the current frame and all device resources.
 /// </summary>
-public sealed class RendererFrameAdmission
+public sealed partial class RendererFrameAdmission
 {
     private readonly Lock _gate = new();
     private RendererSnapshot _status;
     private RenderFrame? _pending;
     private ulong _takenSequence;
+    private bool _takenFrameHasScene;
 
     public RendererSnapshot Read()
     {
@@ -33,6 +34,7 @@ public sealed class RendererFrameAdmission
         lock (_gate)
         {
             RequireLifecycle(RendererLifecycle.Initialized);
+            MeshReplacement?.MarkRunning();
             _status = _status with { Lifecycle = RendererLifecycle.Running };
         }
     }
@@ -83,6 +85,7 @@ public sealed class RendererFrameAdmission
                 frame = latest;
                 _pending = null;
                 _takenSequence = latest.Sequence;
+                _takenFrameHasScene = latest.Scene.HasValue;
                 return true;
             }
 
@@ -114,18 +117,29 @@ public sealed class RendererFrameAdmission
     }
 
     /// <summary>Records a successful normal present of the render owner's current frame.</summary>
+    /// <remarks>For an opted-in mesh scene, use MeshReplacement.RecordPresented instead.</remarks>
     public void RecordPresented(ulong sequence)
     {
         lock (_gate)
         {
-            if (sequence == 0 || sequence != _takenSequence ||
-                _status.Lifecycle is not (RendererLifecycle.Running or RendererLifecycle.Stopping))
+            if (MeshReplacement is not null && _takenFrameHasScene)
             {
-                throw new InvalidOperationException("Only the current frame may be recorded as presented.");
+                throw new InvalidOperationException("A mesh scene present must include its geometry generation.");
             }
 
-            _status = _status with { LastPresentedSequence = sequence };
+            RecordPresentedCore(sequence);
         }
+    }
+
+    private void RecordPresentedCore(ulong sequence)
+    {
+        if (sequence == 0 || sequence != _takenSequence ||
+            _status.Lifecycle is not (RendererLifecycle.Running or RendererLifecycle.Stopping))
+        {
+            throw new InvalidOperationException("Only the current frame may be recorded as presented.");
+        }
+
+        _status = _status with { LastPresentedSequence = sequence };
     }
 
     public void RecordSkipped()
@@ -177,6 +191,7 @@ public sealed class RendererFrameAdmission
             }
 
             RequireLifecycle(RendererLifecycle.Stopping);
+            MeshReplacement?.MarkStopped();
             _status = _status with { Lifecycle = RendererLifecycle.Stopped, AppliedWidth = 0, AppliedHeight = 0 };
         }
     }
@@ -187,6 +202,7 @@ public sealed class RendererFrameAdmission
         {
             _status = _status with { Lifecycle = RendererLifecycle.Stopping, Surface = RenderSurfaceState.Unavailable };
             _pending = null;
+            MeshReplacement?.Close();
         }
     }
 
