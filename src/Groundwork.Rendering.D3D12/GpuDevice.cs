@@ -25,8 +25,11 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private readonly GpuRetirementTestHooks? _retirementHooks;
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
-        GpuRetirementTestHooks? retirementHooks = null)
+        GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null)
     {
+        if (meshes is not null && region is not null)
+            throw new ArgumentException("Only one initial mesh set may be supplied.", nameof(region));
+
         _retirementHooks = retirementHooks;
         try
         {
@@ -63,10 +66,12 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             fixed (ID3D12Fence** fence = &_fence)
                 Check(_device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, __uuidof<ID3D12Fence>(), (void**)fence), "CreateFence");
             CreatePipeline();
-            if (meshes is null)
-                CreateCubeGeometry();
-            else
+            if (region is not null)
+                ActiveMeshGeometry = PrepareMeshGeometry(region);
+            else if (meshes is not null)
                 ActiveMeshGeometry = PrepareMeshGeometry(meshes);
+            else
+                CreateCubeGeometry();
             foreach (var frame in _frames)
                 frame.Initialize(_device);
         }

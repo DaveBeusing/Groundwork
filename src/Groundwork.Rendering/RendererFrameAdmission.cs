@@ -35,6 +35,7 @@ public sealed partial class RendererFrameAdmission
         {
             RequireLifecycle(RendererLifecycle.Initialized);
             MeshReplacement?.MarkRunning();
+            MeshRegionReplacement?.MarkRunning();
             _status = _status with { Lifecycle = RendererLifecycle.Running };
         }
     }
@@ -117,12 +118,12 @@ public sealed partial class RendererFrameAdmission
     }
 
     /// <summary>Records a successful normal present of the render owner's current frame.</summary>
-    /// <remarks>For an opted-in mesh scene, use MeshReplacement.RecordPresented instead.</remarks>
+    /// <remarks>For an opted-in mesh scene, use the applicable geometry mailbox to record the present.</remarks>
     public void RecordPresented(ulong sequence)
     {
         lock (_gate)
         {
-            if (MeshReplacement is not null && _takenFrameHasScene)
+            if ((MeshReplacement is not null || MeshRegionReplacement is not null) && _takenFrameHasScene)
             {
                 throw new InvalidOperationException("A mesh scene present must include its geometry generation.");
             }
@@ -192,6 +193,7 @@ public sealed partial class RendererFrameAdmission
 
             RequireLifecycle(RendererLifecycle.Stopping);
             MeshReplacement?.MarkStopped();
+            MeshRegionReplacement?.MarkStopped();
             _status = _status with { Lifecycle = RendererLifecycle.Stopped, AppliedWidth = 0, AppliedHeight = 0 };
         }
     }
@@ -203,6 +205,7 @@ public sealed partial class RendererFrameAdmission
             _status = _status with { Lifecycle = RendererLifecycle.Stopping, Surface = RenderSurfaceState.Unavailable };
             _pending = null;
             MeshReplacement?.Close();
+            MeshRegionReplacement?.Close();
         }
     }
 

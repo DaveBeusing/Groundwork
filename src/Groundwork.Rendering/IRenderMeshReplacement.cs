@@ -10,7 +10,8 @@ public enum MeshReplacementSubmissionResult
     UndeclaredGeneration,
     DuplicateGeneration,
     NotRunning,
-    Closed
+    Closed,
+    InvalidRegion
 }
 
 /// <summary>One coherent observation of the mesh replacement lifecycle.</summary>
@@ -27,6 +28,19 @@ public interface IRenderMeshReplacement
 
     /// <summary>Queues the immutable pair for the current desired generation without waiting for the GPU.</summary>
     MeshReplacementSubmissionResult TrySubmitMeshPair(ulong generation, RenderMeshPair? pair);
+
+    /// <summary>Reads desired, installed and last successfully presented mesh generations.</summary>
+    MeshReplacementSnapshot ReadMeshReplacement();
+}
+
+/// <summary>An optional capability for renderers that replace a complete mesh region.</summary>
+public interface IRenderMeshRegionReplacement
+{
+    /// <summary>Advances desired intent before its mesh build completes.</summary>
+    MeshReplacementSubmissionResult TryDeclareMeshGeneration(ulong generation);
+
+    /// <summary>Queues the immutable region for the current desired generation without waiting for the GPU.</summary>
+    MeshReplacementSubmissionResult TrySubmitMeshRegion(ulong generation, RenderMeshRegion? region);
 
     /// <summary>Reads desired, installed and last successfully presented mesh generations.</summary>
     MeshReplacementSnapshot ReadMeshReplacement();

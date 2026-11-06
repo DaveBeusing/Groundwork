@@ -6,37 +6,59 @@ namespace Groundwork.Rendering.D3D12;
 
 internal sealed unsafe partial class GpuDevice
 {
+    internal const long MaximumNativeMeshBytes = 64L * 1024 * 1024;
     // The render owner exclusively mutates both handles. Tests can observe the count during custody.
     internal MeshGeometry? ActiveMeshGeometry;
     private int _liveMeshBuffers;
+    private long _liveMeshBytes;
 
     internal int LiveMeshBuffers => Volatile.Read(ref _liveMeshBuffers);
+    internal long LiveMeshBytes => Volatile.Read(ref _liveMeshBytes);
 
-    internal MeshGeometry PrepareMeshGeometry(RenderMeshPair meshes)
+    internal MeshGeometry PrepareMeshGeometry(RenderMeshPair meshes) =>
+        PrepareMeshGeometry([meshes.First, meshes.Second]);
+
+    internal MeshGeometry PrepareMeshGeometry(RenderMeshRegion region) =>
+        PrepareMeshGeometry(region.Instances);
+
+    private MeshGeometry PrepareMeshGeometry(ReadOnlySpan<RenderMeshInstance> meshes)
     {
-        var bytes = checked(MeshBytes(meshes.First.Mesh) + MeshBytes(meshes.Second.Mesh));
+        var bytes = 0;
+        foreach (ref readonly var instance in meshes)
+            bytes = checked(bytes + MeshBytes(instance.Mesh));
+
         if (bytes == 0)
-            return new MeshGeometry(this, null, meshes);
+            return new MeshGeometry(this, null, 0, meshes);
         if (LiveMeshBuffers >= 2)
             throw new InvalidOperationException("The active and private mesh buffers already occupy both geometry slots.");
 
+        // Meshes draw directly from this upload resource. There is no separate staging buffer.
+        // Query the native allocation, which includes the device's buffer alignment.
+        var description = Buffer((ulong)bytes);
+        var allocation = _device->GetResourceAllocationInfo(1, 1, &description);
+        if (allocation.SizeInBytes < (ulong)bytes || allocation.SizeInBytes > (ulong)(MaximumNativeMeshBytes - LiveMeshBytes))
+            throw new InvalidOperationException("The prepared mesh exceeds the native geometry budget.");
+
+        var allocationBytes = (long)allocation.SizeInBytes;
         var resource = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
-            Buffer((ulong)bytes), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+            description, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        Interlocked.Add(ref _liveMeshBytes, allocationBytes);
         Interlocked.Increment(ref _liveMeshBuffers);
         try
         {
-            return new MeshGeometry(this, resource, meshes);
+            return new MeshGeometry(this, resource, allocationBytes, meshes);
         }
         catch
         {
-            ReleaseMeshBuffer(resource);
+            ReleaseMeshBuffer(resource, allocationBytes);
             throw;
         }
     }
 
-    private void ReleaseMeshBuffer(ID3D12Resource* resource)
+    private void ReleaseMeshBuffer(ID3D12Resource* resource, long allocationBytes)
     {
         Release(resource);
+        Interlocked.Add(ref _liveMeshBytes, -allocationBytes);
         Interlocked.Decrement(ref _liveMeshBuffers);
     }
 
@@ -56,7 +78,7 @@ internal sealed unsafe partial class GpuDevice
         var vertices = new Span<Vector3>(mapped + offset, positions.Length);
         for (var index = 0; index < vertices.Length; index++)
         {
-            // Put both meshes in the same scene space before projection. Coincident
+            // Put all meshes in the same scene space before projection. Coincident
             // seam vertices then pass through identical floating-point transforms.
             var position = positions[index] + instance.Translation;
             if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
@@ -97,17 +119,22 @@ internal sealed unsafe partial class GpuDevice
     internal sealed class MeshGeometry : IDisposable
     {
         private readonly GpuDevice _owner;
-        private readonly PackedMesh _first;
-        private readonly PackedMesh _second;
+        private readonly PackedMesh[] _packed;
+        private readonly long _allocationBytes;
         private ID3D12Resource* _resource;
 
-        internal MeshGeometry(GpuDevice owner, ID3D12Resource* resource, RenderMeshPair meshes)
+        internal MeshGeometry(GpuDevice owner, ID3D12Resource* resource, long allocationBytes, ReadOnlySpan<RenderMeshInstance> meshes)
         {
             _owner = owner;
             _resource = resource;
+            _allocationBytes = allocationBytes;
             if (resource == null)
+            {
+                _packed = [];
                 return;
+            }
 
+            _packed = new PackedMesh[meshes.Length];
             var unread = new D3D12_RANGE();
             void* mapped = null;
             Check(resource->Map(0, &unread, &mapped), "Map mesh geometry");
@@ -115,8 +142,8 @@ internal sealed unsafe partial class GpuDevice
             {
                 var address = resource->GetGPUVirtualAddress();
                 var offset = 0;
-                _first = PackMesh(meshes.First, (byte*)mapped, address, ref offset);
-                _second = PackMesh(meshes.Second, (byte*)mapped, address, ref offset);
+                for (var index = 0; index < meshes.Length; index++)
+                    _packed[index] = PackMesh(meshes[index], (byte*)mapped, address, ref offset);
             }
             finally
             {
@@ -126,8 +153,8 @@ internal sealed unsafe partial class GpuDevice
 
         internal void Draw(ID3D12GraphicsCommandList* commands)
         {
-            DrawMesh(commands, _first);
-            DrawMesh(commands, _second);
+            foreach (ref readonly var mesh in _packed.AsSpan())
+                DrawMesh(commands, mesh);
         }
 
         public void Dispose()
@@ -137,7 +164,7 @@ internal sealed unsafe partial class GpuDevice
                 return;
 
             _resource = null;
-            _owner.ReleaseMeshBuffer(resource);
+            _owner.ReleaseMeshBuffer(resource, _allocationBytes);
         }
     }
 }

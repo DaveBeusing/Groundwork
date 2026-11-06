@@ -20,6 +20,14 @@ generations from the same port. Accepted submission queues the pair. The
 render owner installs it only after prior draw and presentation work retires.
 See the [WP04 contract](../../docs/architecture/wp04-mesh-replacement-contract.md).
 
+Use `D3D12Renderer.CreateWithMeshRegionReplacement` to opt in to WP05 with
+a complete `RenderMeshRegion` of one to nine instances. Declare a generation
+on `MeshRegionReplacement`, then submit the full ordered region. A successful
+installation replaces every previous instance, including any omitted from the
+new region. Use the last presented generation to track what reached the
+window. The same admission fence and GPU retirement rules apply.
+See the [WP05 contract](../../docs/architecture/wp05-walkable-region-contract.md).
+
 The provider builds its cube shaders from the pinned and verified DXC tool.
 The resulting package contains the embedded DXIL, the shader build provenance
 and the TerraFX notice. Build and test with x64 PowerShell 7 and the repository's
