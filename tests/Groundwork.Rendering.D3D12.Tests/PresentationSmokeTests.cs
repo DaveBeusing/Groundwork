@@ -18,7 +18,7 @@ public sealed partial class PresentationSmokeTests
 
     [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
-    [TestCategory("D3D12WarpDiagnostics")]
+    [TestCategory("D3D12WarpDebugLayer")]
     public void WarpReadbackWithOptionalDebugLayerReportsCleanTeardown() => VerifyDiagnosticReadback(useWarp: true);
 
     private static void VerifyDiagnosticReadback(bool useWarp)

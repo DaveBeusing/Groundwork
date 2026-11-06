@@ -82,7 +82,7 @@ public sealed unsafe class DredTests
 
     [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
-    [TestCategory("D3D12WarpDiagnostics")]
+    [TestCategory("D3D12WarpDred")]
     public void RemovedWarpDeviceReturnsBoundedDredEvidence()
     {
         using var gpu = new GpuDevice(warp: true, enableDred: true);
