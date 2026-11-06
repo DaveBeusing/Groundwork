@@ -51,9 +51,14 @@ public readonly record struct DiagnosticEmergencySnapshot(
 
 public interface IDiagnosticReader
 {
-    bool TryRead(out DiagnosticEvent observation);
+    bool TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease);
     DiagnosticEmergencySnapshot ReadEmergency();
     void RecordSinkFailure(uint code, long timestamp);
+}
+
+public readonly struct DiagnosticReadLease : IDisposable
+{
+    public void Dispose() => throw new NotSupportedException();
 }
 
 public sealed record OperationalFailure(
@@ -74,7 +79,7 @@ The reporting capability determines the admissible world. A world-scoped observa
 
 `OperationalFailure` remains on the owning operation's result or exception path and preserves the original stack through `ExceptionDispatchInfo`. `RuntimeFailure` keeps cleanup entries separate and in observation order. Construction rejects a default cleanup array. Cleanup storage is charged to the operation until handed to its caller. L5 retains only bounded copied fault summaries. The typed incomplete-cleanup exception signals that ownership transferred to custody. It exposes no retained resource.
 
-The host diagnostic reader drains numeric summaries from a bounded FIFO and observes first emergency summaries without consuming them. The sink receives structured values without free text or exception objects. The required evidence reader remains the source of target details for recovery. An optional delivery loss never clears or substitutes for required evidence. Record sink failure through the host reader after disabling the failed sink. That path writes directly to reserved emergency storage and calls no sink.
+The host diagnostic reader acquires numeric summaries from a bounded FIFO and observes first emergency summaries without consuming them. The normal record stays charged until the host disposes its `DiagnosticReadLease`. The sink receives structured values without free text or exception objects. The required evidence reader remains the source of target details for recovery and supports generation-checked indexed reads without a second backing buffer. Optional delivery uses independent synchronization and never clears or substitutes for required evidence. Record sink failure through the host reader after disabling the failed sink. That path writes directly to reserved emergency storage and calls no sink.
 
 ## Safety state and authority
 
@@ -109,6 +114,13 @@ public interface IFaultEvidenceReader
 {
     FaultEvidenceReadStatus CopyPending(
         ulong generation, Span<RequiredFaultEvidence> destination, out int count);
+    FaultEvidenceReadStatus ReadPending(
+        ulong generation, int index, out RequiredFaultEvidence record, out int count)
+    {
+        record = default;
+        count = 0;
+        return FaultEvidenceReadStatus.InsufficientCapacity;
+    }
 }
 
 public enum SupervisorAction : byte { StopWorld, PauseForRecovery, ContinueAtSafeBarrier }

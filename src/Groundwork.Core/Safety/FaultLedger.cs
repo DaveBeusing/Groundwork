@@ -5,28 +5,23 @@ namespace Groundwork.Core;
 internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultEvidenceReader, IDiagnosticReader
 {
     internal const int EmergencySummaryCount = 3;
-    internal static int MinimumSummaryPayload => Unsafe.SizeOf<DiagnosticEvent?>();
+    internal static int MinimumSummaryPayload => Unsafe.SizeOf<EmergencySlot>();
     private readonly RuntimeSafetyAuthority _runtime;
     private readonly WorldId? _world;
     private readonly Action _stop;
     private RequiredFaultEvidence[] _required;
-    private DiagnosticEvent[] _normal;
-    private DiagnosticEvent?[] _emergency = new DiagnosticEvent?[EmergencySummaryCount];
-    private char[] _normalText;
-    private char[] _emergencyText;
+    private NormalDelivery? _normal;
+    private EmergencyDelivery? _emergency;
     private readonly int _maxTargets;
     private readonly int _textCapacity;
     private readonly AtomicCounter _repeat = new();
     private readonly AtomicCounter _coalesced = new();
     private readonly AtomicCounter _deliveryLoss = new();
     private readonly AtomicCounter _evidenceLoss = new();
-    private int _normalCount;
-    private int _normalHead;
-    private int _normalTail;
     private int _requiredCount;
     private ulong _generation;
     private bool _criticalPending;
-    private bool _storageReleased;
+    private volatile bool _storageReleased;
     private SafetyCondition _conditions;
     private int _contendedEvidenceLoss;
     private long _contendedStopTimestamp = long.MaxValue;
@@ -44,9 +39,8 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         _textCapacity = Math.Min(quota.MaxTextCharsPerRecord, Math.Max(0, (quota.MaxPayloadBytesPerRecord - metadataBytes) / sizeof(char)));
         var slotBytes = metadataBytes + (long)_textCapacity * sizeof(char);
         var normalSlots = (int)Math.Min(quota.NormalRecords, quota.NormalBytes / slotBytes);
-        _normal = new DiagnosticEvent[normalSlots];
-        _normalText = new char[checked(normalSlots * _textCapacity)];
-        _emergencyText = new char[checked(_emergency.Length * _textCapacity)];
+        _normal = normalSlots == 0 ? null : new NormalDelivery(normalSlots, _textCapacity);
+        _emergency = new EmergencyDelivery(_textCapacity);
         _required = world.HasValue ? new RequiredFaultEvidence[quota.RequiredEvidenceRecords] : [];
     }
 
@@ -64,15 +58,11 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
 
     public FaultReportStatus TryReport(scoped in FaultObservation observation)
     {
+        if (observation.Classification == FaultClass.DiagnosticOnly)
+            return RecordDiagnostic(observation);
+
         if (!Monitor.TryEnter(_runtime.Gate))
         {
-            if (observation.Classification == FaultClass.DiagnosticOnly)
-            {
-                _deliveryLoss.Increment();
-                _coalesced.Increment();
-                return FaultReportStatus.Coalesced;
-            }
-
             if (_world.HasValue)
             {
                 Interlocked.CompareExchange(ref _contendedStopTimestamp, _runtime.Clock.LastTimestamp, long.MaxValue);
@@ -100,24 +90,11 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
 
     internal FaultReportStatus Record(scoped in FaultObservation observation)
     {
+        if (observation.Classification == FaultClass.DiagnosticOnly)
+            return RecordDiagnostic(observation);
+
         var terminal = IsTerminal || HasContendedEvidenceLoss || _runtime.IsPublicationFenced;
         var valid = IsValidObservation(observation);
-        if (observation.Classification == FaultClass.DiagnosticOnly)
-        {
-            if (!valid || _storageReleased)
-            {
-                _deliveryLoss.Increment();
-                _coalesced.Increment();
-                return FaultReportStatus.Coalesced;
-            }
-
-            if (observation.Origin == FaultOrigin.Sink)
-            {
-                return RecordEmergency(new DiagnosticEvent(observation), observation.RedactedText);
-            }
-
-            return RecordOptional(observation);
-        }
 
         if (valid && observation.Classification == FaultClass.IncompleteCleanup)
         {
@@ -195,12 +172,9 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
     {
         _storageReleased = true;
         _required = [];
-        _normal = [];
-        _emergency = [];
-        _normalText = [];
-        _emergencyText = [];
+        Volatile.Write(ref _normal, null);
+        Volatile.Write(ref _emergency, null);
         _requiredCount = 0;
-        _normalCount = 0;
     }
 
     public RuntimeSafetySnapshot Read()
@@ -253,38 +227,73 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         }
     }
 
-    bool IDiagnosticReader.TryRead(out DiagnosticEvent observation)
+    public FaultEvidenceReadStatus ReadPending(ulong generation, int index, out RequiredFaultEvidence record, out int count)
     {
         lock (_runtime.Gate)
         {
-            if (_normalCount == 0)
-            {
-                observation = default;
-                return false;
-            }
+            record = default;
+            count = 0;
+            if (EvidenceLost || _runtime.HasContendedEvidenceLoss)
+                return FaultEvidenceReadStatus.EvidenceLost;
+            if (generation != _generation)
+                return FaultEvidenceReadStatus.StaleGeneration;
 
-            observation = _normal[_normalHead];
-            _normalText.AsSpan(_normalHead * _textCapacity, _textCapacity).Clear();
-            _normalHead = (_normalHead + 1) % _normal.Length;
-            _normalCount--;
-            return true;
+            count = _requiredCount;
+            if ((uint)index >= (uint)count)
+                return FaultEvidenceReadStatus.InsufficientCapacity;
+            record = _required[index];
+            return FaultEvidenceReadStatus.Copied;
+        }
+    }
+
+    bool IDiagnosticReader.TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease)
+    {
+        if (Volatile.Read(ref _normal) is { } queue)
+        {
+            lock (queue.Gate)
+            {
+                if (!_storageReleased && queue.Count != 0 && !queue.InFlight && queue.Ticket != ulong.MaxValue)
+                {
+                    queue.InFlight = true;
+                    observation = queue.Records[queue.Head];
+                    lease = new DiagnosticReadLease(this, ++queue.Ticket);
+                    return true;
+                }
+            }
+        }
+
+        observation = default;
+        lease = default;
+        return false;
+    }
+
+    internal void ReleaseDiagnostic(ulong ticket)
+    {
+        if (Volatile.Read(ref _normal) is not { } queue)
+            return;
+
+        lock (queue.Gate)
+        {
+            if (!queue.InFlight || ticket != queue.Ticket)
+                return;
+
+            queue.Text.AsSpan(queue.Head * _textCapacity, _textCapacity).Clear();
+            queue.Head = (queue.Head + 1) % queue.Records.Length;
+            queue.Count--;
+            queue.InFlight = false;
         }
     }
 
     DiagnosticEmergencySnapshot IDiagnosticReader.ReadEmergency()
     {
-        lock (_runtime.Gate)
-            return _storageReleased ? default : new(_emergency[0], _emergency[1], _emergency[2]);
+        return Volatile.Read(ref _emergency) is { } delivery
+            ? new(delivery.Slots[0].Read(), delivery.Slots[1].Read(), delivery.Slots[2].Read()) : default;
     }
 
     void IDiagnosticReader.RecordSinkFailure(uint code, long timestamp)
     {
-        lock (_runtime.Gate)
-        {
-            if (!_storageReleased)
-                RecordEmergency(new DiagnosticEvent(FaultClass.DiagnosticOnly, FaultSeverity.Error,
-                    FaultSubsystem.Diagnostics, FaultOrigin.Sink, code, timestamp, new(_world, null, null, null, null, null)), []);
-        }
+        RecordEmergency(new DiagnosticEvent(FaultClass.DiagnosticOnly, FaultSeverity.Error,
+            FaultSubsystem.Diagnostics, FaultOrigin.Sink, code, timestamp, new(_world, null, null, null, null, null)), []);
     }
 
     private FaultReportStatus LoseEvidence(bool terminal)
@@ -336,42 +345,57 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         _ => false
     };
 
+    private FaultReportStatus RecordDiagnostic(scoped in FaultObservation observation)
+    {
+        if (!IsValidObservation(observation) || _storageReleased)
+            return LoseDelivery(countCoalesced: true);
+
+        return RecordOptional(observation);
+    }
+
     private FaultReportStatus RecordOptional(scoped in FaultObservation observation, bool countCoalesced = true)
     {
-        if (IsTerminal || _normalCount == _normal.Length)
-        {
-            if (countCoalesced)
-                _coalesced.Increment();
-            _deliveryLoss.Increment();
-            return FaultReportStatus.Coalesced;
-        }
+        if (Volatile.Read(ref _normal) is not { } queue || !Monitor.TryEnter(queue.Gate))
+            return LoseDelivery(countCoalesced);
 
-        _normal[_normalTail] = new DiagnosticEvent(observation);
-        CopyDetail(observation.RedactedText, _normalText, _normalTail);
-        _normalTail = (_normalTail + 1) % _normal.Length;
-        _normalCount++;
-        if (!observation.Targets.IsEmpty)
+        try
         {
-            _deliveryLoss.Increment();
-        }
+            if (_storageReleased || queue.Count == queue.Records.Length)
+                return LoseDelivery(countCoalesced);
 
-        return FaultReportStatus.Recorded;
+            queue.Records[queue.Tail] = new DiagnosticEvent(observation);
+            CopyDetail(observation.RedactedText, queue.Text, queue.Tail);
+            queue.Tail = (queue.Tail + 1) % queue.Records.Length;
+            queue.Count++;
+            if (!observation.Targets.IsEmpty)
+                _deliveryLoss.Increment();
+            return FaultReportStatus.Recorded;
+        }
+        finally
+        {
+            Monitor.Exit(queue.Gate);
+        }
+    }
+
+    private FaultReportStatus LoseDelivery(bool countCoalesced)
+    {
+        if (countCoalesced)
+            _coalesced.Increment();
+        _deliveryLoss.Increment();
+        return FaultReportStatus.Coalesced;
     }
 
     private FaultReportStatus RecordEmergency(DiagnosticEvent summary, ReadOnlySpan<char> text)
     {
         var index = (int)summary.Origin - 1;
-        if ((uint)index >= (uint)_emergency.Length)
-        {
-            _deliveryLoss.Increment();
-            _coalesced.Increment();
-            return FaultReportStatus.Coalesced;
-        }
+        if ((uint)index >= EmergencySummaryCount || Volatile.Read(ref _emergency) is not { } delivery || _storageReleased)
+            return LoseDelivery(countCoalesced: true);
 
-        if (_emergency[index] is { } first)
+        ref var slot = ref delivery.Slots[index];
+        if (Interlocked.CompareExchange(ref slot.State, 1, 0) != 0)
         {
             _coalesced.Increment();
-            if (summary.Code == first.Code && summary.Classification == first.Classification &&
+            if (slot.Read() is { } first && summary.Code == first.Code && summary.Classification == first.Classification &&
                 summary.Context == first.Context && summary.Subsystem == first.Subsystem)
             {
                 _repeat.Increment();
@@ -380,8 +404,9 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
             return FaultReportStatus.Coalesced;
         }
 
-        _emergency[index] = summary;
-        CopyDetail(text, _emergencyText, index);
+        slot.Event = summary;
+        CopyDetail(text, delivery.Text, index);
+        Volatile.Write(ref slot.State, 2);
         return FaultReportStatus.Recorded;
     }
 
@@ -393,6 +418,32 @@ internal sealed class FaultLedger : IFaultReporter, IRuntimeSafetyState, IFaultE
         {
             _deliveryLoss.Increment();
         }
+    }
+
+    private sealed class NormalDelivery(int slots, int textCapacity)
+    {
+        internal object Gate { get; } = new();
+        internal DiagnosticEvent[] Records { get; } = new DiagnosticEvent[slots];
+        internal char[] Text { get; } = new char[checked(slots * textCapacity)];
+        internal int Count;
+        internal int Head;
+        internal int Tail;
+        internal bool InFlight;
+        internal ulong Ticket;
+    }
+
+    private sealed class EmergencyDelivery(int textCapacity)
+    {
+        internal EmergencySlot[] Slots { get; } = new EmergencySlot[EmergencySummaryCount];
+        internal char[] Text { get; } = new char[checked(EmergencySummaryCount * textCapacity)];
+    }
+
+    private struct EmergencySlot
+    {
+        internal DiagnosticEvent Event;
+        // 0 is empty, 1 is being written, 2 is immutable and visible to readers.
+        internal int State;
+        internal DiagnosticEvent? Read() => Volatile.Read(ref State) == 2 ? Event : null;
     }
 
     private sealed class AtomicCounter

@@ -5,6 +5,8 @@ namespace Groundwork.Diagnostics;
 
 public interface IDiagnosticSink
 {
+    /// <summary>Consumes one observation. Release it and remove its cancellation registrations at normal completion.</summary>
+    /// <remarks>A callback already running during dispatcher shutdown may use the observation until the callback returns.</remarks>
     ValueTask WriteAsync(DiagnosticEvent observation, CancellationToken cancellationToken);
 }
 
@@ -20,6 +22,8 @@ public sealed class DiagnosticDispatcher
     private readonly CancellationTokenSource _shutdown = new();
     private Task<int>? _active;
     private Task? _stopped;
+    private PendingDelivery? _pending;
+    private DiagnosticReadLease _shutdownDelivery;
     private int _deliveredEmergency;
     private int _sinkDisabled;
 
@@ -97,11 +101,25 @@ public sealed class DiagnosticDispatcher
         int delivered = 0;
         try
         {
-            var emergency = _reader.ReadEmergency();
-            while (delivered < maxEvents && !_shutdown.IsCancellationRequested && TryTake(emergency, out var observation))
+            while (delivered < maxEvents && CanDeliver() && TryTake(out var observation, out var lease))
             {
-                await _sink.WriteAsync(observation, _shutdown.Token).ConfigureAwait(false);
-                delivered++;
+                // Selection may have raced stop. Admission is ordered under the same
+                // gate as stop and disable, while the sink itself runs outside the gate.
+                if (!CanDeliver())
+                {
+                    lease.Dispose();
+                    break;
+                }
+
+                try
+                {
+                    await _sink.WriteAsync(observation, _shutdown.Token).ConfigureAwait(false);
+                    delivered++;
+                }
+                finally
+                {
+                    ReleaseDelivery(lease);
+                }
             }
         }
         catch (OperationCanceledException error) when (_shutdown.IsCancellationRequested && error.CancellationToken == _shutdown.Token)
@@ -112,11 +130,46 @@ public sealed class DiagnosticDispatcher
         {
             DisableSink(error);
         }
+        finally
+        {
+            if (SinkDisabled)
+                ReleasePending();
+        }
 
         return delivered;
     }
 
-    private bool TryTake(DiagnosticEmergencySnapshot emergency, out DiagnosticEvent observation)
+    private bool CanDeliver()
+    {
+        lock (_gate)
+            return _stopped is null && !SinkDisabled;
+    }
+
+    private bool TryTake(out DiagnosticEvent observation, out DiagnosticReadLease lease)
+    {
+        lease = default;
+        if (TryTakeEmergency(_reader.ReadEmergency(), out observation))
+            return true;
+
+        if (_pending is null)
+        {
+            if (!_reader.TryAcquire(out var normal, out var acquired))
+                return TryTakeEmergency(_reader.ReadEmergency(), out observation);
+
+            // Retain this slot if emergency publication raced the normal acquisition.
+            // A batch that ends after the emergency can deliver it on the next drain.
+            _pending = new(normal, acquired);
+            if (TryTakeEmergency(_reader.ReadEmergency(), out observation))
+                return true;
+        }
+
+        var pending = _pending.Value;
+        _pending = null;
+        (observation, lease) = (pending.Observation, pending.Lease);
+        return true;
+    }
+
+    private bool TryTakeEmergency(DiagnosticEmergencySnapshot emergency, out DiagnosticEvent observation)
     {
         if (emergency.Primary is { } primary && (_deliveredEmergency & 1) == 0)
         {
@@ -132,7 +185,34 @@ public sealed class DiagnosticDispatcher
         }
 
         // A sink failure is observable through the emergency reader, independently of delivery.
-        return _reader.TryRead(out observation);
+        observation = default;
+        return false;
+    }
+
+    private void ReleasePending()
+    {
+        if (_pending is { } pending)
+        {
+            _pending = null;
+            pending.Lease.Dispose();
+        }
+    }
+
+    private void ReleaseDelivery(DiagnosticReadLease lease)
+    {
+        lock (_gate)
+        {
+            if (_stopped is not null)
+            {
+                // There is one admitted sink write. Stop joins cancellation callbacks
+                // and this drain before releasing its observation.
+                _shutdownDelivery = lease;
+            }
+            else
+            {
+                lease.Dispose();
+            }
+        }
     }
 
     private async Task FinishAsync(Task<int>? active)
@@ -154,6 +234,8 @@ public sealed class DiagnosticDispatcher
             }
             finally
             {
+                _shutdownDelivery.Dispose();
+                ReleasePending();
                 _shutdown.Dispose();
                 _ownership.Dispose();
             }
@@ -162,7 +244,15 @@ public sealed class DiagnosticDispatcher
 
     private void DisableSink(Exception error)
     {
-        if (Interlocked.Exchange(ref _sinkDisabled, 1) == 0)
-            _reader.RecordSinkFailure(unchecked((uint)error.HResult), TimeProvider.System.GetTimestamp());
+        lock (_gate)
+        {
+            if (SinkDisabled)
+                return;
+            Volatile.Write(ref _sinkDisabled, 1);
+        }
+
+        _reader.RecordSinkFailure(unchecked((uint)error.HResult), TimeProvider.System.GetTimestamp());
     }
+
+    private readonly record struct PendingDelivery(DiagnosticEvent Observation, DiagnosticReadLease Lease);
 }

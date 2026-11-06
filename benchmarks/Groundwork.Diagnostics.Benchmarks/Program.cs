@@ -83,11 +83,13 @@ internal static class DiagnosticBenchmark
         ShutdownSettlement settlement;
         try
         {
-            roundTrip = Measure("optional-roundtrip", "One numeric optional event recorded and drained on one thread, without a sink.",
+            roundTrip = Measure("optional-roundtrip", "One numeric optional event recorded, acquired and released on one thread, without a sink.",
                 options, () =>
                 {
-                    if (ReportOptional(runtime.Reporter) != FaultReportStatus.Recorded || !runtime.Diagnostics.TryRead(out _))
-                        throw new InvalidOperationException("Optional report was not recorded and drained.");
+                    if (ReportOptional(runtime.Reporter) != FaultReportStatus.Recorded ||
+                        !runtime.Diagnostics.TryAcquire(out _, out var lease))
+                        throw new InvalidOperationException("Optional report was not recorded and acquired.");
+                    lease.Dispose();
                 });
 
             for (int index = 0; index < slots; index++)
@@ -96,12 +98,17 @@ internal static class DiagnosticBenchmark
                     throw new InvalidOperationException("Optional queue saturated before its configured capacity.");
             }
 
-            saturated = Measure("optional-saturated", "One numeric optional report rejected by an already-full 16-slot queue.",
-                options, () =>
-                {
-                    if (ReportOptional(runtime.Reporter) != FaultReportStatus.Coalesced)
-                        throw new InvalidOperationException("An optional report unexpectedly entered the saturated queue.");
-                });
+            if (!runtime.Diagnostics.TryAcquire(out _, out var held))
+                throw new InvalidOperationException("Expected an in-flight event at saturation.");
+            using (held)
+            {
+                saturated = Measure("optional-saturated", "One numeric optional report rejected with 15 queued events and one held lease.",
+                    options, () =>
+                    {
+                        if (ReportOptional(runtime.Reporter) != FaultReportStatus.Coalesced)
+                            throw new InvalidOperationException("An optional report unexpectedly entered the saturated queue.");
+                    });
+            }
             var expectedDrops = (ulong)options.Warmup + (ulong)options.Iterations * (ulong)options.Samples;
             if (runtime.State.Read().DeliveryLossCount != expectedDrops)
                 throw new InvalidOperationException("Optional delivery loss did not match the saturated workload.");

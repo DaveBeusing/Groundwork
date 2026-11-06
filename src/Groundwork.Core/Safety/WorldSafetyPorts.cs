@@ -65,11 +65,14 @@ internal sealed class FaultEvidencePort(FaultLedger ledger) : IFaultEvidenceRead
     public FaultEvidenceReadStatus CopyPending(
         ulong generation, Span<RequiredFaultEvidence> destination, out int count)
         => ledger.CopyPending(generation, destination, out count);
+    public FaultEvidenceReadStatus ReadPending(ulong generation, int index, out RequiredFaultEvidence record, out int count)
+        => ledger.ReadPending(generation, index, out record, out count);
 }
 
 internal sealed class DiagnosticReaderPort(IDiagnosticReader reader) : IDiagnosticReader
 {
-    public bool TryRead(out DiagnosticEvent observation) => reader.TryRead(out observation);
+    public bool TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease)
+        => reader.TryAcquire(out observation, out lease);
     public DiagnosticEmergencySnapshot ReadEmergency() => reader.ReadEmergency();
     public void RecordSinkFailure(uint code, long timestamp) => reader.RecordSinkFailure(code, timestamp);
 }

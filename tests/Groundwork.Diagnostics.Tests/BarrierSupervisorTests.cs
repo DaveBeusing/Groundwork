@@ -71,7 +71,7 @@ public sealed class BarrierSupervisorTests
     }
 
     [TestMethod]
-    public async Task IncompleteEvidenceSnapshotStopsInsteadOfClassifyingAPrefix()
+    public async Task EvidenceLimitStopsInsteadOfClassifyingAPrefix()
     {
         using var fixture = new WorldFixture(evidenceCapacity: 1);
         var stamp = await fixture.CommitEmptyTickAsync();
@@ -81,6 +81,42 @@ public sealed class BarrierSupervisorTests
         var decision = await fixture.ReviewAsync(stamp);
         Assert.AreEqual(SupervisorAction.StopWorld, decision.Action);
         Assert.AreEqual(DecisionApplication.Stopped, fixture.World.Coordinator.TryApply(decision));
+        Assert.AreEqual(ObserverPublication.Blocked, fixture.PublishObserver(stamp));
+    }
+
+    [TestMethod]
+    public async Task AnEvidenceReaderWithoutIndexedSupportFailsClosed()
+    {
+        using var fixture = new WorldFixture();
+        var stamp = await fixture.CommitEmptyTickAsync();
+        Assert.AreEqual(FaultReportStatus.Recorded, fixture.Report(stamp, FaultClass.Cancelled));
+        var request = fixture.StartReview(stamp);
+
+        IFaultEvidenceReader reader = new BulkOnlyEvidenceReader(fixture.World.Evidence);
+        var record = new RequiredFaultEvidence(1, FaultClass.Cancelled, FaultSubsystem.Jobs, FaultOrigin.Primary, 1,
+            default, null);
+        Assert.AreEqual(FaultEvidenceReadStatus.InsufficientCapacity,
+            reader.ReadPending(request.Proof.FaultGeneration, 0, out record, out var count));
+        Assert.AreEqual(default(RequiredFaultEvidence), record);
+        Assert.AreEqual(0, count);
+        Assert.AreEqual(SupervisorAction.StopWorld,
+            await new BarrierSupervisorPolicy(WorldFixture.RequiredEvidenceCapacity).DecideAsync(request, reader, CancellationToken.None));
+    }
+
+    [TestMethod]
+    public async Task AnEvidenceChangeDuringIndexedReviewInvalidatesThePartialRead()
+    {
+        using var fixture = new WorldFixture();
+        var stamp = await fixture.CommitEmptyTickAsync();
+        Assert.AreEqual(FaultReportStatus.Recorded, fixture.Report(stamp, FaultClass.Cancelled));
+        Assert.AreEqual(FaultReportStatus.Recorded, fixture.Report(stamp, FaultClass.WriteConflict));
+        var request = fixture.StartReview(stamp);
+        var reader = new ChangingEvidenceReader(fixture.World.Evidence, () =>
+            Assert.AreEqual(FaultReportStatus.Recorded, fixture.Report(stamp, FaultClass.StaleResult)));
+
+        Assert.AreEqual(SupervisorAction.StopWorld,
+            await new BarrierSupervisorPolicy(WorldFixture.RequiredEvidenceCapacity).DecideAsync(request, reader, CancellationToken.None));
+        Assert.AreEqual(3, fixture.World.State.Read().PendingRequiredEvidenceRecords);
         Assert.AreEqual(ObserverPublication.Blocked, fixture.PublishObserver(stamp));
     }
 
@@ -199,13 +235,16 @@ public sealed class BarrierSupervisorTests
             return World.Reporter.TryReport(observation);
         }
 
-        internal async Task<SupervisorDecision> ReviewAsync(BarrierStamp stamp)
+        internal ValueTask<SupervisorDecision> ReviewAsync(BarrierStamp stamp) =>
+            World.Supervisor.DecideAsync(StartReview(stamp), CancellationToken.None);
+
+        internal BarrierReviewRequest StartReview(BarrierStamp stamp)
         {
             var proof = World.Writer.TryIssue(stamp, World.State.Read().PendingFaultGeneration);
             Assert.IsNotNull(proof);
             var request = World.Coordinator.TryBegin(proof);
             Assert.IsNotNull(request);
-            return await World.Supervisor.DecideAsync(request, CancellationToken.None);
+            return request;
         }
 
         internal ObserverPublication PublishObserver(BarrierStamp stamp) => World.Publication.Observer.TryPublish(
@@ -221,6 +260,25 @@ public sealed class BarrierSupervisorTests
     private sealed record Root(WorldId World) : IWorldStateRoot;
 
     private sealed record Observer(WorldId World) : IWorldObserverState;
+
+    private sealed class BulkOnlyEvidenceReader(IFaultEvidenceReader source) : IFaultEvidenceReader
+    {
+        public FaultEvidenceReadStatus CopyPending(ulong generation, Span<RequiredFaultEvidence> destination, out int count) =>
+            source.CopyPending(generation, destination, out count);
+    }
+
+    private sealed class ChangingEvidenceReader(IFaultEvidenceReader source, Action change) : IFaultEvidenceReader
+    {
+        public FaultEvidenceReadStatus CopyPending(ulong generation, Span<RequiredFaultEvidence> destination, out int count) =>
+            source.CopyPending(generation, destination, out count);
+
+        public FaultEvidenceReadStatus ReadPending(ulong generation, int index, out RequiredFaultEvidence record, out int count)
+        {
+            if (index == 1)
+                change();
+            return source.ReadPending(generation, index, out record, out count);
+        }
+    }
 
     private sealed class ControlledClock : TimeProvider
     {

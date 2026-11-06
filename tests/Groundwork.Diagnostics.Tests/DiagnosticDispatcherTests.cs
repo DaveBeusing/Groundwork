@@ -60,9 +60,10 @@ public sealed class DiagnosticDispatcherTests
             Assert.AreEqual(FaultReportStatus.Recorded, world.Reporter.TryReport(first));
             Assert.AreEqual(FaultReportStatus.Recorded, world.Reporter.TryReport(second));
 
-            Assert.IsTrue(world.Diagnostics.TryRead(out var later));
+            Assert.IsTrue(world.Diagnostics.TryAcquire(out var later, out var lease));
+            using var retained = lease;
             Assert.AreEqual(2U, later.Code);
-            Assert.IsFalse(world.Diagnostics.TryRead(out _));
+            Assert.IsFalse(world.Diagnostics.TryAcquire(out _, out _));
             Assert.AreEqual(1U, world.Diagnostics.ReadEmergency().Primary?.Code);
             var state = world.State.Read();
             Assert.AreEqual(2, state.PendingRequiredEvidenceRecords);
@@ -76,6 +77,104 @@ public sealed class DiagnosticDispatcherTests
         {
             runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
             Assert.AreEqual(ShutdownSettlement.Released, runtime.SettleStop());
+        }
+    }
+
+    [TestMethod]
+    public async Task EmergencyArrivingDuringBatchPrecedesQueuedNormalEvents()
+    {
+        var (runtime, _) = CreateRuntime(2);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var delivered = new List<uint>();
+        var dispatcher = new DiagnosticDispatcher(runtime.Diagnostics, runtime.RuntimeOwnership,
+            new Sink(async (observation, _) =>
+            {
+                delivered.Add(observation.Code);
+                if (observation.Code == 1)
+                {
+                    entered.TrySetResult();
+                    await release.Task;
+                }
+            }));
+        try
+        {
+            Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 1));
+            Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 2));
+            var active = dispatcher.DrainAsync(3);
+            await entered.Task.WaitAsync(Timeout);
+            Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 11, FaultClass.UnknownCritical));
+            release.TrySetResult();
+            Assert.AreEqual(3, await active.WaitAsync(Timeout));
+            CollectionAssert.AreEqual(new uint[] { 1, 11, 2 }, delivered);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await StopAsync(runtime, dispatcher);
+        }
+    }
+
+    [TestMethod]
+    public async Task EmergencyRacingAcquisitionPreservesNormalEventForNextBatch()
+    {
+        var (runtime, _) = CreateRuntime(1);
+        var delivered = new List<uint>();
+        var reader = new InterceptingReader(runtime.Diagnostics,
+            () => Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 11, FaultClass.UnknownCritical)));
+        var dispatcher = new DiagnosticDispatcher(reader, runtime.RuntimeOwnership, new Sink((observation, _) =>
+        {
+            delivered.Add(observation.Code);
+            return ValueTask.CompletedTask;
+        }));
+        try
+        {
+            Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 1));
+            Assert.AreEqual(1, await dispatcher.DrainAsync(1).WaitAsync(Timeout));
+            CollectionAssert.AreEqual(new uint[] { 11 }, delivered);
+            Assert.AreEqual(1, await dispatcher.DrainAsync(1).WaitAsync(Timeout));
+            CollectionAssert.AreEqual(new uint[] { 11, 1 }, delivered);
+        }
+        finally
+        {
+            await StopAsync(runtime, dispatcher);
+        }
+    }
+
+    [TestMethod]
+    public async Task StopAfterSelectionPreventsSinkAdmission()
+    {
+        var (runtime, _) = CreateRuntime(1);
+        var selected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var reader = new InterceptingReader(runtime.Diagnostics, () =>
+        {
+            selected.TrySetResult();
+            release.Task.WaitAsync(Timeout).GetAwaiter().GetResult();
+        });
+        int calls = 0;
+        var dispatcher = new DiagnosticDispatcher(reader, runtime.RuntimeOwnership, new Sink((_, _) =>
+        {
+            Interlocked.Increment(ref calls);
+            return ValueTask.CompletedTask;
+        }));
+        try
+        {
+            Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 1));
+            var active = dispatcher.DrainAsync(1);
+            await selected.Task.WaitAsync(Timeout);
+            var deadline = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            var stopped = dispatcher.StopAsync(deadline, TimeProvider.System).AsTask();
+            Assert.IsFalse(stopped.IsCompleted);
+            release.TrySetResult();
+            Assert.AreEqual(0, await active.WaitAsync(Timeout));
+            await stopped.WaitAsync(Timeout);
+            Assert.AreEqual(0, calls);
+        }
+        finally
+        {
+            release.TrySetResult();
+            await StopAsync(runtime, dispatcher);
         }
     }
 
@@ -135,7 +234,8 @@ public sealed class DiagnosticDispatcherTests
         try
         {
             await entered.Task.WaitAsync(Timeout);
-            Assert.AreEqual(FaultReportStatus.Coalesced, Report(runtime.Reporter, 3, FaultClass.DiagnosticOnly, (FaultOrigin)99));
+            Assert.AreEqual(FaultReportStatus.Coalesced, Report(runtime.Reporter, 3));
+            Assert.AreEqual(1UL, runtime.State.Read().DeliveryLossCount);
             deadline = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
             await Assert.ThrowsExactlyAsync<IncompleteCleanupException>(() => dispatcher.StopAsync(deadline, TimeProvider.System).AsTask());
             Assert.AreEqual(ShutdownSettlement.Custody, runtime.SettleStop());
@@ -148,6 +248,56 @@ public sealed class DiagnosticDispatcherTests
         }
 
         Assert.AreEqual(1, await active.WaitAsync(Timeout));
+        using var watchdog = new CancellationTokenSource(Timeout);
+        while (runtime.SettleStop() != ShutdownSettlement.Released)
+            await Task.Delay(1, watchdog.Token);
+        await dispatcher.StopAsync(deadline, TimeProvider.System);
+        using var available = budget.TryReserveRuntime(Quota);
+        Assert.IsNotNull(available);
+    }
+
+    [TestMethod]
+    public async Task BlockedCancellationCallbackKeepsCustodyAfterSinkCompletes()
+    {
+        var (runtime, budget) = CreateRuntime(1, TimeSpan.FromMilliseconds(250));
+        var sinkEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseSink = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var callbackEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var releaseCallback = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var dispatcher = new DiagnosticDispatcher(runtime.Diagnostics, runtime.RuntimeOwnership,
+            new Sink(async (observation, token) =>
+            {
+                _ = token.Register(() =>
+                {
+                    callbackEntered.TrySetResult();
+                    releaseCallback.Task.WaitAsync(Timeout).GetAwaiter().GetResult();
+                    Assert.AreEqual(1U, observation.Code);
+                });
+                sinkEntered.TrySetResult();
+                await releaseSink.Task;
+            }));
+        Assert.AreEqual(FaultReportStatus.Recorded, Report(runtime.Reporter, 1));
+        var active = dispatcher.DrainAsync(1);
+        RuntimeDeadline deadline;
+        try
+        {
+            await sinkEntered.Task.WaitAsync(Timeout);
+            deadline = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            var stopped = dispatcher.StopAsync(deadline, TimeProvider.System).AsTask();
+            await callbackEntered.Task.WaitAsync(Timeout);
+            releaseSink.TrySetResult();
+            Assert.AreEqual(1, await active.WaitAsync(Timeout));
+            Assert.AreEqual(FaultReportStatus.Coalesced, Report(runtime.Reporter, 2));
+            await Assert.ThrowsExactlyAsync<IncompleteCleanupException>(() => stopped);
+            Assert.AreEqual(ShutdownSettlement.Custody, runtime.SettleStop());
+            Assert.IsNull(budget.TryReserveRuntime(Quota));
+        }
+        finally
+        {
+            releaseSink.TrySetResult();
+            releaseCallback.TrySetResult();
+        }
+
         using var watchdog = new CancellationTokenSource(Timeout);
         while (runtime.SettleStop() != ShutdownSettlement.Released)
             await Task.Delay(1, watchdog.Token);
@@ -214,5 +364,29 @@ public sealed class DiagnosticDispatcherTests
     private sealed class Sink(Func<DiagnosticEvent, CancellationToken, ValueTask> write) : IDiagnosticSink
     {
         public ValueTask WriteAsync(DiagnosticEvent observation, CancellationToken cancellationToken) => write(observation, cancellationToken);
+    }
+
+    private sealed class InterceptingReader(IDiagnosticReader inner, Action onAcquired) : IDiagnosticReader
+    {
+        public bool TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease)
+        {
+            if (!inner.TryAcquire(out observation, out lease))
+                return false;
+
+            try
+            {
+                onAcquired();
+                return true;
+            }
+            catch
+            {
+                lease.Dispose();
+                throw;
+            }
+        }
+
+        public DiagnosticEmergencySnapshot ReadEmergency() => inner.ReadEmergency();
+
+        public void RecordSinkFailure(uint code, long timestamp) => inner.RecordSinkFailure(code, timestamp);
     }
 }

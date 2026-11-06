@@ -56,9 +56,20 @@ public readonly record struct DiagnosticEmergencySnapshot(
 /// <summary>Host-only drain and independent emergency observation for one runtime or world.</summary>
 public interface IDiagnosticReader
 {
-    bool TryRead(out DiagnosticEvent observation);
+    bool TryAcquire(out DiagnosticEvent observation, out DiagnosticReadLease lease);
     DiagnosticEmergencySnapshot ReadEmergency();
     void RecordSinkFailure(uint code, long timestamp);
+}
+
+/// <summary>Holds a normal diagnostic slot until the host or sink releases the event.</summary>
+public readonly struct DiagnosticReadLease : IDisposable
+{
+    private readonly FaultLedger? _owner;
+    private readonly ulong _ticket;
+
+    internal DiagnosticReadLease(FaultLedger owner, ulong ticket) => (_owner, _ticket) = (owner, ticket);
+
+    public void Dispose() => _owner?.ReleaseDiagnostic(_ticket);
 }
 
 public sealed record OperationalFailure(
@@ -118,6 +129,15 @@ public interface IFaultEvidenceReader
 {
     FaultEvidenceReadStatus CopyPending(
         ulong generation, Span<RequiredFaultEvidence> destination, out int count);
+
+    /// <summary>Reads one entry from the exact pending generation and returns the total entry count.</summary>
+    /// <remarks>Readers that implement only bulk copy fail closed for indexed review.</remarks>
+    FaultEvidenceReadStatus ReadPending(ulong generation, int index, out RequiredFaultEvidence record, out int count)
+    {
+        record = default;
+        count = 0;
+        return FaultEvidenceReadStatus.InsufficientCapacity;
+    }
 }
 
 public enum SupervisorAction : byte { StopWorld, PauseForRecovery, ContinueAtSafeBarrier }
