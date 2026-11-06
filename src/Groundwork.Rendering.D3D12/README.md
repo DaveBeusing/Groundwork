@@ -44,7 +44,8 @@ The standard suite includes mandatory offscreen WARP readback without a desktop
 session. On an interactive desktop, also run the swap-chain smoke case.
 
 ```powershell
-dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=WindowsDesktopSmoke'
+$desktop = 'TestCategory=WindowsDesktopSmoke&TestCategory!=D3D12RegionReplacementWarp&TestCategory!=D3D12RegionReplacementHardware'
+dotnet test $tests -c Release --no-build --no-restore --filter $desktop
 ```
 
 Run the terrain WARP and hardware filters in separate processes on an
@@ -56,4 +57,10 @@ dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D
 dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12TerrainHardware' --logger trx
 dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12MeshReplacementWarp' --logger trx
 dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12MeshReplacementHardware' --logger trx
+dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12RegionReplacementWarp' --logger trx
+dotnet test $tests -c Release --no-build --no-restore --filter 'TestCategory=D3D12RegionReplacementHardware' --logger trx
 ```
+
+The WP05 desktop qualification requires an active Debug Layer and DRED.
+Run each WP05 filter in a fresh test process so diagnostics are enabled
+before its first device is created.
