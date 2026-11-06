@@ -24,6 +24,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private IRuntimeAdmissionFence? _meshRuntimeFence;
     private readonly Action<GpuDevice>? _beforeMeshInstallation;
     private readonly Action? _afterMeshInstallation;
+    private readonly GpuRetirementTestHooks? _retirementHooks;
     private D3D12DiagnosticsSnapshot _diagnostics = new(null, false, false, null, null);
     private EngineModuleContext? _context;
     private AutoResetEvent? _wake;
@@ -71,7 +72,8 @@ public sealed partial class D3D12Renderer : IRenderer
 
     private D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, RenderMeshPair pair,
         D3D12DiagnosticsOptions diagnostics, bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout,
-        Action<GpuDevice>? beforeMeshInstallation, Action? afterMeshInstallation)
+        Action<GpuDevice>? beforeMeshInstallation, Action? afterMeshInstallation,
+        GpuRetirementTestHooks? retirementHooks)
         : this(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
     {
         ArgumentNullException.ThrowIfNull(pair);
@@ -80,6 +82,7 @@ public sealed partial class D3D12Renderer : IRenderer
         MeshReplacement = new MeshReplacementPort(this, _admission.MeshReplacement!);
         _beforeMeshInstallation = beforeMeshInstallation;
         _afterMeshInstallation = afterMeshInstallation;
+        _retirementHooks = retirementHooks;
     }
 
     /// <summary>Creates a renderer with an initial pair that can be replaced at runtime.</summary>
@@ -87,14 +90,14 @@ public sealed partial class D3D12Renderer : IRenderer
     public static D3D12Renderer CreateWithMeshReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
         RenderMeshPair pair, D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
         TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
-        => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout, null, null);
+        => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout, null, null, null);
 
     internal static D3D12Renderer CreateWithMeshReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
         RenderMeshPair pair, Action<GpuDevice> beforeMeshInstallation, D3D12DiagnosticsOptions diagnostics = default,
         bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null,
-        Action? afterMeshInstallation = null)
+        Action? afterMeshInstallation = null, GpuRetirementTestHooks? retirementHooks = null)
         => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout,
-            beforeMeshInstallation, afterMeshInstallation);
+            beforeMeshInstallation, afterMeshInstallation, retirementHooks);
 
     /// <summary>The optional mesh replacement capability, available on opted-in renderers.</summary>
     public IRenderMeshReplacement? MeshReplacement { get; }
