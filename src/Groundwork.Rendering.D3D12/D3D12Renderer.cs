@@ -20,7 +20,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly Lock _lifecycle = new();
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    private RenderMeshPair? _meshes;
+    private RenderMeshRegion? _initialGeometry;
     private IRuntimeAdmissionFence? _meshRuntimeFence;
     private readonly Action<GpuDevice>? _beforeMeshInstallation;
     private readonly Action? _afterMeshInstallation;
@@ -58,7 +58,7 @@ public sealed partial class D3D12Renderer : IRenderer
         : this(diagnostics, window, ownership, useWarp, operationTimeout: operationTimeout)
     {
         _resize = resize;
-        _meshes = meshes;
+        _initialGeometry = meshes is null ? null : AsRegion(meshes);
     }
 
     /// <summary>Creates a renderer that uploads a fixed mesh pair during startup.</summary>
@@ -66,20 +66,27 @@ public sealed partial class D3D12Renderer : IRenderer
         RenderMeshPair pair, D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
         TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
     {
-        ArgumentNullException.ThrowIfNull(pair);
-        return new D3D12Renderer(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout) { _meshes = pair };
+        var region = AsRegion(pair);
+        return new D3D12Renderer(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
+        {
+            _initialGeometry = region
+        };
     }
 
-    private D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, RenderMeshPair pair,
+    private D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership, RenderMeshRegion region, bool exposePair,
         D3D12DiagnosticsOptions diagnostics, bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout,
         Action<GpuDevice>? beforeMeshInstallation, Action? afterMeshInstallation,
         GpuRetirementTestHooks? retirementHooks)
         : this(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
     {
-        ArgumentNullException.ThrowIfNull(pair);
-        _meshes = pair;
-        _admission = RendererFrameAdmission.CreateWithMeshReplacement();
-        MeshReplacement = new MeshReplacementPort(this, _admission.MeshReplacement!);
+        ArgumentNullException.ThrowIfNull(region);
+        _initialGeometry = region;
+        _admission = RendererFrameAdmission.CreateWithMeshRegionReplacement();
+        var port = new MeshRegionReplacementPort(this, _admission.MeshRegionReplacement!);
+        if (exposePair)
+            MeshReplacement = new MeshReplacementPort(port);
+        else
+            MeshRegionReplacement = port;
         _beforeMeshInstallation = beforeMeshInstallation;
         _afterMeshInstallation = afterMeshInstallation;
         _retirementHooks = retirementHooks;
@@ -90,17 +97,36 @@ public sealed partial class D3D12Renderer : IRenderer
     public static D3D12Renderer CreateWithMeshReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
         RenderMeshPair pair, D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
         TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
-        => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout, null, null, null);
+        => new(window, ownership, AsRegion(pair), exposePair: true, diagnostics, useWarp, startupTimeout,
+            operationTimeout, null, null, null);
 
     internal static D3D12Renderer CreateWithMeshReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
         RenderMeshPair pair, Action<GpuDevice> beforeMeshInstallation, D3D12DiagnosticsOptions diagnostics = default,
         bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null,
         Action? afterMeshInstallation = null, GpuRetirementTestHooks? retirementHooks = null)
-        => new(window, ownership, pair, diagnostics, useWarp, startupTimeout, operationTimeout,
+        => new(window, ownership, AsRegion(pair), exposePair: true, diagnostics, useWarp, startupTimeout, operationTimeout,
             beforeMeshInstallation, afterMeshInstallation, retirementHooks);
+
+    /// <summary>Creates a renderer that can replace a complete bounded region at runtime.</summary>
+    /// <remarks>Initialization requires a runtime stop control that exposes its admission fence.</remarks>
+    public static D3D12Renderer CreateWithMeshRegionReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
+        RenderMeshRegion region, D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
+        TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+        => new(window, ownership, region, exposePair: false, diagnostics, useWarp, startupTimeout,
+            operationTimeout, null, null, null);
+
+    internal static D3D12Renderer CreateWithMeshRegionReplacement(WindowsHostModule window, IRuntimeOwnership ownership,
+        RenderMeshRegion region, Action<GpuDevice> beforeMeshInstallation, D3D12DiagnosticsOptions diagnostics = default,
+        bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null,
+        Action? afterMeshInstallation = null)
+        => new(window, ownership, region, exposePair: false, diagnostics, useWarp, startupTimeout,
+            operationTimeout, beforeMeshInstallation, afterMeshInstallation, null);
 
     /// <summary>The optional mesh replacement capability, available on opted-in renderers.</summary>
     public IRenderMeshReplacement? MeshReplacement { get; }
+
+    /// <summary>The optional bounded-region capability, available on opted-in renderers.</summary>
+    public IRenderMeshRegionReplacement? MeshRegionReplacement { get; }
 
     public RendererSnapshot Read() => _admission.Read();
 
@@ -125,7 +151,8 @@ public sealed partial class D3D12Renderer : IRenderer
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException("The Direct3D 12 provider requires Windows 11 x64.");
         var meshFence = context.StopControl as IRuntimeAdmissionFence;
-        if (MeshReplacement is not null && meshFence is null)
+        var replacesGeometry = _admission.MeshRegionReplacement is not null;
+        if (replacesGeometry && meshFence is null)
             throw new ArgumentException("Mesh replacement requires a runtime admission fence.", nameof(context));
 
         var timestamp = context.Clock.GetTimestamp();
@@ -133,7 +160,7 @@ public sealed partial class D3D12Renderer : IRenderer
         {
             _admission.MarkInitialized();
             _context = context;
-            _meshRuntimeFence = MeshReplacement is null ? null : meshFence;
+            _meshRuntimeFence = replacesGeometry ? meshFence : null;
             _faultTimestamp = timestamp;
         }
 
@@ -245,7 +272,7 @@ public sealed partial class D3D12Renderer : IRenderer
         {
             _admission.BeginStop();
             _admission.MarkStopped();
-            _meshes = null;
+            _initialGeometry = null;
             _wake?.Dispose();
             _wake = null;
             _ready.TrySetResult();
@@ -310,15 +337,35 @@ public sealed partial class D3D12Renderer : IRenderer
         }
     }
 
-    private sealed class MeshReplacementPort(D3D12Renderer owner, RendererFrameAdmission.MeshPairAdmission admission)
-        : IRenderMeshReplacement
+    private static RenderMeshRegion AsRegion(RenderMeshPair pair)
+    {
+        ArgumentNullException.ThrowIfNull(pair);
+        return new RenderMeshRegion([pair.First, pair.Second]);
+    }
+
+    private sealed class MeshReplacementPort(MeshRegionReplacementPort port) : IRenderMeshReplacement
+    {
+        public MeshReplacementSubmissionResult TryDeclareMeshGeneration(ulong generation) =>
+            port.TryDeclareMeshGeneration(generation);
+
+        public MeshReplacementSubmissionResult TrySubmitMeshPair(ulong generation, RenderMeshPair? pair)
+        {
+            var result = port.TrySubmitMeshRegion(generation, pair is null ? null : AsRegion(pair));
+            return result == MeshReplacementSubmissionResult.InvalidRegion ? MeshReplacementSubmissionResult.InvalidPair : result;
+        }
+
+        public MeshReplacementSnapshot ReadMeshReplacement() => port.ReadMeshReplacement();
+    }
+
+    private sealed class MeshRegionReplacementPort(D3D12Renderer owner, RendererFrameAdmission.MeshRegionAdmission admission)
+        : IRenderMeshRegionReplacement
     {
         public MeshReplacementSubmissionResult TryDeclareMeshGeneration(ulong generation) =>
             admission.TryDeclareMeshGeneration(generation);
 
-        public MeshReplacementSubmissionResult TrySubmitMeshPair(ulong generation, RenderMeshPair? pair)
+        public MeshReplacementSubmissionResult TrySubmitMeshRegion(ulong generation, RenderMeshRegion? region)
         {
-            var result = admission.TrySubmitMeshPair(generation, pair);
+            var result = admission.TrySubmitMeshRegion(generation, region);
             if (result == MeshReplacementSubmissionResult.Accepted)
                 owner.Wake();
             return result;

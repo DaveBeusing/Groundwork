@@ -32,7 +32,7 @@ public sealed partial class D3D12Renderer
                 return;
 
             gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
-                Interlocked.Exchange(ref _meshes, null), _retirementHooks);
+                retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null));
             Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
                 gpu.DredEnabled, null, null));
             var snapshot = target.Read();
@@ -73,7 +73,7 @@ public sealed partial class D3D12Renderer
         }
         finally
         {
-            _meshes = null;
+            _initialGeometry = null;
             CloseAdmission();
             _ready.TrySetResult();
             SettleOwner(gpu, chain, target, lifetime, watchdog);
@@ -170,7 +170,7 @@ public sealed partial class D3D12Renderer
                 redraw = true;
             }
 
-            if (_admission.MeshReplacement is { } meshes && meshes.TryTake(out var candidate))
+            if (_admission.MeshRegionReplacement is { } meshes && meshes.TryTake(out var candidate))
             {
                 stage = RendererStage.MeshReplacement;
                 frameSequence = current?.Sequence;
@@ -228,7 +228,7 @@ public sealed partial class D3D12Renderer
                 break;
             if (result == PresentResult.Presented)
             {
-                if (frame.Scene.HasValue && _admission.MeshReplacement is { } meshAdmission)
+                if (frame.Scene.HasValue && _admission.MeshRegionReplacement is { } meshAdmission)
                     meshAdmission.RecordPresented(frame.Sequence, meshAdmission.ReadMeshReplacement().InstalledGeneration);
                 else
                     _admission.RecordPresented(frame.Sequence);
@@ -246,8 +246,8 @@ public sealed partial class D3D12Renderer
     }
 
     private bool TryInstallMesh(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,
-        RendererWatchdog watchdog, RendererFrameAdmission.MeshPairAdmission meshes,
-        RendererFrameAdmission.MeshPairAdmission.Candidate candidate)
+        RendererWatchdog watchdog, RendererFrameAdmission.MeshRegionAdmission meshes,
+        RendererFrameAdmission.MeshRegionAdmission.Candidate candidate)
     {
         GpuDevice.MeshGeometry? prepared = null;
         var retry = false;
@@ -266,7 +266,7 @@ public sealed partial class D3D12Renderer
             if (!gpu.IsIdle)
                 throw new InvalidOperationException("Cannot replace geometry before GPU retirement.");
 
-            prepared = gpu.PrepareMeshGeometry(candidate.Pair);
+            prepared = gpu.PrepareMeshGeometry(candidate.Region);
             _beforeMeshInstallation?.Invoke(gpu);
             var installed = meshes.TryInstall<GpuDevice.MeshGeometry?>(candidate, ref gpu.ActiveMeshGeometry, ref prepared,
                 () => CanCommitMesh(target, operation.Snapshot, watchdog));

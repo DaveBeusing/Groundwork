@@ -46,7 +46,8 @@ jobs:
           foreach ($test in @('ClearWritesTheExpectedRgbaAndDepth', 'AsymmetricWorldViewAndProjectionPutTheCubeAtThePredictedPixel',
             'DepthReadbackPreservesTheNearCubeWhenTheFarCubeDrawsLast',
             'WarpTerrainReadbackDrawsBothMeshesAndPreservesNearestDepth',
-            'WarpMeshReplacementReadbackDrawsTheNewPairWithDepth')) {
+            'WarpMeshReplacementReadbackDrawsTheNewPairWithDepth',
+            'WarpRegionReplacementReadbackKeepsTheSeamAndClearsLeavingGeometry')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }
 
