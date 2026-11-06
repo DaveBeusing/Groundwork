@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "b0c3a94c97fb8d65481c91b0545c0c9e53d6500c",
+  "buildId": "g00.0f812a0295874a7395beb9f71b7afc30",
+  "buildConfiguration": "Release",
+  "generatedAtUtc": "2026-11-06T08:06:38.2948285Z",
+  "packages": [
+    {
+      "packageId": "Groundwork.Core",
+      "packageVersion": "0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30",
+      "filename": "Groundwork.Core.0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30.nupkg",
+      "sha256": "7DD7BB26F34A470366A2889B70B504ECEC6A16ED322A2B706053AD5B9EC03CE4",
+      "sizeBytes": 85540
+    },
+    {
+      "packageId": "Groundwork.Platform.Windows",
+      "packageVersion": "0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30",
+      "filename": "Groundwork.Platform.Windows.0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30.nupkg",
+      "sha256": "C0DD2902C8AEC1FF23DD40654FEBD78BDC745893C837B212BAA639AC3DEE5CFD",
+      "sizeBytes": 19863
+    },
+    {
+      "packageId": "Groundwork.Simulation",
+      "packageVersion": "0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30",
+      "filename": "Groundwork.Simulation.0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30.nupkg",
+      "sha256": "3F5301F727B0C5F86DD56A8B1979AD408719FE3F6A2002F4C43433E58011D484",
+      "sizeBytes": 13258
+    },
+    {
+      "packageId": "Groundwork.Ecs",
+      "packageVersion": "0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30",
+      "filename": "Groundwork.Ecs.0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30.nupkg",
+      "sha256": "C7A28AF61C3222D35325870E12BAA5DCADA5E5931C83BC85D427C85F96278719",
+      "sizeBytes": 33385
+    },
+    {
+      "packageId": "Groundwork.Jobs",
+      "packageVersion": "0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30",
+      "filename": "Groundwork.Jobs.0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30.nupkg",
+      "sha256": "B89418F374178DAA1FED77385E21E9DA186BEED64BB9F4BC1DCBF74B4A02BBF7",
+      "sizeBytes": 23607
+    },
+    {
+      "packageId": "Groundwork.Diagnostics",
+      "packageVersion": "0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30",
+      "filename": "Groundwork.Diagnostics.0.1.0-dev.g00.0f812a0295874a7395beb9f71b7afc30.nupkg",
+      "sha256": "2F51B444A7BBB488E9873DFE390D40EF28201F96973E6000EA319404D964DE9F",
+      "sizeBytes": 12035
+    }
+  ]
+}

@@ -4,6 +4,10 @@
 **Owners:** C00, L2, L3A, L3B and L5  
 **Trace:** [Groundwork #1](https://github.com/DaveBeusing/Groundwork/issues/1), [#8](https://github.com/DaveBeusing/Groundwork/issues/8)
 
+The [WP01 handover](../wp01-handover.md) records the shipped diagnostics and
+supervision paths and the composed recovery regression. The recovery boundary
+is between settled ticks. An interrupted active tick stops and fences publication.
+
 ## Context
 
 Aborting the entire game for each recoverable worker error sacrifices availability; silently continuing with partly committed mutations corrupts state. Error paths must be observable and consistency-preserving.

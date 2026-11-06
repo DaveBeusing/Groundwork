@@ -11,6 +11,9 @@ See docs/build-bootstrap.md for prerequisites, build commands, package
 identity/provenance policy, ownership boundaries and verification limitations.
 Changes are made through scoped PRs targeting master.
 
+The [WP01 foundation handover](docs/wp01-handover.md) records the verified
+engine and WYU baselines, reproduction steps and WP02 entry conditions.
+
 ## License
 
 Groundwork is licensed under the [Apache License, Version 2.0](LICENSE)

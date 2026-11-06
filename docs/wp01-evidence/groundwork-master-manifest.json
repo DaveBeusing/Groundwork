@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "sourceCommit": "b0c3a94c97fb8d65481c91b0545c0c9e53d6500c",
+  "buildId": "42139767186.1",
+  "buildConfiguration": "Release",
+  "generatedAtUtc": "2026-11-06T00:52:06.8286639Z",
+  "packages": [
+    {
+      "packageId": "Groundwork.Core",
+      "packageVersion": "0.1.0-dev.42139767186.1",
+      "filename": "Groundwork.Core.0.1.0-dev.42139767186.1.nupkg",
+      "sha256": "01ECDA248687AB35E74220A4A31E80292B888CB579773DE79B1FD856FF870DFD",
+      "sizeBytes": 85448
+    },
+    {
+      "packageId": "Groundwork.Platform.Windows",
+      "packageVersion": "0.1.0-dev.42139767186.1",
+      "filename": "Groundwork.Platform.Windows.0.1.0-dev.42139767186.1.nupkg",
+      "sha256": "88ED515833698E1F70BCFC6BE458BDBB8A0265F595AB8D56BC5DF69E63932C7B",
+      "sizeBytes": 19762
+    },
+    {
+      "packageId": "Groundwork.Simulation",
+      "packageVersion": "0.1.0-dev.42139767186.1",
+      "filename": "Groundwork.Simulation.0.1.0-dev.42139767186.1.nupkg",
+      "sha256": "03D37352735786C35A7791FCE5CC9224CCC77C112920A696F79AD4B51D06600F",
+      "sizeBytes": 13170
+    },
+    {
+      "packageId": "Groundwork.Ecs",
+      "packageVersion": "0.1.0-dev.42139767186.1",
+      "filename": "Groundwork.Ecs.0.1.0-dev.42139767186.1.nupkg",
+      "sha256": "FB05C02FEA87D428E6E007C0BEB3F8E21E5A7DBB18596493DE5ED31E7B0CA07E",
+      "sizeBytes": 33297
+    },
+    {
+      "packageId": "Groundwork.Jobs",
+      "packageVersion": "0.1.0-dev.42139767186.1",
+      "filename": "Groundwork.Jobs.0.1.0-dev.42139767186.1.nupkg",
+      "sha256": "F1B5848454E3248D0D0A849BE8230D295F61159678D6B25ACEEDEABBB509B4A5",
+      "sizeBytes": 23497
+    },
+    {
+      "packageId": "Groundwork.Diagnostics",
+      "packageVersion": "0.1.0-dev.42139767186.1",
+      "filename": "Groundwork.Diagnostics.0.1.0-dev.42139767186.1.nupkg",
+      "sha256": "6C1299362196FA1A90E6FC963D7E1390C2CC20509AD6A83599A5835B5FC92157",
+      "sizeBytes": 11929
+    }
+  ]
+}
