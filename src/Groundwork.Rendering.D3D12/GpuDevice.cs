@@ -22,9 +22,12 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private int _depthHeight;
     private int _nextFrame;
     private GpuRetirement _retirement;
+    private readonly GpuRetirementTestHooks? _retirementHooks;
 
-    internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null)
+    internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
+        GpuRetirementTestHooks? retirementHooks = null)
     {
+        _retirementHooks = retirementHooks;
         try
         {
             fixed (IDXGIFactory4** factory = &_factory)
@@ -79,7 +82,20 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     internal ID3D12CommandQueue* Queue => _queue;
     internal int RemovedReason => _device == null ? 0 : _device->GetDeviceRemovedReason().Value;
     internal bool IsRemoved => RemovedReason < 0;
-    internal bool IsIdle => _fence != null && _retirement.IsIdle(_fence->GetCompletedValue());
+    internal bool IsIdle => _fence != null && _retirement.IsIdle(ReadCompletedValue());
+
+    private ulong ReadCompletedValue()
+    {
+        var completed = _fence->GetCompletedValue();
+        if (_retirementHooks?.CompletedValue is not { } observe)
+            return completed;
+
+        // A test may hide completion or inject the sentinel, but it cannot
+        // fabricate successful retirement or hide an actual removal sentinel.
+        var observed = observe(this, completed);
+        return completed == ulong.MaxValue || observed == ulong.MaxValue
+            ? ulong.MaxValue : Math.Min(completed, observed);
+    }
 
     internal GpuTarget Attach(ID3D12Resource* backBuffer, int width, int height)
     {
@@ -109,7 +125,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     private bool TryRender(GpuTarget target, in RenderFrame frame, RenderScene? subsequent, Readback? readback)
     {
-        var completed = _fence->GetCompletedValue();
+        var completed = ReadCompletedValue();
         if (completed == ulong.MaxValue)
             throw new GpuNativeException("Read GPU retirement fence after device removal", RemovedReason);
         var context = _frames[_nextFrame];
@@ -132,6 +148,12 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal HRESULT SignalQueueWork(ulong value)
     {
+        if (_retirementHooks?.SignalFailure?.Invoke(this, value) is int failure)
+        {
+            ArgumentOutOfRangeException.ThrowIfGreaterThanOrEqual(failure, 0);
+            return new HRESULT(failure);
+        }
+
         var result = _queue->Signal(_fence, value);
         if (result.Value >= 0)
             _retirement.CompleteSignal(value);
