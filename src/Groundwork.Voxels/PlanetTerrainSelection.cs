@@ -3,14 +3,23 @@ namespace Groundwork.Voxels;
 /// <summary>A visible leaf and the edges stitched to coarser neighbors.</summary>
 public readonly record struct PlanetTerrainTile(PlanetPatchKey Patch, PlanetTransitionEdges Transitions, bool SupportsCollision);
 
+public enum PlanetTerrainView { Near, Far }
+
 /// <summary>An immutable, balanced cover of the six cube faces.</summary>
 public sealed class PlanetTerrainPlan
 {
     private readonly PlanetTerrainTile[] _tiles;
 
-    internal PlanetTerrainPlan(PlanetTerrainTile[] tiles) => _tiles = tiles;
+    internal PlanetTerrainPlan(PlanetTerrainTile[] tiles, PlanetTerrainView view = PlanetTerrainView.Near, ulong editRevision = 0)
+    {
+        _tiles = tiles;
+        View = view;
+        EditRevision = editRevision;
+    }
 
     public ReadOnlySpan<PlanetTerrainTile> Tiles => _tiles;
+    public PlanetTerrainView View { get; }
+    public ulong EditRevision { get; }
 }
 
 /// <summary>Selects a bounded six-face terrain cover around a planet-centered observer.</summary>
@@ -26,6 +35,9 @@ public static class PlanetTerrainSelection
     private const int Intervals = PlanetCoordinates.IntervalsPerPatch;
     private static readonly PlanetFace[] Faces = Enum.GetValues<PlanetFace>();
     private static readonly PlanetEdge[] Edges = Enum.GetValues<PlanetEdge>();
+    private static readonly PlanetTerrainTile[] FarTiles = Faces
+        .Select(face => new PlanetTerrainTile(new(face, 0, 0, 0), PlanetTransitionEdges.None, SupportsCollision: false))
+        .ToArray();
 
     /// <summary>
     /// Selects a plan using the radius of the reference sphere in meters. Refinement compares
@@ -33,7 +45,32 @@ public static class PlanetTerrainSelection
     /// use a larger threshold so a stationary observer near a boundary retains its plan.
     /// Returns false when the balanced cover would exceed the leaf budget.
     /// </summary>
-    public static bool TrySelect(PlanetVector position, double radius, PlanetTerrainPlan? previous, out PlanetTerrainPlan? plan)
+    public static bool TrySelect(PlanetVector position, double radius, PlanetTerrainPlan? previous, out PlanetTerrainPlan? plan) =>
+        TrySelectNear(position, radius, previous, 0, out plan);
+
+    /// <summary>Selects the WP09 cover. Pass the last presented plan for altitude hysteresis.
+    /// The near cover is centered on the predicted landing direction.</summary>
+    public static bool TrySelectFlight(PlanetVector craftPosition, PlanetVector landingDirection, ulong editRevision,
+        PlanetTerrainPlan? presented, out PlanetTerrainPlan? plan)
+    {
+        _ = PlanetCoordinates.Project(craftPosition);
+        var (x, y, z) = craftPosition;
+        var radiusSquared = x * x + y * y + z * z;
+        const double enterFar = PlanetFlight.ReferenceRadius + 20;
+        const double enterNear = PlanetFlight.ReferenceRadius + 16;
+        var far = presented?.View == PlanetTerrainView.Far ? radiusSquared > enterNear * enterNear :
+            radiusSquared >= enterFar * enterFar;
+        if (far)
+        {
+            plan = new PlanetTerrainPlan(FarTiles, PlanetTerrainView.Far, editRevision);
+            return true;
+        }
+
+        return TrySelectNear(landingDirection, PlanetFlight.ReferenceRadius, presented, editRevision, out plan);
+    }
+
+    private static bool TrySelectNear(PlanetVector position, double radius, PlanetTerrainPlan? previous, ulong editRevision,
+        out PlanetTerrainPlan? plan)
     {
         if (!double.IsFinite(radius) || radius <= 0)
             throw new ArgumentOutOfRangeException(nameof(radius));
@@ -45,7 +82,7 @@ public static class PlanetTerrainSelection
         var y = position.Y / scale;
         var z = position.Z / scale;
         var length = Math.Sqrt(x * x + y * y + z * z);
-        return new Selection(new PlanetVector(x / length, y / length, z / length), radius, previous).TryBuild(out plan);
+        return new Selection(new PlanetVector(x / length, y / length, z / length), radius, previous).TryBuild(editRevision, out plan);
     }
 
     private static PlanetPatchKey Parent(PlanetPatchKey patch) =>
@@ -97,7 +134,7 @@ public static class PlanetTerrainSelection
             }
         }
 
-        internal bool TryBuild(out PlanetTerrainPlan? plan)
+        internal bool TryBuild(ulong editRevision, out PlanetTerrainPlan? plan)
         {
             plan = null;
             foreach (var face in Faces)
@@ -119,7 +156,7 @@ public static class PlanetTerrainSelection
                 .ThenBy(patch => patch.TileV).ThenBy(patch => patch.TileU)
                 .Select(patch => new PlanetTerrainTile(patch, GetTransitions(patch), _support.Contains(patch)))
                 .ToArray();
-            plan = new PlanetTerrainPlan(tiles);
+            plan = new PlanetTerrainPlan(tiles, editRevision: editRevision);
             return true;
         }
 

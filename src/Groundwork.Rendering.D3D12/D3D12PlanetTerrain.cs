@@ -9,6 +9,7 @@ public sealed partial class D3D12Renderer
 {
     private readonly bool _planetTerrain;
     private WeakReference<PlanetTerrainLease>? _submittedTerrain;
+    private PlanetTerrainStamp _submittedTerrainStamp;
 
     /// <summary>Creates a renderer whose terrain regions and camera frames are published together.</summary>
     public static D3D12Renderer CreateWithPlanetTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
@@ -18,13 +19,14 @@ public sealed partial class D3D12Renderer
 
     internal D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership,
         D3D12DiagnosticsOptions diagnostics, bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout,
-        GpuRetirementTestHooks? retirementHooks)
+        GpuRetirementTestHooks? retirementHooks, Action<GpuDevice>? beforeMeshInstallation = null)
         : this(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
     {
         _planetTerrain = true;
         _admission = RendererFrameAdmission.CreateWithPairedRegionFrames();
         _initialGeometry = new RenderMeshRegion([new(RenderMesh.Create([], []), Vector3.Zero)]);
         _retirementHooks = retirementHooks;
+        _beforeMeshInstallation = beforeMeshInstallation;
     }
 
     /// <summary>Copies a complete staged terrain lease and the camera in its local origin into a bounded submission.</summary>
@@ -49,17 +51,27 @@ public sealed partial class D3D12Renderer
         if (result == MeshReplacementSubmissionResult.Accepted)
         {
             _submittedTerrain = new WeakReference<PlanetTerrainLease>(lease);
+            _submittedTerrainStamp = lease.Stamp;
             Wake();
         }
         return result;
     }
 
     /// <summary>Checks a submitted lease and sequence before its owner acknowledges collision publication.</summary>
-    public bool WasPlanetTerrainPresented(PlanetTerrainLease lease, ulong sequence)
+    public bool WasPlanetTerrainPresented(PlanetTerrainLease lease, ulong sequence) =>
+        TryReadPresentedPlanetTerrain(lease, sequence, out _);
+
+    /// <summary>Reports the stamp of the exact mesh and camera frame that successfully presented.</summary>
+    public bool TryReadPresentedPlanetTerrain(PlanetTerrainLease lease, ulong sequence, out PlanetTerrainStamp stamp)
     {
         ArgumentNullException.ThrowIfNull(lease);
-        return _submittedTerrain?.TryGetTarget(out var submitted) == true && ReferenceEquals(submitted, lease) &&
-            _admission.MeshRegionReplacement!.WasPresented(lease.Generation, sequence);
+        stamp = default;
+        if (_submittedTerrain?.TryGetTarget(out var submitted) != true || !ReferenceEquals(submitted, lease) ||
+            !_admission.MeshRegionReplacement!.WasPresented(_submittedTerrainStamp.Generation, sequence))
+            return false;
+
+        stamp = _submittedTerrainStamp;
+        return true;
     }
 
     /// <summary>Updates the view from an active lease without rebuilding its geometry.</summary>
@@ -68,7 +80,7 @@ public sealed partial class D3D12Renderer
         Vector4 tint, Vector4 clearColor)
     {
         ArgumentNullException.ThrowIfNull(lease);
-        if (!_planetTerrain)
+        if (!_planetTerrain || lease.Stamp != _submittedTerrainStamp)
             return RenderSubmissionResult.InvalidFrame;
 
         var frame = CreatePlanetFrame(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor);

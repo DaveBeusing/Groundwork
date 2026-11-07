@@ -49,7 +49,8 @@ jobs:
             'WarpMeshReplacementReadbackDrawsTheNewPairWithDepth',
             'WarpRegionReplacementReadbackKeepsTheSeamAndClearsLeavingGeometry',
             'WarpRegionReadbackUsesVertexColorsAndPreservesNearestDepth',
-            'WarpPlanetTerrainReadbackSurvivesLodAndOriginChange')) {
+            'WarpPlanetTerrainReadbackSurvivesLodAndOriginChange',
+            'WarpFlightTerrainReadbackSurvivesBothViewAndOriginTransitions')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }
 

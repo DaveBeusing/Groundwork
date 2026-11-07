@@ -6,19 +6,24 @@ namespace Groundwork.Voxels;
 /// <summary>An outstanding mesh reservation. The worker builds the indicated immutable tile.</summary>
 public readonly record struct PlanetTerrainWork
 {
-    internal PlanetTerrainWork(object owner, ulong generation, int index, PlanetTerrainTile tile)
+    internal PlanetTerrainWork(object owner, ulong generation, int index, PlanetTerrainTile tile, ulong editRevision)
     {
         Owner = owner;
         Generation = generation;
         Index = index;
         Tile = tile;
+        EditRevision = editRevision;
     }
 
     internal object? Owner { get; }
     internal int Index { get; }
     public ulong Generation { get; }
     public PlanetTerrainTile Tile { get; }
+    public ulong EditRevision { get; }
 }
+
+/// <summary>The origin, view and edit snapshot used to build a terrain generation.</summary>
+public readonly record struct PlanetTerrainStamp(ulong Generation, PlanetLocalFrame Frame, PlanetTerrainView View, ulong EditRevision);
 
 /// <summary>
 /// Coordinates terrain generation on one owning thread. Workers can build reserved tiles
@@ -66,7 +71,9 @@ public sealed class PlanetTerrainCoordinator
         ArgumentNullException.ThrowIfNull(plan);
         if (frame.Revision == 0)
             throw new ArgumentException("Create a local frame before staging terrain.", nameof(frame));
-        if (_stopped || _presentation is { IsPinned: true })
+        if (_stopped || _presentation is { IsPinned: true } ||
+            plan.EditRevision < (_active?.Plan.EditRevision ?? 0) ||
+            plan.EditRevision < (_staged?.Plan.EditRevision ?? 0))
             return false;
         if (_active is { Frame: var current } &&
             (frame.Revision < current.Revision || frame.Revision == current.Revision && frame != current))
@@ -93,7 +100,7 @@ public sealed class PlanetTerrainCoordinator
 
         var slot = Array.FindIndex(_work, static item => item.Owner is null);
         var index = staged.NextTile++;
-        work = new PlanetTerrainWork(_owner, staged.Id, index, staged.Plan.Tiles[index]);
+        work = new PlanetTerrainWork(_owner, staged.Id, index, staged.Plan.Tiles[index], staged.Plan.EditRevision);
         _work[slot] = work;
         InFlightMeshCount++;
         return true;
@@ -231,6 +238,7 @@ public sealed class PlanetTerrainLease : IPlanetSurface, IDisposable
     }
     public ulong Generation => Data.Id;
     public PlanetLocalFrame Frame => Data.Frame;
+    public PlanetTerrainStamp Stamp => new(Data.Id, Data.Frame, Data.Plan.View, Data.Plan.EditRevision);
     public Vector3 CameraPosition
     {
         get
