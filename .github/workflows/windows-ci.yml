@@ -47,7 +47,8 @@ jobs:
             'DepthReadbackPreservesTheNearCubeWhenTheFarCubeDrawsLast',
             'WarpTerrainReadbackDrawsBothMeshesAndPreservesNearestDepth',
             'WarpMeshReplacementReadbackDrawsTheNewPairWithDepth',
-            'WarpRegionReplacementReadbackKeepsTheSeamAndClearsLeavingGeometry')) {
+            'WarpRegionReplacementReadbackKeepsTheSeamAndClearsLeavingGeometry',
+            'WarpRegionReadbackUsesVertexColorsAndPreservesNearestDepth')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }
 
