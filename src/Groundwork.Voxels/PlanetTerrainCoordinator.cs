@@ -66,7 +66,7 @@ public sealed class PlanetTerrainCoordinator
         ArgumentNullException.ThrowIfNull(plan);
         if (frame.Revision == 0)
             throw new ArgumentException("Create a local frame before staging terrain.", nameof(frame));
-        if (_stopped)
+        if (_stopped || _presentation is { IsPinned: true })
             return false;
         if (_active is { Frame: var current } &&
             (frame.Revision < current.Revision || frame.Revision == current.Revision && frame != current))
@@ -186,6 +186,9 @@ public sealed class PlanetTerrainCoordinator
             _presentation = null;
     }
 
+    internal bool CanPinPresentation(PlanetTerrainLease lease) =>
+        !_stopped && _staged is not null && _presentation == lease && lease.Data == _staged;
+
     private int CountLeasedPatches(PlanetTerrainGeneration? countedStage)
     {
         var reader = _reader?.Data;
@@ -248,7 +251,24 @@ public sealed class PlanetTerrainLease : IPlanetSurface, IDisposable
         return _isActive && data.Surface.TryGetSupport(direction, out support);
     }
 
-    internal void MarkActive() => _isActive = true;
+    internal bool IsPinned { get; private set; }
+
+    /// <summary>Prevents superseding this candidate while a renderer can present it.</summary>
+    /// <remarks>Keep this lease until the presentation is acknowledged or the renderer has stopped.</remarks>
+    public bool TryPinPresentation()
+    {
+        if (_owner?.CanPinPresentation(this) != true)
+            return false;
+
+        IsPinned = true;
+        return true;
+    }
+
+    internal void MarkActive()
+    {
+        IsPinned = false;
+        _isActive = true;
+    }
 
     public void Dispose()
     {

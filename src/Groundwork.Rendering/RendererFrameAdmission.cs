@@ -11,6 +11,7 @@ public sealed partial class RendererFrameAdmission
     private RenderFrame? _pending;
     private ulong _takenSequence;
     private bool _takenFrameHasScene;
+    private bool _pairedRegionFrames;
 
     public RendererSnapshot Read()
     {
@@ -40,7 +41,9 @@ public sealed partial class RendererFrameAdmission
         }
     }
 
-    public RenderSubmissionResult TrySubmit(in RenderFrame frame)
+    public RenderSubmissionResult TrySubmit(in RenderFrame frame) => TrySubmit(frame, pairedGeneration: 0);
+
+    private RenderSubmissionResult TrySubmit(in RenderFrame frame, ulong pairedGeneration)
     {
         lock (_gate)
         {
@@ -54,7 +57,8 @@ public sealed partial class RendererFrameAdmission
                 return RenderSubmissionResult.NotRunning;
             }
 
-            if (!frame.IsValid)
+            if (!frame.IsValid || (_pairedRegionFrames &&
+                (!frame.Scene.HasValue || !MeshRegionReplacement!.CanUpdatePairedCamera(pairedGeneration))))
             {
                 return RenderSubmissionResult.InvalidFrame;
             }
