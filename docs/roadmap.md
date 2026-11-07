@@ -23,15 +23,15 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 | WP04 · Editable terrain (complete) | Revision-based rebuild of both neighboring meshes, atomic replacement and safe GPU retirement | Repeatable voxel edit at the existing chunk boundary | [Clean Windows integration handover](wp04-handover.md) |
 | WP05 · Walkable region (complete) | Bounded chunk loading, meshing, unloading and collision queries for active terrain | First-person movement in a small seeded region | [Clean Windows integration handover](wp05-handover.md) |
 | WP06 · Durable world changes (complete) | Versioned storage for seed, generator version and terrain edits, with interrupted-write recovery | Save and resume position, inventory and edited terrain | [Windows handover](wp06-handover.md) and [format and recovery contract](architecture/wp06-save-recovery-contract.md) |
-| WP07 · Playable prototype | Stable interfaces and diagnostics for the features the game exercises | Explore the landing region, mine stone and assemble a rescue beacon | [Windows handover and playtest outcomes](wp07-handover.md) and [prototype contract](architecture/wp07-playable-prototype-contract.md) |
-| WP08 · Spherical planet | Planet coordinates, local precision, consistent gravity and terrain detail transitions | Traversable route on a small spherical world | A reproducible route crosses region and detail boundaries without visible cracks, collision gaps or control jumps. |
+| WP07 · Playable prototype (complete) | Stable interfaces and diagnostics for the features the game exercises | Explore the landing region, mine stone and assemble a rescue beacon | [Windows handover and playtest outcomes](wp07-handover.md) and [prototype contract](architecture/wp07-playable-prototype-contract.md) |
+| WP08 · Spherical planet | Planet coordinates, local precision, consistent gravity and terrain detail transitions | Traversable route on a small spherical world | [Proposed spherical planet contract](architecture/wp08-spherical-planet-contract.md) |
 | WP09 · Surface to orbit | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to an edited landing site | A complete flight succeeds without a scene switch. Landing position and saved terrain edits agree on return. |
 | WP10 · Windows alpha | Stability, diagnostics, package compatibility and reproducible builds | Installable single-player build, onboarding, settings and a complete test mission | Installation and mission pass on a clean Windows system. Supported hardware and known limitations are documented. |
 
 ## Planning and verification
 
 - Detail the next milestone before implementation. Review the
-  [WP07 playable prototype contract](architecture/wp07-playable-prototype-contract.md).
+  [WP08 spherical planet contract](architecture/wp08-spherical-planet-contract.md).
   Each contract states ownership, failure behavior, budgets and acceptance.
 - The WP06 address probe distinguishes flat save addresses from a future
   planetary address domain. Planet implementation remains in WP08.
