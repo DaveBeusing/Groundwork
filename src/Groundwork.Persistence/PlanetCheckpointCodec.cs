@@ -73,13 +73,13 @@ public static class PlanetCheckpointCodec
         }
 
         if (!supportsGenerator(recipe.GeneratorId, recipe.GeneratorVersion))
-            return new(SaveReadStatus.UnsupportedGenerator, frame.Identity, SchemaVersion);
+            return new(SaveReadStatus.UnsupportedGenerator, frame.Identity, SchemaVersion) { Recipe = recipe };
 
         var edits = new PlanetHeightEdit[(int)count];
         for (var i = 0; i < edits.Length; i++)
             edits[i] = ReadEdit(bytes[(HeaderBytes + i * EditBytes)..]);
         return new(SaveReadStatus.Valid, frame.Identity, SchemaVersion,
-            new PlanetCheckpoint(frame.Identity!.Value, recipe, pose, edits));
+            new PlanetCheckpoint(frame.Identity!.Value, recipe, pose, edits)) { Recipe = recipe };
     }
 
     private static PlanetHeightEdit ReadEdit(ReadOnlySpan<byte> bytes) =>
