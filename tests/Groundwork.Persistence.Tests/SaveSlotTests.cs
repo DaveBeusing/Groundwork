@@ -271,6 +271,25 @@ public sealed class SaveSlotTests
     }
 
     [TestMethod]
+    public void FlatSlotPreservesARealPlanetaryCheckpoint()
+    {
+        using var files = new SlotDirectory();
+        var first = Checkpoint(1, 1);
+        files.Put(FirstFile, first);
+        var identity = Checkpoint(2, 2).Identity;
+        var planetary = PlanetCheckpointCodec.Encode(new PlanetCheckpoint(identity, new(1, 1, 0x57505538),
+            new(new(64, 0, 0), PlanetFlightOrientation.Identity), [new(new(512, 0, 0), 120)]));
+        File.WriteAllBytes(files.PathOf(SecondFile), planetary);
+        Assert.AreEqual(SaveReadStatus.UnsupportedSchema, SaveCodec.Decode(planetary, static (_, _) => null).Status);
+        var slot = files.Open();
+        Assert.AreEqual(SaveSlotStatus.Unsupported, slot.Load().Status);
+        Assert.AreEqual(SaveSlotStatus.Unsupported, slot.Save(1, Checkpoint(2, 3)).Status);
+        files.AssertFrame(FirstFile, first);
+        CollectionAssert.AreEqual(planetary, File.ReadAllBytes(files.PathOf(SecondFile)));
+        Assert.IsFalse(File.Exists(files.PathOf(CandidateFile)));
+    }
+
+    [TestMethod]
     [DataRow("lineage")]
     [DataRow("generation")]
     [DataRow("recipe")]

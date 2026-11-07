@@ -14,11 +14,11 @@ public static class SaveCodec
 
     private const ushort FramingVersion = 1;
     private const ushort SchemaVersion = 1;
-    private const int PrefixBytes = 56;
+    internal const int PrefixBytes = 56;
     private const int HeaderBytes = 100;
     private const int ChunkHeaderBytes = 16;
     private const int CellRecordBytes = 4;
-    private const int DigestBytes = 32;
+    internal const int DigestBytes = 32;
     private static ReadOnlySpan<byte> Magic => "GWSAVE01"u8;
 
     /// <summary>Encodes a canonical checkpoint using the generator registered for its exact recipe.</summary>
@@ -26,8 +26,7 @@ public static class SaveCodec
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
         ArgumentNullException.ThrowIfNull(generator);
-        if (!IsValidIdentity(checkpoint.Identity))
-            throw new InvalidDataException("The checkpoint requires a nonzero commit identity.");
+        ValidateIdentity(checkpoint.Identity);
 
         TerrainOverlay.Validate(checkpoint.Recipe, checkpoint.Terrain, generator);
         var editCount = 0;
@@ -59,7 +58,7 @@ public static class SaveCodec
         }
 
         checkpoint.GamePayload.CopyTo(bytes.AsSpan(offset));
-        SHA256.HashData(bytes.AsSpan(0, length - DigestBytes), bytes.AsSpan(length - DigestBytes));
+        SealFrame(bytes);
         return bytes;
     }
 
@@ -68,6 +67,16 @@ public static class SaveCodec
     public static SaveReadResult Decode(ReadOnlySpan<byte> bytes, Func<uint, uint, ISaveTerrainGenerator?> resolveGenerator)
     {
         ArgumentNullException.ThrowIfNull(resolveGenerator);
+        var frame = ReadFrame(bytes);
+        if (frame.Status != SaveReadStatus.Valid)
+            return frame;
+        if (frame.SchemaVersion != SchemaVersion)
+            return new SaveReadResult(SaveReadStatus.UnsupportedSchema, frame.Identity, frame.SchemaVersion);
+        return DecodeSchemaOne(bytes, frame.Identity!.Value, resolveGenerator);
+    }
+
+    internal static SaveReadResult ReadFrame(ReadOnlySpan<byte> bytes)
+    {
         if (bytes.Length < 10 || !bytes[..8].SequenceEqual(Magic))
             return new SaveReadResult(SaveReadStatus.Malformed);
         if (ReadUInt16LittleEndian(bytes[8..]) != FramingVersion)
@@ -84,10 +93,7 @@ public static class SaveCodec
         var schema = ReadUInt16LittleEndian(bytes[10..]);
         if (schema == 0)
             return new SaveReadResult(SaveReadStatus.Malformed, identity, schema);
-        if (schema != SchemaVersion)
-            return new SaveReadResult(SaveReadStatus.UnsupportedSchema, identity, schema);
-
-        return DecodeSchemaOne(bytes, identity, resolveGenerator);
+        return new SaveReadResult(SaveReadStatus.Valid, identity, schema);
     }
 
     private static SaveReadResult DecodeSchemaOne(ReadOnlySpan<byte> bytes, SaveFrameIdentity identity,
@@ -198,15 +204,28 @@ public static class SaveCodec
     private static bool IsValidIdentity(SaveFrameIdentity identity) =>
         identity.Generation != 0 && identity.WorldLineageId != Guid.Empty && identity.SaveRequestId != Guid.Empty;
 
-    private static void WriteHeader(Span<byte> bytes, SaveCheckpoint checkpoint, int editCount)
+    internal static void ValidateIdentity(SaveFrameIdentity identity)
+    {
+        if (!IsValidIdentity(identity))
+            throw new InvalidDataException("The checkpoint requires a nonzero commit identity.");
+    }
+
+    internal static void SealFrame(Span<byte> bytes) => SHA256.HashData(bytes[..^DigestBytes], bytes[^DigestBytes..]);
+
+    internal static void WriteFramePrefix(Span<byte> bytes, SaveFrameIdentity identity, ushort schemaVersion)
     {
         Magic.CopyTo(bytes);
         WriteUInt16LittleEndian(bytes[8..], FramingVersion);
-        WriteUInt16LittleEndian(bytes[10..], SchemaVersion);
+        WriteUInt16LittleEndian(bytes[10..], schemaVersion);
         WriteUInt32LittleEndian(bytes[12..], (uint)bytes.Length);
-        WriteUInt64LittleEndian(bytes[16..], checkpoint.Identity.Generation);
-        checkpoint.Identity.WorldLineageId.TryWriteBytes(bytes.Slice(24, 16), bigEndian: true, out _);
-        checkpoint.Identity.SaveRequestId.TryWriteBytes(bytes.Slice(40, 16), bigEndian: true, out _);
+        WriteUInt64LittleEndian(bytes[16..], identity.Generation);
+        identity.WorldLineageId.TryWriteBytes(bytes.Slice(24, 16), bigEndian: true, out _);
+        identity.SaveRequestId.TryWriteBytes(bytes.Slice(40, 16), bigEndian: true, out _);
+    }
+
+    private static void WriteHeader(Span<byte> bytes, SaveCheckpoint checkpoint, int editCount)
+    {
+        WriteFramePrefix(bytes, checkpoint.Identity, SchemaVersion);
         var recipe = checkpoint.Recipe;
         WriteUInt32LittleEndian(bytes[56..], recipe.GeneratorId);
         WriteUInt32LittleEndian(bytes[60..], recipe.GeneratorVersion);
