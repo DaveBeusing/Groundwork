@@ -90,13 +90,55 @@ each reload two. All four processes reported zero errors, corruption,
 discarded messages and live GPU child objects, with successful
 live-object reporting and no device removal.
 
-## Open visual acceptance item
+## Landing pad visual acceptance
 
-WYU models the pad as raised terrain and shows the current phase in the
-window title. The contract also calls for a color and silhouette treatment
-that distinguishes the landing pad in the scene. That visual item remains
-open. The technical handover records the flight and persistence evidence
-separately from visual acceptance.
+WYU marks the raised 35° landing pad with an amber diamond and a dark
+outline in the near view. Groundwork samples color from canonical terrain
+coordinates and carries the color with the mesh and camera across origin
+changes. The far view uses muted terrain colors.
+
+The visual pass used fresh `master` checkouts, a fresh NuGet cache and
+the exact Groundwork version below. These commits follow the original
+flight qualification baselines recorded above.
+
+| Baseline | Exact identity | Evidence |
+| --- | --- | --- |
+| Groundwork renderer and package source | `565dd78c580419d7f0678337f443c894256cc1af` | [Groundwork PR #71](https://github.com/DaveBeusing/Groundwork/pull/71), [Windows CI](https://github.com/DaveBeusing/Groundwork/actions/runs/42420693798) |
+| WYU with the in-scene marking | `4cd373c0e534b205e8280201ae944b19327c3246` | [WYU PR #21](https://github.com/DaveBeusing/wyu/pull/21), [Windows CI](https://github.com/DaveBeusing/wyu/actions/runs/42421507998) |
+| Exact NuGet pin, all ten modules | `[0.1.0-dev.42420693798.1]` | [Immutable Groundwork archive](https://github.com/DaveBeusing/Groundwork/releases/tag/archive-groundwork-0.1.0-dev.42420693798.1-immutable) |
+
+All 13 downloaded release assets matched their published SHA-256 digests.
+
+| Provenance file | SHA-256 |
+| --- | --- |
+| Original producer ZIP | `4869B157251560E0587EF0644BDC2586059F9153A398C434A757959CCEA972B8` |
+| Package manifest | `1F313B6C086B6C68A738210A4A2D8378941EC43BB217CE9B7357170F67DC3FBD` |
+| Archive record | `D59DB1C8CC4BB1FBB22ECF106557D41008F94CCC4699BEA17D6ACBBA6B3A8A11` |
+
+The clean Groundwork Windows gate passed 395 tests. Two WARP readbacks
+and one NVIDIA readback with Debug Layer and DRED confirmed the pad
+color, diamond silhouette and terrain depth at three approach points.
+The amber cross-sections measured 22 × 24, 49 × 50 and 98 × 96 pixels in
+the 160 × 96 fixture on both adapters. Each readback reported six
+warnings and zero errors, corruption, discarded messages or live GPU
+child objects.
+
+On NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU
+(`10DE:2C38`, driver `32.0.15.9653`), the clean WYU build showed the
+entire amber diamond and dark outline in the actual descent view.
+The 1416 × 751 client capture contained 1,116 amber samples on a 4-pixel
+grid, spanning 185 × 185 pixels. The four corners of those bounds
+remained distinct from the amber fill. Capture SHA-256 was
+`94BC336902CB8AA26036419709ED0ACF810BE0CD1865DD8F4375EC437417C486`.
+
+The flight matched the pinned trace in 4,332 mission ticks and a fresh
+process restored the exact generation-2 landing pose and edit digest.
+Both ran with Debug Layer and DRED, closed the native window and released
+Core resources. The flight recorded 441 warnings and the reload two.
+Both reported zero errors, corruption, discarded messages and live GPU
+child objects. Live-object reporting returned `0x00000000`.
+The verified consumer build, host lifecycle and WP06/WP07 save recovery
+checks also passed.
 
 ## Reproduce
 
@@ -107,7 +149,7 @@ the Groundwork gate and the targeted D3D12 tests.
 $results = Join-Path ([IO.Path]::GetTempPath()) ('gw-wp09-' + [guid]::NewGuid().ToString('N'))
 ./scripts/Verify-Bootstrap.ps1 -TestResultsDirectory $results
 $project = 'tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj'
-dotnet test $project -c Release --no-build --no-restore --filter 'FullyQualifiedName~FlightTerrainReadback|FullyQualifiedName~FlightTransition'
+dotnet test $project -c Release --no-build --no-restore --filter 'FullyQualifiedName~FlightTerrainReadback|FullyQualifiedName~FlightTransition|FullyQualifiedName~LandingPad'
 ```
 
 From the WYU checkout, download the immutable archive and run the
@@ -116,12 +158,12 @@ separate processes and compares the pinned trace and checkpoints.
 
 ```powershell
 $archive = Join-Path ([IO.Path]::GetTempPath()) ('wyu-wp09-' + [guid]::NewGuid().ToString('N'))
-gh release download archive-groundwork-0.1.0-dev.42417550607.1-immutable `
+gh release download archive-groundwork-0.1.0-dev.42420693798.1-immutable `
   --repo DaveBeusing/Groundwork --dir $archive
 ./eng/Test-VerifiedGroundworkConsumer.ps1 -ArtifactDirectory $archive `
-  -ExpectedManifestSha256 1FA434525FFF4382D4C7485C8A8F32F1EB68D929A59A773152078B8A901AEAFB `
-  -ExpectedSourceCommit ae494c51eead61feb032ccdfdfed1089c04dc04a `
-  -ExpectedVersion 0.1.0-dev.42417550607.1 -FlightSmoke -SaveSmoke -PrototypeSaveSmoke
+  -ExpectedManifestSha256 1F313B6C086B6C68A738210A4A2D8378941EC43BB217CE9B7357170F67DC3FBD `
+  -ExpectedSourceCommit 565dd78c580419d7f0678337f443c894256cc1af `
+  -ExpectedVersion 0.1.0-dev.42420693798.1 -FlightSmoke -SaveSmoke -PrototypeSaveSmoke
 ```
 
 For an interactive guided run, launch the built WYU client with
