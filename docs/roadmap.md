@@ -25,12 +25,12 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 | WP06 · Durable world changes (complete) | Versioned storage for seed, generator version and terrain edits, with interrupted-write recovery | Save and resume position, inventory and edited terrain | [Windows handover](wp06-handover.md) and [format and recovery contract](architecture/wp06-save-recovery-contract.md) |
 | WP07 · Playable prototype (complete) | Stable interfaces and diagnostics for the features the game exercises | Explore the landing region, mine stone and assemble a rescue beacon | [Windows handover and playtest outcomes](wp07-handover.md) and [prototype contract](architecture/wp07-playable-prototype-contract.md) |
 | WP08 · Spherical planet (complete) | Planet coordinates, local precision, consistent gravity and terrain detail transitions | Traversable route on a small spherical world | [Clean Windows handover](wp08-handover.md) and [spherical planet contract](architecture/wp08-spherical-planet-contract.md) |
-| WP09 · Surface to orbit | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to an edited landing site | A complete flight succeeds without a scene switch. Landing position and saved terrain edits agree on return. |
+| WP09 · Surface to orbit | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to an edited landing site | [Proposed surface-to-orbit contract](architecture/wp09-surface-to-orbit-contract.md) |
 | WP10 · Windows alpha | Stability, diagnostics, package compatibility and reproducible builds | Installable single-player build, onboarding, settings and a complete test mission | Installation and mission pass on a clean Windows system. Supported hardware and known limitations are documented. |
 
 ## Planning and verification
 
-- Detail the WP09 contract before implementation. Each contract states
+- Review the WP09 contract before implementation. Each contract states
   ownership, failure behavior, budgets and acceptance.
 - The WP06 address probe distinguishes flat save addresses from the
   planetary address domain used in WP08.
