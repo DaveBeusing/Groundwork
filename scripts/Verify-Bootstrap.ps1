@@ -47,7 +47,7 @@ try {
             Assert-True (($refs.Count -eq 1) -and ($refs[0] -ceq '../Groundwork.Voxels/Groundwork.Voxels.csproj')) 'Invalid Persistence project dependencies.'
         } elseif ($module -eq 'Rendering.D3D12') {
             $allowed = @('../Groundwork.Core/Groundwork.Core.csproj', '../Groundwork.Platform.Windows/Groundwork.Platform.Windows.csproj',
-                '../Groundwork.Rendering/Groundwork.Rendering.csproj')
+                '../Groundwork.Rendering/Groundwork.Rendering.csproj', '../Groundwork.Voxels/Groundwork.Voxels.csproj')
             Assert-True ($refs.Count -eq $allowed.Count -and @($refs | Sort-Object -Unique).Count -eq $refs.Count -and
                 @($refs | Where-Object { $_ -cnotin $allowed }).Count -eq 0) 'Invalid D3D12 project dependencies.'
         } else {

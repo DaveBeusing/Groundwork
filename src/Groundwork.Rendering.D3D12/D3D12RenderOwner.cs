@@ -179,6 +179,8 @@ public sealed partial class D3D12Renderer
                 var installed = TryInstallMesh(gpu, target, chain!, watchdog, meshes, candidate);
                 if (!watchdog.Complete() || ShouldStop(target))
                     break;
+                if (installed && candidate.Frame is { } pairedFrame)
+                    current = pairedFrame;
                 redraw |= installed;
 
                 // Frames can arrive while the upload is in progress, including

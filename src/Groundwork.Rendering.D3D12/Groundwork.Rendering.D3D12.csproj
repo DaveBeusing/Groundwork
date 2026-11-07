@@ -13,6 +13,7 @@
     <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
     <ProjectReference Include="../Groundwork.Platform.Windows/Groundwork.Platform.Windows.csproj" />
     <ProjectReference Include="../Groundwork.Rendering/Groundwork.Rendering.csproj" />
+    <ProjectReference Include="../Groundwork.Voxels/Groundwork.Voxels.csproj" />
     <PackageReference Include="TerraFX.Interop.Windows" Version="[10.0.26100.6]" GeneratePathProperty="true" />
     <InternalsVisibleTo Include="Groundwork.Rendering.D3D12.Tests" />
     <None Update="THIRD-PARTY-NOTICES.md" Pack="true" PackagePath="/" />

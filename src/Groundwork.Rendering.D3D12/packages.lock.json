@@ -22,6 +22,9 @@
         "dependencies": {
           "Groundwork.Core": "[0.1.0, )"
         }
+      },
+      "groundwork.voxels": {
+        "type": "Project"
       }
     }
   }
