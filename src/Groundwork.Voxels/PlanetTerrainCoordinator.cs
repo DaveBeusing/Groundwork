@@ -250,6 +250,8 @@ public sealed class PlanetTerrainLease : IPlanetSurface, IDisposable
     public int MeshCount => Data.Plan.Tiles.Length;
     public ReadOnlySpan<PlanetTerrainTile> Tiles => Data.Plan.Tiles;
     public ReadOnlySpan<Vector3> GetPositions(int index) => Data.GetPositions(index);
+    /// <summary>Returns the canonical sample for each vertex, in the same order as its position.</summary>
+    public ReadOnlySpan<PlanetSampleKey> GetSamples(int index) => Data.GetSamples(index);
     public ReadOnlySpan<uint> GetIndices(int index) => Data.GetIndices(index);
 
     public bool TryGetSupport(PlanetVector direction, out PlanetSupport support)
@@ -324,5 +326,6 @@ internal sealed class PlanetTerrainGeneration(ulong id, PlanetTerrainPlan plan, 
     }
 
     internal ReadOnlySpan<Vector3> GetPositions(int index) => _positions[index];
+    internal ReadOnlySpan<PlanetSampleKey> GetSamples(int index) => _meshes[index].Samples;
     internal ReadOnlySpan<uint> GetIndices(int index) => _meshes[index].Indices;
 }

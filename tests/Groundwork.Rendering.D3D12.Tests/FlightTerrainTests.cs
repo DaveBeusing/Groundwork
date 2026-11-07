@@ -139,7 +139,8 @@ public sealed partial class PresentationSmokeTests
             approach = StagePlanetPlan(terrain, landing, returnFrame, AtRadius(76));
             Assert.IsFalse(approach.TryGetSupport(AtRadius(64), out _));
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame, SubmitPlanetCamera(renderer, approach, 3));
-            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, SubmitFlight(renderer, approach, 3));
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TrySubmitPlanetTerrain(approach, 3,
+                FlightForward, Vector3.UnitY, MathF.PI / 3, NearPlane, FarPlane, Vector4.One, FlightClear, LandingColor));
             var device = await observed.Task.WaitAsync(token);
             if (stopBeforeInstall)
             {
