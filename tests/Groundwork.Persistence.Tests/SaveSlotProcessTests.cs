@@ -18,12 +18,17 @@ public sealed class SaveSlotProcessTests
     private static readonly SaveWorldRecipe Recipe = new(1, 1, 17, new RegionBounds(-2, 2, -2, 2));
 
     [TestMethod]
-    public async Task InterruptedWritesRemainRecoverableFromFreshProcesses()
+    public Task InterruptedWritesRemainRecoverableFromFreshProcesses() => VerifyInterruptionsAsync(planetary: false);
+
+    [TestMethod]
+    public Task InterruptedPlanetWritesRemainRecoverableFromFreshProcesses() => VerifyInterruptionsAsync(planetary: true);
+
+    private static async Task VerifyInterruptionsAsync(bool planetary)
     {
         var mode = Environment.GetEnvironmentVariable(ChildMode);
         if (mode is not null)
         {
-            RunChild(mode);
+            RunChild(mode, planetary);
             return;
         }
 
@@ -36,21 +41,39 @@ public sealed class SaveSlotProcessTests
             var volume = new DriveInfo(Path.GetPathRoot(fixture.FullName)!);
             Assert.AreEqual("NTFS", volume.DriveFormat, "The crash fixture must exercise local NTFS.");
             var directory = Path.Combine(fixture.FullName, "slot");
-            var slot = OpenSlot(directory);
-
-            await InterruptAndVerifyAsync(fixture.FullName, directory, 1, SaveWriteStage.BeforePublish, 0);
-            Assert.AreEqual(SaveSlotStatus.Committed, slot.Save(0, Checkpoint(1)).Status);
+            await InterruptAndVerifyAsync(fixture.FullName, directory, 1, SaveWriteStage.BeforePublish, 0, planetary);
+            Assert.AreEqual(SaveSlotStatus.Committed, Save(directory, 1, planetary));
 
             var first = File.ReadAllBytes(Path.Combine(directory, "save.a"));
-            await InterruptAndVerifyAsync(fixture.FullName, directory, 2, SaveWriteStage.BeforePublish, 1);
+            await InterruptAndVerifyAsync(fixture.FullName, directory, 2, SaveWriteStage.BeforePublish, 1, planetary);
             CollectionAssert.AreEqual(first, File.ReadAllBytes(Path.Combine(directory, "save.a")));
-            Assert.AreEqual(SaveSlotStatus.Committed, slot.Save(1, Checkpoint(2)).Status);
+            Assert.AreEqual(SaveSlotStatus.Committed, Save(directory, 2, planetary));
 
             var second = File.ReadAllBytes(Path.Combine(directory, "save.b"));
-            await InterruptAndVerifyAsync(fixture.FullName, directory, 3, SaveWriteStage.AfterPublish, 3);
+            await InterruptAndVerifyAsync(fixture.FullName, directory, 3, SaveWriteStage.AfterPublish, 3, planetary);
             CollectionAssert.AreEqual(second, File.ReadAllBytes(Path.Combine(directory, "save.b")));
-            Assert.AreEqual(SaveSlotStatus.AlreadyCommitted, slot.Save(2, Checkpoint(3)).Status);
-            Assert.AreEqual(SaveSlotStatus.Conflict, slot.Save(1, Checkpoint(2)).Status);
+            Assert.AreEqual(SaveSlotStatus.AlreadyCommitted, Save(directory, 3, planetary));
+            Assert.AreEqual(SaveSlotStatus.Conflict, Save(directory, 2, planetary));
+            if (planetary)
+            {
+                var invalid = PlanetCheckpointFor(4);
+                var unsupportedPose = new PlanetCheckpoint(invalid.Identity, invalid.Recipe,
+                    invalid.Pose with { Position = new(65, 0, 0) }, invalid.Edits);
+                var planetSlot = OpenPlanetSlot(directory);
+                Assert.AreEqual(SaveSlotStatus.InvalidCheckpoint, planetSlot.Save(3, unsupportedPose).Status);
+                CollectionAssert.AreEqual(PlanetCheckpointCodec.Encode(PlanetCheckpointFor(3)),
+                    File.ReadAllBytes(Path.Combine(directory, "save.a")));
+
+                var older = PlanetCheckpointFor(2);
+                var foreignRecipe = new PlanetCheckpoint(older.Identity, older.Recipe with { GeneratorVersion = 2 },
+                    older.Pose, older.Edits);
+                var foreignBytes = PlanetCheckpointCodec.Encode(foreignRecipe);
+                var olderPath = Path.Combine(directory, "save.b");
+                File.WriteAllBytes(olderPath, foreignBytes);
+                Assert.AreEqual(SaveSlotStatus.Conflict, planetSlot.Load().Status);
+                Assert.AreEqual(SaveSlotStatus.Conflict, planetSlot.Save(3, invalid).Status);
+                CollectionAssert.AreEqual(foreignBytes, File.ReadAllBytes(olderPath));
+            }
         }
         finally
         {
@@ -59,12 +82,12 @@ public sealed class SaveSlotProcessTests
     }
 
     private static async Task InterruptAndVerifyAsync(string fixture, string directory, ulong candidate,
-        SaveWriteStage stage, ulong expected)
+        SaveWriteStage stage, ulong expected, bool planetary)
     {
         var run = Path.Combine(fixture, $"{candidate}-{stage}");
         Directory.CreateDirectory(run);
         var barrier = Path.Combine(run, "barrier");
-        using (var child = StartChild(run, directory, "write", candidate, stage, barrier))
+        using (var child = StartChild(run, directory, "write", candidate, stage, barrier, planetary))
         {
             using var watchdog = new CancellationTokenSource(ChildTimeout);
             var output = child.StandardOutput.ReadToEndAsync();
@@ -83,9 +106,8 @@ public sealed class SaveSlotProcessTests
                 writer = Process.GetProcessById(writerId);
                 // Open the handle before termination so a recycled PID cannot affect the wait.
                 _ = writer.SafeHandle;
-                var other = OpenSlot(directory);
-                Assert.AreEqual(SaveSlotStatus.Busy, other.Load().Status);
-                Assert.AreEqual(SaveSlotStatus.Busy, other.Save(candidate - 1, Checkpoint(candidate)).Status);
+                Assert.AreEqual(SaveSlotStatus.Busy, Load(directory, planetary).Status);
+                Assert.AreEqual(SaveSlotStatus.Busy, Save(directory, candidate, planetary));
                 writer.Kill();
                 await writer.WaitForExitAsync(watchdog.Token);
                 await child.WaitForExitAsync(watchdog.Token);
@@ -103,7 +125,7 @@ public sealed class SaveSlotProcessTests
 
         var readRun = Path.Combine(run, "read");
         Directory.CreateDirectory(readRun);
-        using var reader = StartChild(readRun, directory, "read", expected, stage, barrier);
+        using var reader = StartChild(readRun, directory, "read", expected, stage, barrier, planetary);
         var readOutput = reader.StandardOutput.ReadToEndAsync();
         var readErrors = reader.StandardError.ReadToEndAsync();
         using var readWatchdog = new CancellationTokenSource(ChildTimeout);
@@ -122,7 +144,7 @@ public sealed class SaveSlotProcessTests
     }
 
     private static Process StartChild(string run, string directory, string mode, ulong generation,
-        SaveWriteStage stage, string barrier)
+        SaveWriteStage stage, string barrier, bool planetary)
     {
         var start = new ProcessStartInfo("dotnet")
         {
@@ -139,7 +161,9 @@ public sealed class SaveSlotProcessTests
         start.Environment[ChildBarrier] = barrier;
         start.ArgumentList.Add("vstest");
         start.ArgumentList.Add(typeof(SaveSlotProcessTests).Assembly.Location);
-        start.ArgumentList.Add($"/TestCaseFilter:FullyQualifiedName={typeof(SaveSlotProcessTests).FullName}.{nameof(InterruptedWritesRemainRecoverableFromFreshProcesses)}");
+        var testName = planetary ? nameof(InterruptedPlanetWritesRemainRecoverableFromFreshProcesses) :
+            nameof(InterruptedWritesRemainRecoverableFromFreshProcesses);
+        start.ArgumentList.Add($"/TestCaseFilter:FullyQualifiedName={typeof(SaveSlotProcessTests).FullName}.{testName}");
         start.ArgumentList.Add("/Logger:trx;LogFileName=child.trx");
         start.ArgumentList.Add($"/ResultsDirectory:{run}");
         return Process.Start(start) ?? throw new AssertFailedException("Could not start the save-slot child.");
@@ -153,19 +177,19 @@ public sealed class SaveSlotProcessTests
         await child.WaitForExitAsync(cleanup.Token);
     }
 
-    private static void RunChild(string mode)
+    private static void RunChild(string mode, bool planetary)
     {
-        var slot = OpenSlot(ChildArgument(ChildDirectory));
+        var directory = ChildArgument(ChildDirectory);
         var generation = ulong.Parse(ChildArgument(ChildGeneration), CultureInfo.InvariantCulture);
         if (mode == "read")
         {
-            var result = slot.Load();
+            var result = Load(directory, planetary);
             Assert.AreEqual(generation == 0 ? SaveSlotStatus.Empty : SaveSlotStatus.Loaded, result.Status);
             if (generation > 0)
             {
-                var checkpoint = result.Checkpoint ?? throw new AssertFailedException("The committed checkpoint was missing.");
-                CollectionAssert.AreEqual(SaveCodec.Encode(Checkpoint(generation), EmptyGenerator.Instance),
-                    SaveCodec.Encode(checkpoint, EmptyGenerator.Instance));
+                var expected = planetary ? PlanetCheckpointCodec.Encode(PlanetCheckpointFor(generation)) :
+                    SaveCodec.Encode(Checkpoint(generation), EmptyGenerator.Instance);
+                CollectionAssert.AreEqual(expected, result.Frame);
             }
             return;
         }
@@ -173,7 +197,7 @@ public sealed class SaveSlotProcessTests
         Assert.AreEqual("write", mode);
         var selected = Enum.Parse<SaveWriteStage>(ChildArgument(ChildStage));
         var barrier = ChildArgument(ChildBarrier);
-        var resultOfWrite = slot.Save(generation - 1, Checkpoint(generation), reached =>
+        var resultOfWrite = Save(directory, generation, planetary, reached =>
         {
             if (reached != selected)
                 return;
@@ -183,7 +207,7 @@ public sealed class SaveSlotProcessTests
             if (!parked.Wait(ChildTimeout))
                 throw new TimeoutException("Parent did not terminate the writer at the selected stage.");
         });
-        Assert.Fail($"Writer returned {resultOfWrite.Status} before it could be interrupted at {selected}.");
+        Assert.Fail($"Writer returned {resultOfWrite} before it could be interrupted at {selected}.");
     }
 
     private static string ChildArgument(string name) =>
@@ -191,6 +215,54 @@ public sealed class SaveSlotProcessTests
 
     private static SaveSlot OpenSlot(string directory) =>
         new(directory, static (id, version) => id == 1 && version == 1 ? EmptyGenerator.Instance : null);
+
+    private static PlanetSaveSlot OpenPlanetSlot(string directory) =>
+        new(directory, static (id, version) => id == 1 && version == 1, ValidatePlanetPose);
+
+    private static (SaveSlotStatus Status, byte[]? Frame) Load(string directory, bool planetary)
+    {
+        if (planetary)
+        {
+            var result = OpenPlanetSlot(directory).Load();
+            return (result.Status, result.Checkpoint is { } checkpoint ? PlanetCheckpointCodec.Encode(checkpoint) : null);
+        }
+
+        var flat = OpenSlot(directory).Load();
+        return (flat.Status, flat.Checkpoint is { } saved ? SaveCodec.Encode(saved, EmptyGenerator.Instance) : null);
+    }
+
+    private static SaveSlotStatus Save(string directory, ulong generation, bool planetary, Action<SaveWriteStage>? observe = null)
+    {
+        if (planetary)
+        {
+            var slot = OpenPlanetSlot(directory);
+            var checkpoint = PlanetCheckpointFor(generation);
+            return (observe is null ? slot.Save(generation - 1, checkpoint) : slot.Save(generation - 1, checkpoint, observe)).Status;
+        }
+
+        var flat = OpenSlot(directory);
+        var state = Checkpoint(generation);
+        return (observe is null ? flat.Save(generation - 1, state) : flat.Save(generation - 1, state, observe)).Status;
+    }
+
+    private static PlanetCheckpoint PlanetCheckpointFor(ulong generation)
+    {
+        var delta = (short)(generation * 20);
+        return new(new(generation, Lineage, new Guid((int)generation, 0, 0, new byte[8])), new(1, 1, 0x57505538),
+            new(new(64 + delta / 1000d, 0, 0), PlanetFlightOrientation.Identity), [new(new(512, 0, 0), delta)]);
+    }
+
+    private static SaveGameValidation ValidatePlanetPose(PlanetCheckpoint checkpoint)
+    {
+        if (!PlanetTerrainSelection.TrySelect(checkpoint.Pose.Position, 64, null, out var plan) || plan is null)
+            return SaveGameValidation.Malformed;
+        var patches = plan.Tiles.ToArray().Where(tile => tile.SupportsCollision).Select(tile =>
+            PlanetPatchMesh.Build(tile.Patch, 64, sample => checkpoint.GetHeightDelta(sample) / 1000d)).ToArray();
+        var pose = checkpoint.Pose;
+        var result = PlanetFlight.Step(new PlanetSurface(patches), new(pose.Position, default, pose.Orientation, Grounded: true),
+            new(default, pose.Orientation));
+        return result.Status == PlanetFlightStatus.Grounded ? SaveGameValidation.Valid : SaveGameValidation.Malformed;
+    }
 
     private static SaveCheckpoint Checkpoint(ulong generation) =>
         new(new SaveFrameIdentity(generation, Lineage, new Guid((int)generation, 0, 0, new byte[8])),

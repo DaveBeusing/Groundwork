@@ -86,4 +86,8 @@ public sealed class PlanetCheckpoint
 
 /// <summary>The decode outcome, with verified identity and schema available for unsupported frames.</summary>
 public readonly record struct PlanetCheckpointReadResult(
-    SaveReadStatus Status, SaveFrameIdentity? Identity, ushort? SchemaVersion, PlanetCheckpoint? Checkpoint = null);
+    SaveReadStatus Status, SaveFrameIdentity? Identity, ushort? SchemaVersion, PlanetCheckpoint? Checkpoint = null)
+{
+    /// <summary>The structurally verified recipe, including when its generator is unavailable.</summary>
+    public PlanetSaveRecipe? Recipe { get; init; }
+}
