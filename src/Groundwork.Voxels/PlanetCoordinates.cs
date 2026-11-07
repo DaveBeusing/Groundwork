@@ -53,14 +53,18 @@ public static class PlanetCoordinates
 
     public static PlanetVector Direction(PlanetSampleKey sample)
     {
-        if (!IsSampleComponent(sample.X) || !IsSampleComponent(sample.Y) || !IsSampleComponent(sample.Z) ||
-            Math.Max(Math.Abs(sample.X), Math.Max(Math.Abs(sample.Y), Math.Abs(sample.Z))) != FinestIntervalsPerFace)
+        if (!IsCanonicalSample(sample))
             throw new ArgumentOutOfRangeException(nameof(sample), "Sample must lie on the canonical cube lattice.");
 
         double x = sample.X, y = sample.Y, z = sample.Z;
         var length = Math.Sqrt(x * x + y * y + z * z);
         return new PlanetVector(x / length, y / length, z / length);
     }
+
+    /// <summary>Checks whether a sample is on the shared finest cube-surface lattice.</summary>
+    public static bool IsCanonicalSample(PlanetSampleKey sample) =>
+        IsSampleComponent(sample.X) && IsSampleComponent(sample.Y) && IsSampleComponent(sample.Z) &&
+        Math.Max(Math.Abs(sample.X), Math.Max(Math.Abs(sample.Y), Math.Abs(sample.Z))) == FinestIntervalsPerFace;
 
     /// <summary>Projects a nonzero direction to its dominant chart, breaking ties X, Y, Z.</summary>
     public static (PlanetFace Face, double U, double V) Project(PlanetVector direction)

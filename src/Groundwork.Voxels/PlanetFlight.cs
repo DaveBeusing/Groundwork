@@ -5,7 +5,7 @@ public readonly record struct PlanetFlightOrientation(double X, double Y, double
 {
     public static PlanetFlightOrientation Identity => new(0, 0, 0, 1);
 
-    internal bool IsUnit => Math.Abs(X * X + Y * Y + Z * Z + W * W - 1) <= 1e-9;
+    public bool IsUnit => Math.Abs(X * X + Y * Y + Z * Z + W * W - 1) <= 1e-9;
 }
 
 /// <summary>The craft's landing-foot position, velocity and orientation in planet axes.</summary>

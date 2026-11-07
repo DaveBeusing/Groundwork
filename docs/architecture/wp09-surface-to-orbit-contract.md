@@ -119,8 +119,36 @@ publishing a resumed session. An interruption before installation keeps
 the previous committed generation. An interruption after installation
 leaves a complete readable generation. Validate that an older flat reader
 recognizes a newer intact frame as unsupported and preserves it. The
-portable codec stage will specify exact byte offsets and golden fixtures
-before admitting a production writer.
+portable layout and reference frame are defined below. The Windows slot
+writer and interruption tests follow in the publication stage.
+
+The 56-byte WP06 prefix is identical except for payload schema 2 at
+offset 10. Integers and IEEE 754 binary64 values are little-endian.
+The common 32-byte SHA-256 footer covers the prefix and entire payload.
+
+| Offset | Contents | Encoding |
+| ---: | --- | --- |
+| 56 | Generator ID, generator version, seed | Three u32 values. The ID and version must be nonzero. |
+| 68 | Edit count | u32, 0 through 4,096 |
+| 72 | Landed position in planet axes | Three binary64 values, X/Y/Z in meters |
+| 96 | Landed orientation in planet axes | Four binary64 values, quaternion X/Y/Z/W |
+| 128 | Height edits | Eight bytes each. Four i16 values for X/Y/Z and signed delta in millimeters. |
+| 128 + 8 × edit count | Integrity footer | 32 raw SHA-256 bytes |
+
+Coordinates must be even integers in `[-512,512]`, with at least one
+component on the cube boundary. The decoder validates length, edit order
+and values before allocating the overlay or resolving generator support.
+The position must be finite and strictly between the craft body radius
+and 76 m from the center. The quaternion must satisfy the flight unit
+tolerance. These are structural checks. The caller must rebuild terrain
+and verify the landed footprint before publishing the restored pose.
+
+The 176-byte reference frame uses generation 1, lineage bytes `01`
+through `10` and request bytes `11` through `20` in hexadecimal.
+It stores generator 1/version 1, seed `0x57505538`, pose `(64, 0, 0)`
+with identity orientation, and edits `(-512,-512,-512) → -25` mm and
+`(512,0,512) → +120` mm. Its SHA-256 footer is
+`F4BD8984B29C60075791FCF43DBC1AB385A14D8FEC795B4D9C5D62670BB0BD75`.
 
 ## Implementation and qualification
 
