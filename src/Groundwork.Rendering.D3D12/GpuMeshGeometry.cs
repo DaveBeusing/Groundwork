@@ -1,4 +1,3 @@
-using System.Numerics;
 using TerraFX.Interop.DirectX;
 using static Groundwork.Rendering.D3D12.GpuNative;
 
@@ -69,13 +68,14 @@ internal sealed unsafe partial class GpuDevice
     {
         var positions = instance.Mesh.Positions;
         var indices = instance.Mesh.Indices;
+        var colors = instance.Mesh.Colors;
         if (indices.IsEmpty)
             return default;
 
         var vertexBytes = checked(positions.Length * (int)VertexStride);
         var indexBytes = checked(indices.Length * sizeof(uint));
         var indexOffset = checked(offset + vertexBytes);
-        var vertices = new Span<Vector3>(mapped + offset, positions.Length);
+        var vertices = new Span<GpuVertex>(mapped + offset, positions.Length);
         for (var index = 0; index < vertices.Length; index++)
         {
             // Put all meshes in the same scene space before projection. Coincident
@@ -83,7 +83,7 @@ internal sealed unsafe partial class GpuDevice
             var position = positions[index] + instance.Translation;
             if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
                 throw new ArgumentException("A translated mesh position is not finite.", nameof(instance));
-            vertices[index] = position;
+            vertices[index] = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[index]);
         }
         indices.CopyTo(new Span<uint>(mapped + indexOffset, indices.Length));
 

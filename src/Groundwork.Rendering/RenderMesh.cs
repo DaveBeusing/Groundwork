@@ -10,19 +10,28 @@ public sealed class RenderMesh
 
     private readonly Vector3[] _positions;
     private readonly uint[] _indices;
+    private readonly uint[] _colors;
 
-    private RenderMesh(Vector3[] positions, uint[] indices)
+    private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors)
     {
         _positions = positions;
         _indices = indices;
+        _colors = colors;
     }
 
     public ReadOnlySpan<Vector3> Positions => _positions;
     public ReadOnlySpan<uint> Indices => _indices;
+    /// <summary>One RGBA8 value per vertex, with red in the lowest byte. Empty means opaque white.</summary>
+    public ReadOnlySpan<uint> Colors => _colors;
 
     /// <summary>Validates and copies bounded geometry. Keep both inputs stable until this method returns.</summary>
     /// <exception cref="ArgumentException">The positions or indices do not describe a valid mesh.</exception>
-    public static RenderMesh Create(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices)
+    public static RenderMesh Create(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices) =>
+        Create(positions, indices, []);
+
+    /// <summary>Validates and copies bounded geometry and optional RGBA8 vertex colors.</summary>
+    /// <exception cref="ArgumentException">A buffer has an invalid length or contains invalid geometry.</exception>
+    public static RenderMesh Create(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices, ReadOnlySpan<uint> colors)
     {
         if (positions.Length > MaximumVertexCount)
         {
@@ -32,6 +41,10 @@ public sealed class RenderMesh
         if (indices.Length > MaximumIndexCount || indices.Length % 3 != 0 || indices.IsEmpty != positions.IsEmpty)
         {
             throw new ArgumentException("Mesh indices must form a bounded triangle list, with both buffers empty for an empty mesh.", nameof(indices));
+        }
+        if (!colors.IsEmpty && colors.Length != positions.Length)
+        {
+            throw new ArgumentException("A colored mesh requires one RGBA8 value per vertex.", nameof(colors));
         }
 
         foreach (var position in positions)
@@ -50,7 +63,7 @@ public sealed class RenderMesh
             }
         }
 
-        return new RenderMesh(positions.ToArray(), indices.ToArray());
+        return new RenderMesh(positions.ToArray(), indices.ToArray(), colors.ToArray());
     }
 
     internal static bool IsFinite(Vector3 value) =>

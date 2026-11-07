@@ -8,7 +8,7 @@ namespace Groundwork.Rendering.D3D12;
 internal sealed unsafe partial class GpuDevice
 {
     private const uint VertexCount = 36;
-    private const uint VertexStride = 3 * sizeof(float);
+    private const uint VertexStride = 3 * sizeof(float) + sizeof(uint);
 
     private void CreatePipeline()
     {
@@ -42,19 +42,28 @@ internal sealed unsafe partial class GpuDevice
 
         var vertexShader = LoadShader("Cube.vs.dxil");
         var pixelShader = LoadShader("Cube.ps.dxil");
-        fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8)
+        fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8)
         {
-            var element = new D3D12_INPUT_ELEMENT_DESC
+            D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[2]
             {
-                SemanticName = (sbyte*)position,
-                Format = DXGI_FORMAT.DXGI_FORMAT_R32G32B32_FLOAT,
+                new()
+                {
+                    SemanticName = (sbyte*)position,
+                    Format = DXGI_FORMAT.DXGI_FORMAT_R32G32B32_FLOAT,
+                },
+                new()
+                {
+                    SemanticName = (sbyte*)color,
+                    Format = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM,
+                    AlignedByteOffset = 3 * sizeof(float),
+                },
             };
             var description = new D3D12_GRAPHICS_PIPELINE_STATE_DESC
             {
                 pRootSignature = _root,
                 VS = new D3D12_SHADER_BYTECODE { pShaderBytecode = vs, BytecodeLength = (nuint)vertexShader.Length },
                 PS = new D3D12_SHADER_BYTECODE { pShaderBytecode = ps, BytecodeLength = (nuint)pixelShader.Length },
-                InputLayout = new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = &element, NumElements = 1 },
+                InputLayout = new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = 2 },
                 SampleMask = uint.MaxValue,
                 RasterizerState = new D3D12_RASTERIZER_DESC
                 {
@@ -109,14 +118,15 @@ internal sealed unsafe partial class GpuDevice
                 0, 2, 6, 0, 6, 4,
                 1, 5, 7, 1, 7, 3,
             ];
-            var vertices = new Span<Vector3>(mapped, (int)VertexCount);
+            var vertices = new Span<GpuVertex>(mapped, (int)VertexCount);
             for (int index = 0; index < indices.Length; index++)
             {
                 byte corner = indices[index];
-                vertices[index] = new(
+                var position = new Vector3(
                     (corner & 1) == 0 ? -0.5f : 0.5f,
                     (corner & 2) == 0 ? -0.5f : 0.5f,
                     (corner & 4) == 0 ? -0.5f : 0.5f);
+                vertices[index] = new GpuVertex(position, uint.MaxValue);
             }
         }
         finally
@@ -192,4 +202,5 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private readonly record struct DrawConstants(Matrix4x4 WorldViewProjection, Vector4 Tint);
+    private readonly record struct GpuVertex(Vector3 Position, uint Color);
 }

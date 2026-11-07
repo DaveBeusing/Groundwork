@@ -31,6 +31,21 @@ public sealed class RenderMeshTests
     }
 
     [TestMethod]
+    public void MeshOwnsOptionalColorsAndRequiresOneColorPerPosition()
+    {
+        Vector3[] positions = [Vector3.Zero, Vector3.UnitX, Vector3.UnitY];
+        uint[] indices = [0, 1, 2];
+        uint[] colors = [0xFF0000FF, 0xFF00FF00, 0xFFFF0000];
+        var mesh = RenderMesh.Create(positions, indices, colors);
+        colors[0] = 0;
+
+        Assert.IsTrue(mesh.Colors.SequenceEqual([0xFF0000FF, 0xFF00FF00, 0xFFFF0000]));
+        Assert.IsTrue(RenderMesh.Create(positions, indices).Colors.IsEmpty);
+        Assert.ThrowsExactly<ArgumentException>(() => RenderMesh.Create(positions, indices, [0]));
+        Assert.ThrowsExactly<ArgumentException>(() => RenderMesh.Create([], [], [0]));
+    }
+
+    [TestMethod]
     public void IndicesMustFormTrianglesAndAddressExistingPositions()
     {
         Vector3[] positions = [Vector3.Zero, Vector3.UnitX, Vector3.UnitY];
