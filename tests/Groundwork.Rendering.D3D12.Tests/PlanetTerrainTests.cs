@@ -206,10 +206,17 @@ public sealed partial class PresentationSmokeTests
         Assert.IsTrue(PlanetTerrainSelection.TrySelect(focus, 64, previous, out var selected));
         Assert.IsNotNull(selected);
         plan = selected;
+        return StagePlanetPlan(terrain, plan, frame, camera);
+    }
+
+    private static PlanetTerrainLease StagePlanetPlan(PlanetTerrainCoordinator terrain, PlanetTerrainPlan plan,
+        PlanetLocalFrame frame, PlanetVector camera)
+    {
         Assert.IsTrue(terrain.TryStage(plan, frame));
         while (terrain.TryReserveMesh(out var work))
         {
             var mesh = PlanetPatchMesh.Build(work.Tile.Patch, 64, static _ => 0, work.Tile.Transitions);
+            Assert.AreEqual(plan.EditRevision, work.EditRevision);
             Assert.IsTrue(terrain.CompleteMesh(work, mesh));
         }
 
