@@ -77,6 +77,8 @@ static class GeometryProbe
 
         var groups = new Dictionary<string, CollisionStats>();
         var examples = new List<CollisionExample>();
+        var fallback = grid.CreateGrazingFallback();
+        var fallbackTraces = new List<CollisionExample>();
         CollisionExample? grazingTrace = null;
         CollisionExample? bridgeEdgeTrace = null;
         for (var axis = 0; axis < 3; axis++)
@@ -109,14 +111,18 @@ static class GeometryProbe
         return new
         {
             normalSummary, testedPairs, intersections, collisionTolerance = CollisionTolerance,
-            collision = groups, grazingTrace, bridgeEdgeTrace, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
+            collision = groups, grazingTrace, bridgeEdgeTrace, fallbackTraces, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
         };
 
         void Trace(string group, int axis, Vector3 origin)
         {
             var direction = I3.Axis(axis).Position;
             var expected = DensityHits(grid, origin, direction);
-            var actual = MeshHits(mesh, origin, direction);
+            var meshHits = MeshHits(mesh, origin, direction);
+            var (actual, exhausted) = meshHits.Count == 0 && fallback is not null
+                ? fallback.Trace(origin, direction) : (meshHits, false);
+            if (meshHits.Count == 0 && actual.Count > 0)
+                fallbackTraces.Add(new CollisionExample(group, axis, origin, expected, meshHits) { Resolved = actual });
             Compare(group);
             if (group == "grazing-regression")
                 grazingTrace = new CollisionExample(group, axis, origin, expected, actual);
@@ -141,7 +147,11 @@ static class GeometryProbe
                     groups.Add(name, stats = new CollisionStats());
                 stats.Rays++;
                 if (expected.Count > 0) stats.DensityHitRays++;
-                if (actual.Count > 0) stats.MeshHitRays++;
+                if (meshHits.Count > 0) stats.MeshHitRays++;
+                if (actual.Count > 0) stats.QueryHitRays++;
+                if (expected.Count > 0 && meshHits.Count == 0) stats.MeshMissedHitRays++;
+                if (meshHits.Count == 0 && actual.Count > 0) stats.FallbackHitRays++;
+                if (exhausted) stats.FallbackBudgetExhaustedRays++;
                 if (expected.Count > 0 && actual.Count == 0) stats.MissedHitRays++;
                 if (expected.Count == 0 && actual.Count > 0) stats.UnexpectedHitRays++;
                 if (expected.Count != actual.Count) stats.CrossingCountMismatches++;
@@ -160,18 +170,25 @@ static class GeometryProbe
                 if (error > CollisionTolerance) stats.OverToleranceRays++;
                 if ((expected.Count != actual.Count || error > CollisionTolerance) &&
                     examples.Count(x => x.Group == name) < 5)
-                    examples.Add(new CollisionExample(name, axis, origin, expected, actual));
+                    examples.Add(new CollisionExample(name, axis, origin, expected, meshHits) { Resolved = actual });
             }
         }
     }
 
-    private sealed record CollisionExample(string Group, int Axis, Vector3 Origin, List<float> Density, List<float> Mesh);
+    private sealed record CollisionExample(string Group, int Axis, Vector3 Origin, List<float> Density, List<float> Mesh)
+    {
+        public List<float>? Resolved { get; init; }
+    }
 
     private sealed class CollisionStats
     {
         public int Rays { get; set; }
         public int DensityHitRays { get; set; }
         public int MeshHitRays { get; set; }
+        public int QueryHitRays { get; set; }
+        public int MeshMissedHitRays { get; set; }
+        public int FallbackHitRays { get; set; }
+        public int FallbackBudgetExhaustedRays { get; set; }
         public int MissedHitRays { get; set; }
         public int UnexpectedHitRays { get; set; }
         public int CrossingCountMismatches { get; set; }

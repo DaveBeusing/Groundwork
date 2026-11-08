@@ -47,6 +47,8 @@ static class CollisionBenchmark
             var grid = createGrid();
             var sampled = Stopwatch.GetTimestamp();
             var mesh = Marching.Extract(grid, tables);
+            var grazingFallback = grid.CreateGrazingFallback();
+            GC.KeepAlive(grazingFallback);
             return (mesh, sampled, Stopwatch.GetTimestamp(), grid.CellSize, grid.SampleCount);
         }
     }

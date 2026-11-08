@@ -1,0 +1,170 @@
+{
+  "timestampUtc": "2026-11-08T22:43:23.5683697Z",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "physicalMemoryBytes": 68137205760,
+  "installedMemoryBytes": 68719476736.0,
+  "referenceHardwareRequired": false,
+  "geometryOnly": false,
+  "collisionComparison": false,
+  "collisionBoundaries": false,
+  "collisionPerformance": true,
+  "sdk": "10.0.403",
+  "runtime": "Microsoft.NETCore.App 10.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
+  "sourceBase": "1d6f439c17abf2ebdb40fe7970a3e995cf5c286f",
+  "tablesCommit": "51a494f03c5b024cd153b596bcc7152eb3cc93a6",
+  "tablesSha256": "83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4",
+  "tieredCompilation": false,
+  "results": [
+    {
+      "fixture": "bridge",
+      "mode": "tangential-baseline",
+      "repetitions": 20,
+      "triangles": 13886,
+      "transitionTriangles": 38,
+      "cellSize": 0.25,
+      "sampleCount": 2146689,
+      "checksum": "2BDCC8C420C14876",
+      "sampling": {
+        "p50ms": 145.6892,
+        "p95ms": 175.0676,
+        "p99ms": 175.7
+      },
+      "extraction": {
+        "p50ms": 26.5306,
+        "p95ms": 30.8407,
+        "p99ms": 33.1778
+      },
+      "total": {
+        "p50ms": 171.9757,
+        "p95ms": 205.3511,
+        "p99ms": 205.8125
+      },
+      "medianAllocatedBytes": 9766808,
+      "startingWorkingSetBytes": 35885056,
+      "peakWorkingSetBytes": 47112192
+    },
+    {
+      "fixture": "bridge",
+      "mode": "tangential-full",
+      "repetitions": 20,
+      "triangles": 55496,
+      "transitionTriangles": 76,
+      "cellSize": 0.125,
+      "sampleCount": 16974593,
+      "checksum": "01BED6C33270CE1F",
+      "sampling": {
+        "p50ms": 1211.2105,
+        "p95ms": 2197.3782,
+        "p99ms": 2396.623
+      },
+      "extraction": {
+        "p50ms": 208.1452,
+        "p95ms": 507.0022,
+        "p99ms": 594.1556
+      },
+      "total": {
+        "p50ms": 1415.2248,
+        "p95ms": 2757.1001,
+        "p99ms": 2791.5338
+      },
+      "medianAllocatedBytes": 72617416,
+      "startingWorkingSetBytes": 35917824,
+      "peakWorkingSetBytes": 112934912
+    },
+    {
+      "fixture": "bridge",
+      "mode": "tangential-collision",
+      "repetitions": 20,
+      "triangles": 31576,
+      "transitionTriangles": 76,
+      "cellSize": 0.125,
+      "sampleCount": 3651245,
+      "checksum": "6B6314081CF1203C",
+      "sampling": {
+        "p50ms": 64.8056,
+        "p95ms": 70.7981,
+        "p99ms": 82.0873
+      },
+      "extraction": {
+        "p50ms": 66.4264,
+        "p95ms": 79.197,
+        "p99ms": 81.137
+      },
+      "total": {
+        "p50ms": 131.7217,
+        "p95ms": 151.9351,
+        "p99ms": 161.2843
+      },
+      "medianAllocatedBytes": 16973480,
+      "startingWorkingSetBytes": 35897344,
+      "peakWorkingSetBytes": 55504896
+    },
+    {
+      "fixture": "seam",
+      "mode": "tangential-collision",
+      "repetitions": 20,
+      "triangles": 38294,
+      "transitionTriangles": 438,
+      "cellSize": 0.25,
+      "sampleCount": 2146689,
+      "checksum": "B069440EAF0B37FA",
+      "sampling": {
+        "p50ms": 160.2832,
+        "p95ms": 181.4309,
+        "p99ms": 186.1355
+      },
+      "extraction": {
+        "p50ms": 36.12,
+        "p95ms": 44.5749,
+        "p99ms": 47.7508
+      },
+      "total": {
+        "p50ms": 199.262,
+        "p95ms": 222.8088,
+        "p99ms": 226.3426
+      },
+      "medianAllocatedBytes": 13305800,
+      "startingWorkingSetBytes": 35639296,
+      "peakWorkingSetBytes": 51179520
+    },
+    {
+      "fixture": "junction",
+      "mode": "junction-collision",
+      "repetitions": 20,
+      "triangles": 40068,
+      "transitionTriangles": 0,
+      "cellSize": 0.25,
+      "sampleCount": 2146689,
+      "checksum": "430C98E38806380F",
+      "sampling": {
+        "p50ms": 142.3101,
+        "p95ms": 208.7984,
+        "p99ms": 219.113
+      },
+      "extraction": {
+        "p50ms": 47.3336,
+        "p95ms": 71.0535,
+        "p99ms": 72.141
+      },
+      "total": {
+        "p50ms": 189.9485,
+        "p95ms": 279.8519,
+        "p99ms": 291.254
+      },
+      "medianAllocatedBytes": 13305800,
+      "startingWorkingSetBytes": 35926016,
+      "peakWorkingSetBytes": 51666944
+    }
+  ]
+}

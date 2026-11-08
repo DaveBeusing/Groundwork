@@ -260,10 +260,20 @@ sealed class Grid
     internal float At(I3 p) => _density[DensityIndex(p)];
     internal bool ContainsCell(I3 p) => (uint)p.X < _cellCounts.X && (uint)p.Y < _cellCounts.Y && (uint)p.Z < _cellCounts.Z;
 
-    internal float Field(Vector3 p)
+    internal GrazingRayFallback? CreateGrazingFallback()
+    {
+        if (!LocalFineMin.HasValue)
+            return null;
+        var fixture = _fixture;
+        return new GrazingRayFallback(p => EvaluateField(fixture, p), Extent);
+    }
+
+    internal float Field(Vector3 p) => EvaluateField(_fixture, p);
+
+    private static float EvaluateField(string fixture, Vector3 p)
     {
         var center = new Vector3(15.71f, 16.23f, 15.83f);
-        return _fixture switch
+        return fixture switch
         {
             "cavity" => MathF.Max(Sphere(p, center, 11.2f), -Sphere(p, center + new Vector3(.22f, .11f, -.35f), 5.42f)),
             "overhang" => MathF.Min(Box(p, new(15.37f, 11.47f, 15.33f), new(2.65f, 6.82f, 2.71f)),
@@ -273,7 +283,7 @@ sealed class Grid
                 Box(p, new(15.84f, 16.15f, 15.51f), new(7.22f, .77f, .78f))),
             "seam" => Sphere(p, center + new Vector3(-2.1f, 2.3f, 1.4f), 9.38f),
             "junction" => Sphere(p, new(11.37f, 10.8f, 11.8f), 8.15f),
-            _ => throw new ArgumentOutOfRangeException(nameof(_fixture)),
+            _ => throw new ArgumentOutOfRangeException(nameof(fixture)),
         };
     }
 

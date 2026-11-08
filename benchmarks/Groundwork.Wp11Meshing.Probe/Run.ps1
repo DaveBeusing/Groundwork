@@ -144,6 +144,20 @@ try {
                          $fixed.geometry.collision.'bridge-edge-regression'.MaxPairedError -gt 0.1)) {
                         throw "Bridge edge ray regression."
                     }
+                    if ($fixed.fixture -eq 'bridge') {
+                        $rays = $fixed.geometry.collision.grid
+                        $rescued = $fixed.geometry.fallbackTraces
+                        if ($rays.MeshMissedHitRays -ne 4 -or $rays.FallbackHitRays -ne 4 -or
+                            $rays.FallbackBudgetExhaustedRays -or $rays.CrossingCountMismatches -or
+                            $rays.MissedHitRays -or $rays.UnexpectedHitRays -or $band.FallbackHitRays -or
+                            $rescued.Count -ne 4 -or ($rescued | Where-Object {
+                                $_.Density.Count -ne 2 -or $_.Resolved.Count -ne 2 -or
+                                [Math]::Abs($_.Density[0] - $_.Resolved[0]) -gt 0.001 -or
+                                [Math]::Abs($_.Density[1] - $_.Resolved[1]) -gt 0.001
+                            })) {
+                            throw "Off-seam grazing ray regression."
+                        }
+                    }
                 } elseif ($band.CrossingCountMismatches) {
                     throw "Normal-only LOD boundary regression for $($fixed.fixture)."
                 }

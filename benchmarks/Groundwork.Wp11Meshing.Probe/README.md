@@ -175,7 +175,7 @@ remain gated separately.
 
 Each case runs in its own Release process with tiered compilation
 disabled. After one warm-up, each sample builds the lattice and mesh
-from scratch. The sampling stage includes the thin-solid scan when
+from scratch, including creation of the optional ray fallback. The sampling stage includes the thin-solid scan when
 enabled. The extraction stage includes the transition triangles and
 triangle output. Checksums, forced GC and table loading are outside
 the timed sections. The benchmark excludes query time, geometry audit
@@ -185,3 +185,23 @@ median per build. The run compares the local policy with the earlier whole-pair 
 lattice and the original coarse bridge. Each runs in a separate process.
 
 [Local 2:1 boundary diagnostics](results-windows-mc-local-boundaries.json) · [Local and whole-pair performance](results-windows-mc-local-performance.json) · [Previous full-refinement diagnostics](results-windows-mc-bridge-edge.json)
+
+## Off-seam grazing-ray fallback
+
+On the locally refined collision mesh, a ray with no triangle hit can
+query the analytic signed-distance source outside the protected seam
+band (one unit on either side). The fallback considers only intervals
+with two outside endpoints, so it reports complete entry/exit pairs.
+It rejects zero-free intervals with the 1-Lipschitz distance bound and
+subdivides the others to 1/4096 cell, up to 4,096 density evaluations
+per ray. Budget exhaustion returns no partial crossings and is reported
+separately. The fixed-step density oracle used by the audit is separate
+from this search, but both evaluate the same fixture field. Mesh hits,
+swept-sphere queries and mesh extraction retain their previous paths.
+
+The diagnostic records raw mesh misses, rescued rays and final query
+misses separately. This prototype requires an analytic density source
+with the stated Lipschitz bound. The build benchmark includes fallback
+construction and excludes per-ray query cost.
+
+[Off-seam ray results](results-windows-mc-grazing-rays.json) · [Build performance with fallback](results-windows-mc-grazing-performance.json)
