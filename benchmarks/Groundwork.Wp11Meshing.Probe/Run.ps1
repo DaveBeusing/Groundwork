@@ -4,7 +4,8 @@ param(
     [ValidateRange(10, 1000)][int]$Repetitions = 100,
     [switch]$RequireReferenceHardware,
     [switch]$GeometryOnly,
-    [switch]$CollisionComparison
+    [switch]$CollisionComparison,
+    [switch]$CollisionBoundaries
 )
 $ErrorActionPreference = 'Stop'
 $expected = '83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4'
@@ -61,7 +62,20 @@ try {
         @{ fixture = 'junction'; layout = 'corner' },
         @{ fixture = 'seam'; layout = 'pressure' }
     )
-    if ($GeometryOnly -or $CollisionComparison) {
+    if ($CollisionBoundaries) {
+        $boundaryCases = @(
+            @{ fixture = 'junction'; layout = 'corner'; mode = 'geometry' },
+            @{ fixture = 'junction'; layout = 'corner'; mode = 'junction-collision' },
+            @{ fixture = 'bridge'; layout = 'face'; mode = 'mixed-collision' },
+            @{ fixture = 'seam'; layout = 'face'; mode = 'mixed-collision' }
+        )
+        foreach ($case in $boundaryCases) {
+            $row = dotnet $dll $Tables mc $case.fixture $case.layout $case.mode
+            if ($LASTEXITCODE) { throw "Boundary audit failed for $($case.fixture)/$($case.mode)." }
+            $rows += $row | ConvertFrom-Json
+            Write-Host "Boundary audit completed for $($case.fixture)/$($case.mode)."
+        }
+    } elseif ($GeometryOnly -or $CollisionComparison) {
         $geometryCases = @(
             @{ fixture = 'bridge'; layout = 'uniform' },
             @{ fixture = 'bridge'; layout = 'face' },
@@ -81,6 +95,33 @@ try {
         }
     } else {
         $rows = @(Measure-Extraction)
+    }
+    if ($CollisionBoundaries) {
+        foreach ($fixed in ($rows | Where-Object mode -ne 'geometry')) {
+            $audit = $fixed.topology
+            $sweeps = $fixed.geometry.movingBodies.summary
+            $band = $fixed.geometry.collision.'lod-band'
+            if ($audit.components -ne 1 -or $audit.openEdges -or $audit.nonManifoldEdges -or
+                $audit.windingEdges -or $audit.degenerates -or $fixed.geometry.intersections.Count -or
+                -not $sweeps -or ($sweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or
+                    $_.overTolerance -or $_.maxPairedError -gt 0.1 })) {
+                throw "Collision mesh regression for $($fixed.fixture)/$($fixed.mode)."
+            }
+            if ($fixed.mode -eq 'mixed-collision') {
+                $boundary = $fixed.sharedBoundary
+                if (-not $boundary.leftEdges -or $boundary.leftEdges -ne $boundary.rightEdges -or
+                    $boundary.unmatchedLeft -or $boundary.unmatchedRight -or $band.CrossingCountMismatches) {
+                    throw "Mixed region boundary regression for $($fixed.fixture)."
+                }
+                if ($fixed.fixture -eq 'bridge' -and
+                    ($fixed.geometry.collision.'bridge-core'.CrossingCountMismatches -or
+                     $fixed.geometry.collision.'bridge-core'.MissingCoreOccupancySamples)) {
+                    throw "Mixed region bridge occupancy regression."
+                }
+            } elseif ($band.CrossingCountMismatches -gt 1 -or $band.MaxPairedError -gt 0.1) {
+                throw "Junction ray regression."
+            }
+        }
     }
     if ($CollisionComparison) {
         foreach ($refined in ($rows | Where-Object refinementEnabled)) {
@@ -114,8 +155,9 @@ try {
         physicalMemoryBytes = $physicalMemory
         installedMemoryBytes = $installedMemory
         referenceHardwareRequired = [bool]$RequireReferenceHardware
-        geometryOnly = [bool]($GeometryOnly -or $CollisionComparison)
+        geometryOnly = [bool]($GeometryOnly -or $CollisionComparison -or $CollisionBoundaries)
         collisionComparison = [bool]$CollisionComparison
+        collisionBoundaries = [bool]$CollisionBoundaries
         sdk = (dotnet --version)
         runtime = (dotnet --list-runtimes | Where-Object { $_ -like 'Microsoft.NETCore.App 10.*' } | Select-Object -Last 1)
         sourceBase = '1d6f439c17abf2ebdb40fe7970a3e995cf5c286f'

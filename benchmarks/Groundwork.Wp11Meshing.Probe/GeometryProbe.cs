@@ -5,6 +5,37 @@ static class GeometryProbe
     private const float Epsilon = 0.00001f;
     private const float CollisionTolerance = 0.75f;
 
+    internal static object CheckSharedBoundary(Mesh left, Mesh right, float plane)
+    {
+        var first = BoundaryEdges(left);
+        var second = BoundaryEdges(right);
+        return new
+        {
+            leftTriangles = left.Count, rightTriangles = right.Count,
+            leftEdges = first.Count, rightEdges = second.Count,
+            unmatchedLeft = first.Count(edge => !second.Contains((edge.To, edge.From))),
+            unmatchedRight = second.Count(edge => !first.Contains((edge.To, edge.From)))
+        };
+
+        HashSet<(Vector3 From, Vector3 To)> BoundaryEdges(Mesh mesh)
+        {
+            var edges = new HashSet<(Vector3, Vector3)>();
+            foreach (var t in mesh)
+            {
+                Add(t.A, t.B);
+                Add(t.B, t.C);
+                Add(t.C, t.A);
+            }
+            return edges;
+
+            void Add(Vector3 a, Vector3 b)
+            {
+                if (a.X == plane && b.X == plane && a != b && !edges.Remove((b, a)))
+                    edges.Add((a, b));
+            }
+        }
+    }
+
     internal static object Check(Mesh mesh, Grid grid, string fixture, string layout)
     {
         VerifyIntersectionDetector();

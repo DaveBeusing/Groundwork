@@ -120,3 +120,29 @@ LOD-band ray counts can change when a mesh crossing enters or leaves
 the band, so compare both numerator and denominator.
 
 [Paired workstation diagnostics](results-windows-mc-collision-refinement.json)
+
+## Junction collision and mixed region boundaries
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-boundaries.json -CollisionBoundaries
+```
+
+The three-plane junction uses a separate, uniform half-cell collision
+mesh from the same density field. Its render mesh retains the Transvoxel
+transitions. This avoids using displaced render seam vertices for
+collision queries. The runner compares the previous collision results
+against the separate mesh using the same ray and sphere trajectories.
+
+The mixed-region cases extract meshes independently on either side of
+X = 16 from one sampled density field. Spacing is 0.5 in all axes on
+the left and 1.0 in X with 0.5 in Y/Z on the right. Both meshes use the
+same half-cell face lattice and the same interpolation on shared edges.
+The audit checks equal, oppositely directed contour edges by exact
+position before combining the triangles for collision queries. It then
+checks topology, triangle intersections, ray parity, and swept-sphere
+contacts. The regression threshold of 0.1 cell on paired contacts is a
+prototype diagnostic. The run covers two static regions across one
+face and does not exercise streaming, collision publication or handoff
+between independently scheduled owners.
+
+[Workstation junction and mixed-region results](results-windows-mc-collision-boundaries.json)

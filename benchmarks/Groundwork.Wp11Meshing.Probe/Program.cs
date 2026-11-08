@@ -4,27 +4,41 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length != 5)
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined>");
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision>");
 
 const int n = 32;
 var algorithm = args[1];
 var fixture = args[2];
 var layout = args[3];
 var refineCollision = args[4] == "collision-refined";
-var geometry = args[4] == "geometry" || refineCollision;
+var junctionCollision = args[4] == "junction-collision";
+var mixedCollision = args[4] == "mixed-collision";
+var geometry = args[4] == "geometry" || refineCollision || junctionCollision || mixedCollision;
 var repetitions = geometry ? 1 : int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
 if (repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
     throw new ArgumentOutOfRangeException(nameof(args));
 var tables = new Tables(File.ReadAllText(args[0]));
-var grid = new Grid(n, fixture, layout, refineCollision);
+var grid = new Grid(n, fixture, layout, refineCollision, junctionCollision, mixedCollision);
 if (geometry)
 {
-    if (algorithm != "mc" || layout == "pressure")
-        throw new ArgumentException("Geometry audit requires MC and one region.");
-    var mesh = Marching.Extract(grid, tables, trackSources: true);
+    if (algorithm != "mc" || layout == "pressure" || junctionCollision && layout != "corner" || mixedCollision && layout != "face")
+        throw new ArgumentException("Use MC with uniform, face or corner geometry, corner junction collision, or face mixed collision.");
+    Mesh mesh;
+    object? sharedBoundary = null;
+    if (mixedCollision)
+    {
+        var left = Marching.ExtractRegularRegion(grid, tables, 0, grid.Mid);
+        var right = Marching.ExtractRegularRegion(grid, tables, grid.Mid, grid.XCells);
+        sharedBoundary = GeometryProbe.CheckSharedBoundary(left, right, grid.Extent / 2);
+        left.AddRange(right);
+        left.Sources!.AddRange(right.Sources!);
+        mesh = left;
+    }
+    else
+        mesh = Marching.Extract(grid, tables, trackSources: true);
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        fixture, layout, refinementEnabled = refineCollision, grid.ThinFeatureWitness,
+        fixture, layout, mode = args[4], refinementEnabled = refineCollision, grid.ThinFeatureWitness, sharedBoundary,
         grid.CellSize, grid.EffectiveLayout, triangles = mesh.Count, checksum = Audit.Digest(mesh),
         topology = Audit.Check(mesh, grid), geometry = GeometryProbe.Check(mesh, grid, fixture, layout)
     }, new JsonSerializerOptions { IncludeFields = true }));
@@ -100,21 +114,35 @@ sealed class Grid
     internal float Extent => N * CellSize;
     internal string EffectiveLayout => _layout;
     internal Vector3? ThinFeatureWitness { get; }
-    internal Vector3 Position(I3 p) => p.Position * CellSize;
+    internal int XCells { get; }
+    private readonly bool _mixedCollision;
 
-    internal Grid(int n, string fixture, string layout, bool refineCollision)
+    // Both regions share the half-cell Y/Z face grid. The right region
+    // changes only X spacing, so the plane contour is identical on both sides.
+    internal Vector3 Position(I3 p)
+    {
+        var position = p.Position * CellSize;
+        if (_mixedCollision && p.X > Mid)
+            position.X = Extent / 2 + (p.X - Mid);
+        return position;
+    }
+
+    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision)
     {
         _fixture = fixture;
         ThinFeatureWitness = refineCollision ? FindThinSolid(n) : null;
         // This probe publishes one collision region. Promote it as a unit so
         // collision never crosses a coarse seam inside the protected feature.
-        CellSize = ThinFeatureWitness.HasValue ? 0.5f : 1f;
+        _mixedCollision = mixedCollision;
+        var useFineGrid = ThinFeatureWitness.HasValue || junctionCollision || mixedCollision;
+        CellSize = useFineGrid ? 0.5f : 1f;
         N = (int)(n / CellSize);
-        _layout = ThinFeatureWitness.HasValue ? "uniform" : layout;
+        XCells = mixedCollision ? Mid + n / 2 : N;
+        _layout = useFineGrid ? "uniform" : layout;
         _density = new float[Samples * Samples * Samples];
         for (var z = 0; z <= N; z++)
         for (var y = 0; y <= N; y++)
-        for (var x = 0; x <= N; x++)
+        for (var x = 0; x <= XCells; x++)
         {
             var p = new I3(x, y, z);
             _density[Index(p, Samples)] = Field(Position(p));
@@ -282,22 +310,7 @@ static class Marching
             for (var x = 0; x < mid; x += step)
             {
                 var origin = brick + new I3(x, y, z);
-                var code = 0;
-                for (var c = 0; c < 8; c++)
-                {
-                    var q = origin + I3.Corner(c) * step;
-                    d[c] = grid.At(q);
-                    if (d[c] < 0)
-                        code |= 1 << c;
-                }
-                if (code is 0 or 255)
-                    continue;
-                for (var c = 0; c < 8; c++)
-                {
-                    var q = origin + I3.Corner(c) * step;
-                    p[c] = step == 1 ? grid.FinePosition(q, brick) : grid.Position(q);
-                }
-                Emit(output, tables.RegularCells[tables.RegularClass[code]], tables.RegularVertices[code], d, p, false);
+                EmitRegular(grid, tables, output, origin, step, brick, d, p);
                 RecordSource(step == 1 ? "regular-fine" : "regular-coarse");
             }
 
@@ -352,6 +365,41 @@ static class Marching
                 while (sources.Count < output.Count)
                     sources.Add(source);
         }
+    }
+
+    internal static Mesh ExtractRegularRegion(Grid grid, Tables tables, int startX, int endX)
+    {
+        var output = new Mesh { Sources = [] };
+        Span<float> d = stackalloc float[8];
+        Span<Vector3> p = stackalloc Vector3[8];
+        for (var z = 0; z < grid.N; z++)
+        for (var y = 0; y < grid.N; y++)
+        for (var x = startX; x < endX; x++)
+            EmitRegular(grid, tables, output, new I3(x, y, z), 1, null, d, p);
+        var source = startX == 0 ? "collision-left" : "collision-right";
+        for (var i = 0; i < output.Count; i++)
+            output.Sources.Add(source);
+        return output;
+    }
+
+    private static void EmitRegular(Grid grid, Tables tables, Mesh output, I3 origin, int step, I3? brick,
+        Span<float> d, Span<Vector3> p)
+    {
+        var code = 0;
+        for (var c = 0; c < 8; c++)
+        {
+            d[c] = grid.At(origin + I3.Corner(c) * step);
+            if (d[c] < 0)
+                code |= 1 << c;
+        }
+        if (code is 0 or 255)
+            return;
+        for (var c = 0; c < 8; c++)
+        {
+            var q = origin + I3.Corner(c) * step;
+            p[c] = step == 1 && brick is { } fineBrick ? grid.FinePosition(q, fineBrick) : grid.Position(q);
+        }
+        Emit(output, tables.RegularCells[tables.RegularClass[code]], tables.RegularVertices[code], d, p, false);
     }
 
     private static void Emit(Mesh output, int[] cell, int[] edges, ReadOnlySpan<float> d, ReadOnlySpan<Vector3> p, bool reverse)
