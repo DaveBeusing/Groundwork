@@ -3,6 +3,7 @@ using System.Numerics;
 sealed class ClippedSphere
 {
     private const float SurfaceTolerance = .00001f;
+    internal const int MaxEdits = 8;
     private readonly CollisionSphere[] _surfaces;
     private readonly DensityEdit[] _edits;
     private readonly Edge[] _edges;
@@ -14,6 +15,7 @@ sealed class ClippedSphere
         _surfaces = [solid, .. edits.Select(edit => new CollisionSphere(edit.Center, edit.Radius))];
         var edges = new List<Edge>();
         var corners = new List<Vector3>();
+        var candidates = new List<Vector3>(2);
         for (var i = 0; i < _surfaces.Length; i++)
         for (var j = i + 1; j < _surfaces.Length; j++)
         {
@@ -21,14 +23,20 @@ sealed class ClippedSphere
                 continue;
             edges.Add(edge);
             for (var k = j + 1; k < _surfaces.Length; k++)
-                edge.AppendIntersections(_surfaces[k], corners);
+            {
+                candidates.Clear();
+                edge.AppendIntersections(_surfaces[k], candidates);
+                foreach (var candidate in candidates)
+                    if (Valid(candidate, i, j, SurfaceTolerance, k))
+                        corners.Add(candidate);
+            }
         }
         _edges = edges.ToArray();
         _corners = corners.ToArray();
     }
 
     internal static ClippedSphere? Create(CollisionSphere solid, DensityEdit[] edits) =>
-        edits.Length is 1 or 2 && edits.Any(edit => !edit.Add &&
+        edits.Length is >= 1 and <= MaxEdits && edits.Any(edit => !edit.Add &&
             Intersect(solid, new CollisionSphere(edit.Center, edit.Radius), 0, 1).HasValue)
             ? new ClippedSphere(solid, edits) : null;
 
@@ -66,13 +74,13 @@ sealed class ClippedSphere
         return distance;
     }
 
-    private bool Valid(Vector3 point, int skipA, int skipB, float tolerance)
+    private bool Valid(Vector3 point, int skipA, int skipB, float tolerance, int skipC = -1)
     {
         var inside = false;
         for (var i = 0; i < _surfaces.Length; i++)
         {
             var surface = _surfaces[i];
-            var signed = i == skipA || i == skipB ? 0 : Vector3.Distance(point, surface.Center) - surface.Radius;
+            var signed = i == skipA || i == skipB || i == skipC ? 0 : Vector3.Distance(point, surface.Center) - surface.Radius;
             // Keep the edit order. A later union may restore a point in an
             // earlier subtraction. Boundary points belong to the closure.
             inside = i == 0 || _edits[i - 1].Add

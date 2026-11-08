@@ -90,6 +90,7 @@ static class RayLatencyProbe
         var overlapNearMiss = CheckOverlapNearMiss(overlapping, overlapQuery);
         var overlapGeometry = GeometryProbe.Check(overlapMesh, overlapping, "bridge", "face");
         var mixedEdits = CheckMixedEdits(tables, edits);
+        var largerEditGroups = CheckLargerEditGroups(tables, edits);
         var added = after.Trace(Added.Origin, Added.Direction);
         if (added.Hits.Count != 2 || MathF.Abs(added.Hits[0] - 24.2f) > .0001f ||
             MathF.Abs(added.Hits[1] - 24.4f) > .0001f ||
@@ -108,7 +109,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
-            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits,
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups,
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -348,6 +349,78 @@ static class RayLatencyProbe
                 MathF.Abs(expected[3] - ray.Hits[3]) > .001f)
                 throw new InvalidOperationException($"Mixed edit ray failed for order {addLast}.");
             return (object)new { addLast, edits = ordered, sweeps,
+                ray = new { origin, direction = outward, expected, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
+                checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
+        }).ToArray();
+
+        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
+    }
+
+    private static object[] CheckLargerEditGroups(Tables tables, DensityEdit[] edits)
+    {
+        var cut = edits[0];
+        var terrain = Grid.BridgeRight;
+        var separation = Vector3.Distance(cut.Center, terrain.Center);
+        var outward = (cut.Center - terrain.Center) / separation;
+        var add = new DensityEdit(cut.Center + .16f * outward, .30f, true);
+        var trim = new DensityEdit(cut.Center + .38f * outward, .18f, false);
+        var restore = new DensityEdit(cut.Center + .40f * outward, .12f, true);
+        var groups = new (string Name, DensityEdit[] Ordered, bool RestoreLast)[]
+        {
+            ("three-brushes", [cut, add, trim], false),
+            ("four-restore-last", [cut, add, trim, restore], true),
+            ("four-trim-last", [cut, add, restore, trim], false)
+        };
+
+        return groups.Select(group =>
+        {
+            DensityEdit[] ordered = [.. group.Ordered, .. edits[1..]];
+            var grid = Create(ordered);
+            var mesh = Marching.Extract(grid, tables, trackSources: true);
+            if (grid.OpeningCuts.Length != 2 || !grid.CollisionCuts.IsEmpty)
+                throw new InvalidOperationException("Larger group must bypass the isolated-cut shortcut.");
+
+            var cases = new List<(SphereSweep.SweepCase Path, float? Distance)>();
+            foreach (var radius in new[] { .04f, .08f })
+            {
+                var firstSolid = group.RestoreLast ? .52f : .20f;
+                cases.Add((new("group-axis-enter", Point(.68f, 0), Point(-.30f, 0), radius), .68f - firstSolid - radius));
+                cases.Add((new("group-axis-exit", Point(-.30f, 0), Point(.68f, 0), radius), .16f - radius));
+            }
+            cases.Add((new("group-bypass-enter", Point(.68f, .34f), Point(-.10f, .34f), .025f), null));
+            cases.Add((new("group-bypass-exit", Point(-.10f, .34f), Point(.68f, .34f), .025f), null));
+
+            const float circleSeparation = .22f;
+            var circleAxial = .16f + (add.Radius * add.Radius - trim.Radius * trim.Radius +
+                circleSeparation * circleSeparation) / (2 * circleSeparation);
+            var circleSide = MathF.Sqrt(add.Radius * add.Radius - MathF.Pow(circleAxial - .16f, 2));
+            const float rimBody = .085f;
+            var rimDistance = circleSide - MathF.Sqrt(rimBody * rimBody - MathF.Pow(.45f - circleAxial, 2)) - .10f;
+            cases.Add((new("group-intersection-rim", Point(.45f, .10f), Point(.45f, .24f), rimBody),
+                group.RestoreLast ? 0 : rimDistance));
+
+            var sweeps = cases.Select(test =>
+            {
+                var actual = SphereSweep.TraceCollision(grid, mesh, test.Path);
+                var expectedState = test.Distance switch { null => "clear", 0 => "initial-overlap", _ => "hit" };
+                if (actual.State != expectedState || test.Distance is { } distance &&
+                    (actual.Distance is not { } hit || MathF.Abs(hit - distance) > .001f))
+                    throw new InvalidOperationException($"{group.Name}, {test.Path.Group}: {actual}, expected {test.Distance}.");
+                return new { test.Path, expectedState, expectedDistance = test.Distance, actual,
+                    meshOnly = SphereSweep.TraceMesh(mesh, test.Path) };
+            }).ToArray();
+
+            var origin = Point(-12, 0);
+            var ray = new CollisionRayQuery(grid, mesh).Trace(origin, outward);
+            var expected = GeometryProbe.DensityHits(grid, origin, outward);
+            float[] editedCrossings = group.RestoreLast ? [11.60f, 11.86f, 12.20f, 12.28f, 12.52f] :
+                [11.60f, 11.86f, 12.20f];
+            if (expected.Count != editedCrossings.Length + 1 || ray.Hits.Count != expected.Count || ray.Exhausted ||
+                editedCrossings.Where((crossing, index) => MathF.Abs(expected[index + 1] - crossing) > .001f ||
+                    MathF.Abs(ray.Hits[index + 1] - crossing) > .001f).Any())
+                throw new InvalidOperationException($"Large edit group ray failed for {group.Name}.");
+
+            return (object)new { group.Name, brushCount = group.Ordered.Length, edits = ordered, sweeps,
                 ray = new { origin, direction = outward, expected, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
                 checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
         }).ToArray();

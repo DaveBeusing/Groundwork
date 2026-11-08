@@ -321,8 +321,8 @@ or an intersection circle must satisfy all remaining solid/void
 constraints. Three-surface intersection points provide the endpoints
 when an otherwise nearest point lies on a clipped portion of a circle.
 The swept-volume bound must still exclude other terrain and edit
-supports. Larger edit groups and longer paths remain outside this
-local model.
+supports. Larger edit groups use the same bounded local model described
+below.
 
 The edited matrix adds a symmetric pair of cuts. Its midplane provides
 independent controls for four clear passes at two radii and two rim
@@ -339,7 +339,7 @@ and subtractive brush in snapshot order. The retained faces,
 intersection circles and endpoints must belong to the final solid.
 A later union may restore material removed by an earlier subtraction.
 The swept-volume bound still limits the query to a single spherical
-terrain lobe and at most two local spherical edits outside the seam.
+terrain lobe and local spherical edits outside the seam.
 
 The edited suite checks both orders with seven targeted sphere paths
 each. These include axial entry and exit contacts at two radii, clear
@@ -351,3 +351,26 @@ grid and the existing bridge sweeps for both orders. The targeted
 axial ray also verifies the thin positive cap that the mesh misses.
 
 [Mixed edit and collision regression results](results-windows-mc-mixed-edits.json)
+
+## Three or more overlapping brushes
+
+The local opening query accepts a connected group of up to eight
+spherical edits within the existing swept-volume bound. It preserves
+snapshot order and verifies all candidate faces, clipped circles and
+three-surface intersection points against the final solid. Edits
+that cannot touch the swept bound are ignored. The solver still
+requires a single spherical terrain lobe and an off-seam opening.
+
+The Workstation regression run covers three coaxial brushes and two
+four-brush orders. The fourth brush either restores a solid fragment
+or is overwritten by the final subtraction. Each group runs seven
+targeted sphere paths, the broad ray grid and the 76 bridge sweeps.
+The targeted ray checks four crossings with the fragment removed and
+six with it restored. The eight-edit bound is an implementation
+limit. The largest geometry tested here contains four brushes.
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-larger-groups.json -RayLatency -RayRuns 1 -RaySamples 1000
+```
+
+[Larger edit group results](results-windows-mc-larger-edit-groups.json)

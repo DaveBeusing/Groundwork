@@ -8,7 +8,8 @@ param(
     [switch]$CollisionBoundaries,
     [switch]$CollisionPerformance,
     [switch]$RayLatency,
-    [ValidateRange(100, 100000)][int]$RaySamples = 10000
+    [ValidateRange(100, 100000)][int]$RaySamples = 10000,
+    [ValidateRange(1, 3)][int]$RayRuns = 3
 )
 $ErrorActionPreference = 'Stop'
 $expected = '83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4'
@@ -66,7 +67,7 @@ try {
         @{ fixture = 'seam'; layout = 'pressure' }
     )
     if ($RayLatency) {
-        for ($run = 1; $run -le 3; $run++) {
+        for ($run = 1; $run -le $RayRuns; $run++) {
             $row = dotnet $dll $Tables mc bridge face ray-latency $RaySamples
             if ($LASTEXITCODE) { throw "Ray latency and edit validation failed in process $run." }
             $result = $row | ConvertFrom-Json
@@ -105,6 +106,20 @@ try {
                     ($mixedSweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
                     ($mixedSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
                     throw "Mixed edit collision regression in process $run."
+                }
+            }
+            if ($result.largerEditGroups.Count -ne 3) { throw "Larger edit groups missing in process $run." }
+            foreach ($group in $result.largerEditGroups) {
+                $groupRays = $group.geometry.collision.grid
+                $groupBand = $group.geometry.collision.'lod-band'
+                $groupSweeps = $group.geometry.movingBodies.summary
+                if ($group.sweeps.Count -ne 7 -or $groupRays.Rays -ne 12288 -or
+                    $groupRays.CrossingCountMismatches -or $groupRays.MissedHitRays -or
+                    $groupRays.UnexpectedHitRays -or $groupRays.FallbackBudgetExhaustedRays -or
+                    $groupBand.CrossingCountMismatches -or
+                    ($groupSweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
+                    ($groupSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                    throw "Larger edit group regression for $($group.Name) in process $run."
                 }
             }
             $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run

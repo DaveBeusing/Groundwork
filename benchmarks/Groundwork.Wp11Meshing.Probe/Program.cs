@@ -367,10 +367,12 @@ sealed class Grid
                 continue;
             if (!float.IsFinite(edit.Radius) || edit.Radius <= 0 ||
                 MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius <= GrazingRayFallback.SeamHalfWidth ||
-                localEdits.Count == 2 || separation >= cut.Radius + edit.Radius)
+                localEdits.Count == ClippedSphere.MaxEdits)
                 return null;
             localEdits.Add(edit);
         }
+        if (!FormsOverlappingGroup(localEdits, cut))
+            return null;
         // The convex bound encloses the whole swept ball, so components
         // that cannot enter it cannot provide an earlier contact.
         var touchesLeft = Vector3.Distance(BridgeLeft.Center, cut.Center) - BridgeLeft.Radius <= reach;
@@ -379,6 +381,30 @@ sealed class Grid
             return null;
         return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, localEdits.ToArray());
     }
+    private static bool FormsOverlappingGroup(List<DensityEdit> edits, CollisionSphere cut)
+    {
+        var first = edits.FindIndex(edit => !edit.Add && edit.Center == cut.Center && edit.Radius == cut.Radius);
+        if (first < 0)
+            return false;
+        var visited = 1 << first;
+        var pending = new Queue<int>();
+        pending.Enqueue(first);
+        while (pending.TryDequeue(out var index))
+        {
+            var current = edits[index];
+            for (var i = 0; i < edits.Count; i++)
+            {
+                var bit = 1 << i;
+                var other = edits[i];
+                if ((visited & bit) != 0 || Vector3.Distance(current.Center, other.Center) >= current.Radius + other.Radius)
+                    continue;
+                visited |= bit;
+                pending.Enqueue(i);
+            }
+        }
+        return visited == (1 << edits.Count) - 1;
+    }
+
     private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
 
     private static float EvaluateEditedField(string fixture, DensityEdit[] edits, Vector3 p)
