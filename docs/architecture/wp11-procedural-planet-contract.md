@@ -81,6 +81,63 @@ A player can start a new world from an exact seed and generator version, walk th
 - Benchmark reproducibly on a documented 8-core/32-GiB class Windows machine plus optional workstation. Record adapter/driver, Windows/runtime/SDK, seed, route, generator version, CPU/GPU memory, generation/meshing latency distributions, waits, queue peaks, p50/p95/p99 frame times, draw calls and sample count. Hard performance acceptance thresholds are set from baseline evidence in the architecture review prior to sign-off; no invented FPS claim.
 - Keep 60-Hz fixed simulation deterministic; timing measurements never alter canonical world output.
 
+## WP11-C00 architecture clarifications — review candidate (2026-11-08)
+
+These clarifications resolve five author-side preflight gaps sufficiently for **independent architecture review**. They are proposed contract decisions, **not** four completed specialist reviews or measured performance acceptance. A material change requires a new frozen head and fresh/affected independent reviews. C00 must record any final amendment, decision rationale and owner sign-off before implementation.
+
+### C00-1 — Canonical volume addressing across faces and LOD (R01, R03, A01/A03)
+
+**Proposed design choice:** Make a single planet-centred signed **Int64 Cartesian lattice** authoritative for volumetric density sample coordinates and sparse brick keys. A planet descriptor fixes the cell size (initial reference 1 metre per finest cell), orientation, centre, coordinate origin and generator-versioned sampling quantization. For each axis use Euclidean floor division, including negative values, to derive a brick index and the local cell index in `[0, brickEdge)`. The initial candidate brick has 32 cells per axis; its 33-by-33-by-33 vertex-sample grid includes shared boundary samples. Those samples are *logically addressed* by their global integer lattice triples and evaluated identically for all adjacent bricks; no independent face-local copy may be saved as a second authoritative edit.
+
+The existing six cube-sphere charts are **non-authoritative view/LOD addresses**, not identities for volumetric samples or persisted edits. Far spherical patches query the same versioned volume field through a documented canonical sampling transform. A face edge or corner cannot own a different edited value because edits are keyed solely by the planet identity and 3D integer lattice address. Rendering may use local-origin rebasing and floats, but render positions must never be fed back into canonical world keys.
+
+Specify whether edits address *cells* or *density lattice vertices* for each operation; forbid ambiguous half-cell coordinates. At a brick boundary, exactly one canonical cell owner changes material/occupancy, while every mesh neighbour dependent on shared density samples is invalidated. Distinguish generation identity from rendering LOD and local-origin revision. For every conversion require explicit ties-to-even rounding or another approved deterministic tie rule; define overflow and nonfinite-input rejection **before** any cast or allocation. Use checked Int64 arithmetic for coordinate/brick construction and validated domain limits for radius/resolution. Exceeding the supported domain must fail closed, not wrap.
+
+**Required evidence:** planar negative-coordinate tests; 3D brick faces/edges/corners (including triple-neighbour samples); cube-chart 12 edges/8 corners; level transitions; local-origin rebases; 6,400,000 m radius stress; duplicate-free canonical edit keys; roundtrip persistence of edits near seams. The mapping is a design decision subject to the independent review, not a proven implementation.
+
+### C00-2 — Numeric determinism and generation versioning (R02, A02)
+
+**Proposed rule:** Canonical seed hashing, spatial noise, density quantization and persisted output are specified algorithms, not merely calls to an unversioned OS or .NET RNG. Use a fixed, test-vectored 64-bit integer hash/PRNG with separate named streams for macro terrain, mid-scale relief, detail and materials. Canonical sample coordinates and generator parameters are serialized with explicit endianness and version. Use signed fixed-point / checked integer arithmetic and a frozen round-to-nearest, ties-to-even rule for authoritative density results where precision/range allows. If a floating computation is unavoidable, its numerical steps, input quantization, output rounding, FMA/reassociation policy, nonfinite rejection and cross-CPU golden vectors must be explicitly qualified before treating its bytes as authoritative.
+
+Never key generation or ordering on worker scheduling, clock time, platform thread IDs, locale, unordered dictionary traversal or GPU output. A generator-algorithm change increments the generator identity; equal seed with a changed algorithm is **not** silently treated as the same saved world. At minimum the golden harness must run repeated fresh-process, serial, reversed and randomized job-order evaluations on supported Windows x64 CPUs, comparing canonical sample and serialized chunk hashes; distinguish binary invariants from allowed timing differences. Do not assert cross-architecture bitwise identity without tests.
+
+### C00-3 — Simulation-authoritative coverage versus GPU presentation (R04–R06, C01–C03)
+
+**Proposed admission state machine:**
+
+1. `Requested` → reserve bounded immutable generated bricks and matching edit revision.
+2. `Prepared` → complete required mesh topology, collision data and camera/local-origin stamp; candidate remains non-authoritative.
+3. `Submitted` → renderer accepts matching candidate revision/descriptor; a submission alone is **not** presentation.
+4. `PresentedConfirmed` → renderer acknowledges an actual matching mesh/camera presentation, with valid native ownership/fence evidence.
+5. `Committed` → at the next permitted simulation/Core publication barrier, atomically replace active mesh/collision/origin coverage and install the matching generation.
+6. `Retired` → old CPU/GPU versions release only after all readers, jobs, draws and Present operations have settled per Core/GPU custody contracts.
+
+An admitted `Committed` generation can support many subsequent deterministic 60 Hz simulation ticks. **A new GPU Present must not be required before each simulation tick**. The first admission of *new* coverage waits for confirmed matching presentation, and any movement requiring not-yet-admitted coverage holds the last valid pose. A delayed, canceled or failed presentation cannot authorize the new collision generation. The simulator must distinguish a stream-readiness hold from ordinary zero-input movement and record it in the trace.
+
+Deterministic tests must replay a fixed *accepted input/action sequence and semantic world checkpoints* under controlled readiness schedules. Wall-clock readiness delays and numbers of hold ticks may vary and should be reported separately; never claim raw tick-by-tick equivalence across uncontrolled GPU/worker timing. An authoritative edit mutation may commit its logical state at a named tick, but new collision-affecting visibility is admitted only as one coherent generation; define whether interaction input is deferred/rejected until then. Stop, failed Signal and removal sentinel retain ownership until safe settlement evidence.
+
+**Required evidence:** randomized worker ordering, delayed Present, stopped renderer, rapid rebase, edit during streaming, interrupted frame, stale candidate rejection and a full walk→flight→landing route with matching generation stamps.
+
+### C00-4 — Meshing and performance-budget decision gate (R04/R05/R09, B01/Q01)
+
+The concrete volume surface algorithm and mixed-resolution transition mechanism are an **explicit C00 decision**, not an implicit promise. Compare at least **(a) Marching Cubes with a validated crack-free mixed-resolution transition such as Transvoxel-style transition cells**, and **(b) a dual-contouring/surface-nets family with explicit adaptive boundary topology**. An alternative is valid if equivalent seam/winding and cavity evidence is provided. Document topology consistency, material/normal interpolation, thin structures, sharp features, difficult mixed-LOD corners, cube-chart edges, deterministic vertex ordering, memory traffic and CPU meshing cost. A naive independent per-brick triangulation without boundary stitching cannot pass.
+
+Provisional ceilings from R05 — 4 generating jobs, 2 meshing jobs, 1 staged generation, 512 MiB CPU terrain and 256 MiB GPU geometry — are **planning limits only**. Before C00 acceptance, choose documented reference hardware and scene seeds, benchmark both candidates or a defensible reduced prototype, publish actual high-water allocation and p50/p95/p99 times, and freeze explicit acceptance ceilings with justification. Count CPU active, pending, leased, obsolete and retiring buffers and GPU upload, active, candidate and retirement buffers; keep the workload bounded and reject reservations before allocation. A measurement not run must be marked `NOT MEASURED` and is a remaining C00 gate, not estimated proof. Geometry and memory budget tuning may change the 32-cell/1 m reference after measurements without a backward compatibility obligation.
+
+**Required evidence:** enclosed cavity, overhang, thin bridge, multiple intersecting LOD transition edges, face corners and deliberately saturated streaming; repeatable machine+build+seed and allocation logs. Approval of a preferred candidate is contingent on these artifacts.
+
+### C00-5 — Explicit new-save namespace and incompatibility safety (R07, D02/W03)
+
+WP11 uses a **new world lineage and checkpoint schema**. The proposed Windows root is `%LOCALAPPDATA%\\WorldsYetUnseen\\Worlds\\v2\\<opaque-world-id>\\`, separated from existing alpha WP06/07/09/10 slots. Treat the root and `v2` segment as a *namespace identifier*, not an assertion that every earlier format was version 1. Choose/validate opaque world IDs and canonical path containment; prohibit path traversal, symlink escapes, ambiguous case or slot collisions. A newly created world reserves a unique empty slot before first write; an existing slot cannot be silently reused by "New World" even if parsing its header fails.
+
+The checkpoint header binds a world ID and planet descriptor, generator algorithm/version, parameter digest, material catalog and storage schema. On Continue, inspect occupied committed slots before creation/publication. If a file is from a legacy or unsupported version, a different seed/lineage, has an ambiguous header, or cannot be safely classified, return explicit `Incompatible` / `Unsupported` / `Corrupt` / `AccessError` (as appropriate), **leave every byte intact and do not write**. Offer a **separate unique new-world slot**; migration is out of scope. Never interpret old data using the new generator or manufacture an empty world over it.
+
+Revalidate slot identity on save as well as load; preserve the existing or stronger NTFS lease, idempotent retry ID, stale-base detection, atomic alternating committed files, flush/verify and recovery discipline. A failed/uncertain scan blocks publication rather than falling back to reset. Test occupied unsupported slots, two writers, corrupt/partial headers, access denial, loss of acknowledgment, interruption around atomic publication and correct recovery without unintended overwrites.
+
+## Independent-review and execution gate for these clarifications
+
+Treat this section as an **author-proposed contract** to be scrutinized, not as independent findings. Independent roles L3A-ECS (identity/ownership), L3B-JOBS (determinism/scheduling/bounds), L2-SIM (presentation admission/tick semantics) and L5-FAULTS (save/GPU/fail-closed) each review the same final frozen commit, then a separate *subsequent* integration reviewer reconciles their signed reports. The proposed concrete choices are reversible if reviews or measurements reveal a superior architecture. No implementation PR may treat the provisional numeric budgets or unselected mesher as already qualified.
+
 ## Scope boundaries
 
 **WP11 includes:** typed planet descriptor, deterministic large-scale and local density, sparse 3D data, renderable terrain, seams, streaming, basic edit overlay, new save/recovery, playable WYU seeded route and flight regression, reproducible Windows verification.
@@ -128,4 +185,4 @@ Dependencies: C00 → A01 → A02/A03 → B01. A01/A03 → C01; B01/C01 → C03;
 7. **Reproducible delivery:** green Windows CI, exact reviewed GitHub commits and package digests, NVIDIA D3D12 Debug Layer/DRED, zero live GPU child objects, resource budgets and benchmark metadata recorded.
 8. **Process:** architecture approved, specialist/integration reviews documented, open P0/P1 fixed, owner accepts final verified head, and handover references each accepted issue.
 
-**Owner decision still required:** approve or amend this entire proposed WP11 technical contract and the benchmark-tuned budgets before implementation. No additional product questions block the planning artifacts.
+**Owner decision:** The clean-break WP11 direction and planning scope were approved on 2026-11-08 and recorded in PR #77 / issue #78. This is not final post-review acceptance of a frozen SHA. Meshing algorithm selection, benchmark-derived resource ceilings, independent specialist/integration review, configured checks and final owner acceptance remain outstanding before implementation.
