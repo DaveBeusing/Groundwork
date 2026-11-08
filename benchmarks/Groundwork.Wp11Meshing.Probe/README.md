@@ -147,14 +147,36 @@ between independently scheduled owners.
 
 The runner also repeats the missed grazing ray at X = 15.319, Z = 4.673
 along +Y and records both crossings. For tangentially mismatched regions
-the fine side uses 0.25-cell spacing and the coarse side uses 0.5 in
-all three axes. The fine owner contributes the Transvoxel transition
+the usual spacing is 0.25 cells on the fine side and 0.5 on the coarse
+side in all three axes. A thin-solid witness selects 0.125 and 0.25
+instead, keeping a true 2:1 transition while protecting the coarse
+contour. The fine owner contributes the Transvoxel transition
 strip, and its coarse-plane contour is checked against the coarse
 region's contour with exact, oppositely oriented edges. Both meshes are
 queried together. The runner requires both crossings of the grazing ray
 with at most 0.15 cells of paired error, and preserves the 0.1-cell
-swept-sphere diagnostic. One extra crossing-pair discrepancy is
-recorded in the tangential bridge band. The bridge core and sphere
-contacts remain gated separately.
+swept-sphere diagnostic. It requires zero crossing-count discrepancies
+in the tangential bridge band, including the previously failing ray at
+Y = 16.673, Z = 14.819 along +X. The bridge core and sphere contacts
+remain gated separately.
 
 [Workstation grazing-ray and tangential-boundary results](results-windows-mc-tangential-boundaries.json) · [Previous half-cell junction and normal-only boundary results](results-windows-mc-collision-boundaries.json)
+
+## Collision build performance on the workstation
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-collision-performance.json -CollisionPerformance -Repetitions 20
+```
+
+Each case runs in its own Release process with tiered compilation
+disabled. After one warm-up, each sample builds the lattice and mesh
+from scratch. The sampling stage includes the thin-solid scan when
+enabled. The extraction stage includes the transition triangles and
+triangle output. Checksums, forced GC and table loading are outside
+the timed sections. The benchmark excludes query time, geometry audit
+and publication. Peak working set is the maximum for the entire child
+process, including runtime and warm-up. Managed allocations are the
+median per build. The previous bridge spacing is a separate process
+case with the previous policy.
+
+[Bridge edge and 2:1 diagnostics](results-windows-mc-bridge-edge.json) · [Workstation performance data](results-windows-mc-collision-performance.json)

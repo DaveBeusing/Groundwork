@@ -1,0 +1,1981 @@
+{
+  "timestampUtc": "2026-11-08T22:30:42.8729717Z",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "physicalMemoryBytes": 68137205760,
+  "installedMemoryBytes": 68719476736.0,
+  "referenceHardwareRequired": false,
+  "geometryOnly": true,
+  "collisionComparison": false,
+  "collisionBoundaries": true,
+  "collisionPerformance": false,
+  "sdk": "10.0.403",
+  "runtime": "Microsoft.NETCore.App 10.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
+  "sourceBase": "1d6f439c17abf2ebdb40fe7970a3e995cf5c286f",
+  "tablesCommit": "51a494f03c5b024cd153b596bcc7152eb3cc93a6",
+  "tablesSha256": "83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4",
+  "tieredCompilation": false,
+  "results": [
+    {
+      "fixture": "junction",
+      "layout": "corner",
+      "mode": "geometry",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "sharedBoundary": null,
+      "CellSize": 1,
+      "EffectiveLayout": "corner",
+      "triangles": 1534,
+      "checksum": "5444AD5C29040550",
+      "topology": {
+        "weldedVertices": 769,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 116,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.6056957,
+        "minNormalDot": 0.15301938
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 1073,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 507,
+                "center": {
+                  "X": 6.4365463,
+                  "Y": 15.119071,
+                  "Z": 7.117428
+                },
+                "dot": 0.91999704,
+                "source": "regular-fine"
+              },
+              {
+                "index": 416,
+                "center": {
+                  "X": 7.501209,
+                  "Y": 15.068531,
+                  "Z": 6.1212063
+                },
+                "dot": 0.9212074,
+                "source": "regular-fine"
+              },
+              {
+                "index": 467,
+                "center": {
+                  "X": 15.145194,
+                  "Y": 5.438376,
+                  "Z": 7.13051
+                },
+                "dot": 0.92141277,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 116,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1143,
+                "center": {
+                  "X": 15.565091,
+                  "Y": 15.666667,
+                  "Z": 7.3995757
+                },
+                "dot": 0.15301938,
+                "source": "transition"
+              },
+              {
+                "index": 1128,
+                "center": {
+                  "X": 6.500238,
+                  "Y": 15.666667,
+                  "Z": 15.507062
+                },
+                "dot": 0.2069248,
+                "source": "transition"
+              },
+              {
+                "index": 1092,
+                "center": {
+                  "X": 15.666667,
+                  "Y": 15.577801,
+                  "Z": 7.3995757
+                },
+                "dot": 0.22774667,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 345,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1328,
+                "center": {
+                  "X": 8.000976,
+                  "Y": 17.999653,
+                  "Z": 10.002966
+                },
+                "dot": 0.989225,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 1500,
+                "center": {
+                  "X": 16.58447,
+                  "Y": 8.117139,
+                  "Z": 17.29514
+                },
+                "dot": 0.9907901,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 1402,
+                "center": {
+                  "X": 13.801608,
+                  "Y": 5.4495416,
+                  "Z": 17.274872
+                },
+                "dot": 0.9919418,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 11137,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 2509,
+            "MeshHitRays": 2472,
+            "MissedHitRays": 37,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 43,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 36,
+            "MaxPairedError": 1.5122013
+          },
+          "lod-band": {
+            "Rays": 892,
+            "DensityHitRays": 892,
+            "MeshHitRays": 888,
+            "MissedHitRays": 4,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 10,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 11,
+            "MaxPairedError": 1.4715176
+          },
+          "grazing-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 0,
+            "MissedHitRays": 1,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 1,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0
+          }
+        },
+        "grazingTrace": {
+          "Group": "grazing-regression",
+          "Axis": 1,
+          "Origin": {
+            "X": 15.319,
+            "Y": 0,
+            "Z": 4.673
+          },
+          "Density": [
+            10.616279,
+            10.983722
+          ],
+          "Mesh": []
+        },
+        "bridgeEdgeTrace": null,
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 124,
+              "expectedHits": 115,
+              "expectedInitialOverlaps": 9,
+              "actualHits": 116,
+              "actualInitialOverlaps": 8,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 1,
+              "indeterminate": 0,
+              "overTolerance": 47,
+              "maxPairedError": 1.352874
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 5.375,
+                  "Z": 6.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 5.375,
+                  "Z": 9.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.41229138
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4096227
+              },
+              "error": 0.99733126
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 5.375,
+                  "Z": 17.25
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 5.375,
+                  "Z": 14.25
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.80716157
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.2569281
+              },
+              "error": 0.44976652
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 6.625,
+                  "Z": 5.25
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 6.625,
+                  "Z": 8.25
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.7549547
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4690123
+              },
+              "error": 0.71405756
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 7.875,
+                  "Z": 4.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 7.875,
+                  "Z": 7.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.84241724
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3406888
+              },
+              "error": 0.49827158
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 9.125,
+                  "Z": 4
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 9.125,
+                  "Z": 7
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.99683976
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4569018
+              },
+              "error": 0.46006203
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 3.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 6.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.1241859
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4906944
+              },
+              "error": 0.36650848
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 11.625,
+                  "Z": 3.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 11.625,
+                  "Z": 6.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.1951656
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5419027
+              },
+              "error": 0.34673703
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 12.875,
+                  "Z": 4
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 12.875,
+                  "Z": 7
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.2195593
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.6153595
+              },
+              "error": 0.39580023
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 14.125,
+                  "Z": 4.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 14.125,
+                  "Z": 7.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.2575889
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5754687
+              },
+              "error": 0.3178798
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 15.375,
+                  "Z": 5.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 15.375,
+                  "Z": 8.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.8796704
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5994636
+              },
+              "error": 0.7197932
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 16.5,
+                  "Y": 15,
+                  "Z": 6.625
+                },
+                "End": {
+                  "X": 13.5,
+                  "Y": 17,
+                  "Z": 6.625
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.55577826
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.9086523
+              },
+              "error": 1.352874
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 5,
+                  "Y": 15,
+                  "Z": 7.875
+                },
+                "End": {
+                  "X": 8,
+                  "Y": 17,
+                  "Z": 7.875
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.94744277
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5920527
+              },
+              "error": 0.6446099
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 2.6729999,
+              "Z": 11.319
+            },
+            "Density": [
+              10.991864,
+              11.748136
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 2.6729999,
+              "Z": 12.319
+            },
+            "Density": [
+              11.045987,
+              11.694013
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 3.6729999,
+              "Z": 15.319
+            },
+            "Density": [
+              9.568612,
+              13.171388
+            ],
+            "Mesh": [
+              10.755298,
+              12.079825
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 3.6729999,
+              "Z": 15.319
+            },
+            "Density": [
+              9.568612,
+              13.171388
+            ],
+            "Mesh": [
+              10.755298,
+              12.079825
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.173,
+              "Z": 16.319
+            },
+            "Density": [
+              9.926396,
+              12.813603
+            ],
+            "Mesh": [
+              10.737169,
+              12.290893
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.173,
+              "Z": 16.319
+            },
+            "Density": [
+              9.926396,
+              12.813603
+            ],
+            "Mesh": [
+              10.737169,
+              12.290893
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.673,
+              "Z": 16.819
+            },
+            "Density": [
+              9.448543,
+              13.291457
+            ],
+            "Mesh": [
+              9.98515,
+              12.479738
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.673,
+              "Z": 16.819
+            },
+            "Density": [
+              9.448543,
+              13.291457
+            ],
+            "Mesh": [
+              9.98515,
+              12.479738
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 5.173,
+              "Z": 15.319
+            },
+            "Density": [
+              6.6396723,
+              16.100327
+            ],
+            "Mesh": [
+              6.935936,
+              15.395391,
+              15.620536,
+              15.813948
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.173,
+              "Z": 6.8190002
+            },
+            "Density": [
+              6.6277437,
+              16.112255
+            ],
+            "Mesh": [
+              6.8403378,
+              15.452475,
+              15.548848,
+              15.760568
+            ]
+          },
+          {
+            "Group": "grazing-regression",
+            "Axis": 1,
+            "Origin": {
+              "X": 15.319,
+              "Y": 0,
+              "Z": 4.673
+            },
+            "Density": [
+              10.616279,
+              10.983722
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "junction",
+      "layout": "corner",
+      "mode": "junction-collision",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "sharedBoundary": null,
+      "CellSize": 0.25,
+      "EffectiveLayout": "uniform",
+      "triangles": 40068,
+      "checksum": "430C98E38806380F",
+      "topology": {
+        "weldedVertices": 20036,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.00095653534,
+        "minNormalDot": 0.9997418
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 40068,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 22116,
+                "center": {
+                  "X": 19.24996,
+                  "Y": 11.999703,
+                  "Z": 13.499798
+                },
+                "dot": 0.9997418,
+                "source": "regular-fine"
+              },
+              {
+                "index": 21822,
+                "center": {
+                  "X": 19.24996,
+                  "Y": 12.499798,
+                  "Z": 12.999705
+                },
+                "dot": 0.99974394,
+                "source": "regular-fine"
+              },
+              {
+                "index": 23860,
+                "center": {
+                  "X": 16.43229,
+                  "Y": 15.750019,
+                  "Z": 15.833358
+                },
+                "dot": 0.9997804,
+                "source": "regular-fine"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 290128,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 2509,
+            "MeshHitRays": 2509,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.13913155
+          },
+          "lod-band": {
+            "Rays": 851,
+            "DensityHitRays": 851,
+            "MeshHitRays": 851,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.13913155
+          },
+          "grazing-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 1,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.13913155
+          }
+        },
+        "grazingTrace": {
+          "Group": "grazing-regression",
+          "Axis": 1,
+          "Origin": {
+            "X": 15.319,
+            "Y": 0,
+            "Z": 4.673
+          },
+          "Density": [
+            10.616279,
+            10.983722
+          ],
+          "Mesh": [
+            10.709477,
+            10.84459
+          ]
+        },
+        "bridgeEdgeTrace": null,
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 124,
+              "expectedHits": 115,
+              "expectedInitialOverlaps": 9,
+              "actualHits": 115,
+              "actualInitialOverlaps": 9,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.008036852
+            }
+          ],
+          "examples": []
+        },
+        "examples": []
+      }
+    },
+    {
+      "fixture": "bridge",
+      "layout": "face",
+      "mode": "mixed-collision",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "sharedBoundary": {
+        "leftTriangles": 2732,
+        "rightTriangles": 1884,
+        "leftEdges": 12,
+        "rightEdges": 12,
+        "unmatchedLeft": 0,
+        "unmatchedRight": 0
+      },
+      "CellSize": 0.5,
+      "EffectiveLayout": "uniform",
+      "triangles": 4616,
+      "checksum": "9A3390F92A0DFEE5",
+      "topology": {
+        "weldedVertices": 2310,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.10818219,
+        "minNormalDot": 0.5443431
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "collision-left",
+            "faces": 2732,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1618,
+                "center": {
+                  "X": 12.8691225,
+                  "Y": 16.666666,
+                  "Z": 16.263334
+                },
+                "dot": 0.6592476,
+                "source": "collision-left"
+              },
+              {
+                "index": 1125,
+                "center": {
+                  "X": 12.906918,
+                  "Y": 16.62857,
+                  "Z": 14.743333
+                },
+                "dot": 0.67909646,
+                "source": "collision-left"
+              },
+              {
+                "index": 1094,
+                "center": {
+                  "X": 12.894788,
+                  "Y": 15.666667,
+                  "Z": 14.686191
+                },
+                "dot": 0.6863964,
+                "source": "collision-left"
+              }
+            ]
+          },
+          {
+            "source": "collision-right",
+            "faces": 1884,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 3624,
+                "center": {
+                  "X": 18.99917,
+                  "Y": 16.984402,
+                  "Z": 15.332149
+                },
+                "dot": 0.5443431,
+                "source": "collision-right"
+              },
+              {
+                "index": 3740,
+                "center": {
+                  "X": 18.99917,
+                  "Y": 17.000257,
+                  "Z": 15.501095
+                },
+                "dot": 0.58827627,
+                "source": "collision-right"
+              },
+              {
+                "index": 3630,
+                "center": {
+                  "X": 18.99917,
+                  "Y": 17.000257,
+                  "Z": 15.498815
+                },
+                "dot": 0.58918273,
+                "source": "collision-right"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 33884,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1200,
+            "MeshHitRays": 1192,
+            "MissedHitRays": 12,
+            "UnexpectedHitRays": 4,
+            "CrossingCountMismatches": 18,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 1,
+            "MaxPairedError": 0.78586197
+          },
+          "lod-band": {
+            "Rays": 56,
+            "DensityHitRays": 56,
+            "MeshHitRays": 56,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.2618885
+          },
+          "bridge-edge-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 1,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 1,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.015359879
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.0005607605
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": {
+          "Group": "bridge-edge-regression",
+          "Axis": 0,
+          "Origin": {
+            "X": 0,
+            "Y": 16.673,
+            "Z": 14.819
+          },
+          "Density": [
+            4.5997686,
+            27.341633
+          ],
+          "Mesh": [
+            4.6143284,
+            12.961028,
+            18.19705,
+            27.326597
+          ]
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 1.4305115E-06
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.0003888607
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.673,
+              "Z": 13.319
+            },
+            "Density": [
+              8.451398,
+              8.888602,
+              21.952003,
+              24.387997
+            ],
+            "Mesh": [
+              21.993982,
+              24.261305
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.173,
+              "Z": 16.319
+            },
+            "Density": [
+              4.5855436,
+              12.7544565,
+              18.991661,
+              27.34834
+            ],
+            "Mesh": [
+              4.6000557,
+              12.964369,
+              18.2058,
+              27.333305
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.673,
+              "Z": 14.819
+            },
+            "Density": [
+              4.5997686,
+              27.341633
+            ],
+            "Mesh": [
+              4.6143284,
+              12.961028,
+              18.19705,
+              27.326597
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "Density": [
+              22.98159,
+              23.35841
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 21.319,
+              "Y": 0,
+              "Z": 11.673
+            },
+            "Density": [
+              15.740237,
+              16.51976
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "bridge-edge-regression",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.673,
+              "Z": 14.819
+            },
+            "Density": [
+              4.5997686,
+              27.341633
+            ],
+            "Mesh": [
+              4.6143284,
+              12.961028,
+              18.19705,
+              27.326597
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "face",
+      "mode": "mixed-collision",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "sharedBoundary": {
+        "leftTriangles": 8182,
+        "rightTriangles": 3550,
+        "leftEdges": 146,
+        "rightEdges": 146,
+        "unmatchedLeft": 0,
+        "unmatchedRight": 0
+      },
+      "CellSize": 0.5,
+      "EffectiveLayout": "uniform",
+      "triangles": 11732,
+      "checksum": "E262CC015E81F8BB",
+      "topology": {
+        "weldedVertices": 5868,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.0120687485,
+        "minNormalDot": 0.998683
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "collision-left",
+            "faces": 8182,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 234,
+                "center": {
+                  "X": 12.002624,
+                  "Y": 18.983728,
+                  "Z": 8.000388
+                },
+                "dot": 0.9993708,
+                "source": "collision-left"
+              },
+              {
+                "index": 249,
+                "center": {
+                  "X": 14.988121,
+                  "Y": 19.48117,
+                  "Z": 8.001473
+                },
+                "dot": 0.9994036,
+                "source": "collision-left"
+              },
+              {
+                "index": 3160,
+                "center": {
+                  "X": 4.499662,
+                  "Y": 18.488981,
+                  "Z": 14.998749
+                },
+                "dot": 0.9994062,
+                "source": "collision-left"
+              }
+            ]
+          },
+          {
+            "source": "collision-right",
+            "faces": 3550,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 11291,
+                "center": {
+                  "X": 16.018648,
+                  "Y": 12.164547,
+                  "Z": 23.67495
+                },
+                "dot": 0.998683,
+                "source": "collision-right"
+              },
+              {
+                "index": 8435,
+                "center": {
+                  "X": 16.004599,
+                  "Y": 23.833334,
+                  "Z": 9.879417
+                },
+                "dot": 0.9987072,
+                "source": "collision-right"
+              },
+              {
+                "index": 9280,
+                "center": {
+                  "X": 16.00577,
+                  "Y": 26.932383,
+                  "Z": 13.828572
+                },
+                "dot": 0.99871814,
+                "source": "collision-right"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 85303,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3312,
+            "MissedHitRays": 4,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 4,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.3507042
+          },
+          "lod-band": {
+            "Rays": 411,
+            "DensityHitRays": 411,
+            "MeshHitRays": 411,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.19896126
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": null,
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 112,
+              "expectedHits": 112,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 112,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.029597878
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 22.673,
+              "Z": 8.819
+            },
+            "Density": [
+              13.336099,
+              13.883903
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 27.673,
+              "Z": 19.319
+            },
+            "Density": [
+              13.448764,
+              13.771237
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 6.173,
+              "Y": 12.819,
+              "Z": 0
+            },
+            "Density": [
+              16.985233,
+              17.474766
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 21.673,
+              "Y": 23.319,
+              "Z": 0
+            },
+            "Density": [
+              17.035343,
+              17.424656
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "bridge",
+      "layout": "face",
+      "mode": "tangential-collision",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": {
+        "X": 12.75,
+        "Y": 16.25,
+        "Z": 15.25
+      },
+      "sharedBoundary": {
+        "leftTriangles": 44032,
+        "rightTriangles": 11464,
+        "leftEdges": 26,
+        "rightEdges": 26,
+        "unmatchedLeft": 0,
+        "unmatchedRight": 0
+      },
+      "CellSize": 0.125,
+      "EffectiveLayout": "face",
+      "triangles": 55496,
+      "checksum": "01BED6C33270CE1F",
+      "topology": {
+        "weldedVertices": 27750,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 76,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.04129553,
+        "minNormalDot": 0.4674653
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 43956,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 8830,
+                "center": {
+                  "X": 12.743203,
+                  "Y": 15.383332,
+                  "Z": 14.791667
+                },
+                "dot": 0.693717,
+                "source": "regular-fine"
+              },
+              {
+                "index": 31374,
+                "center": {
+                  "X": 12.746704,
+                  "Y": 15.381295,
+                  "Z": 16.208334
+                },
+                "dot": 0.83770955,
+                "source": "regular-fine"
+              },
+              {
+                "index": 43674,
+                "center": {
+                  "X": 12.707184,
+                  "Y": 16.916666,
+                  "Z": 16.307924
+                },
+                "dot": 0.9217311,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 76,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 27494,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.873335,
+                  "Z": 14.791667
+                },
+                "dot": 0.4674653,
+                "source": "transition"
+              },
+              {
+                "index": 52868,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.89,
+                  "Z": 16.208334
+                },
+                "dot": 0.56022274,
+                "source": "transition"
+              },
+              {
+                "index": 11703,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 15.415555,
+                  "Z": 14.791667
+                },
+                "dot": 0.6284501,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 11464,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 30334,
+                "center": {
+                  "X": 18.999792,
+                  "Y": 16.99691,
+                  "Z": 15.414197
+                },
+                "dot": 0.7094813,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 29830,
+                "center": {
+                  "X": 18.916666,
+                  "Y": 16.786606,
+                  "Z": 14.731587
+                },
+                "dot": 0.73490477,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 13968,
+                "center": {
+                  "X": 18.916666,
+                  "Y": 15.480533,
+                  "Z": 14.725209
+                },
+                "dot": 0.7896442,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 405997,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1200,
+            "MeshHitRays": 1198,
+            "MissedHitRays": 2,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 2,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.16914177
+          },
+          "lod-band": {
+            "Rays": 56,
+            "DensityHitRays": 56,
+            "MeshHitRays": 56,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.059972763
+          },
+          "bridge-edge-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 1,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.0031986237
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.0036811829
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 1.9073486E-06
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": {
+          "Group": "bridge-edge-regression",
+          "Axis": 0,
+          "Origin": {
+            "X": 0,
+            "Y": 16.673,
+            "Z": 14.819
+          },
+          "Density": [
+            4.5997686,
+            27.341633
+          ],
+          "Mesh": [
+            4.600716,
+            27.338434
+          ]
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 1.1920929E-06
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 1.1920929E-06
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 19.319,
+              "Y": 0,
+              "Z": 13.673
+            },
+            "Density": [
+              16.003849,
+              16.25615
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 9.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.467172,
+              15.592828
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "face",
+      "mode": "tangential-collision",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "sharedBoundary": {
+        "leftTriangles": 33228,
+        "rightTriangles": 5066,
+        "leftEdges": 146,
+        "rightEdges": 146,
+        "unmatchedLeft": 0,
+        "unmatchedRight": 0
+      },
+      "CellSize": 0.25,
+      "EffectiveLayout": "face",
+      "triangles": 38294,
+      "checksum": "B069440EAF0B37FA",
+      "topology": {
+        "weldedVertices": 19149,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 438,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.031892776,
+        "minNormalDot": 0.9678066
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 32790,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 9367,
+                "center": {
+                  "X": 15.757599,
+                  "Y": 23.839804,
+                  "Z": 9.805699
+                },
+                "dot": 0.97315615,
+                "source": "regular-fine"
+              },
+              {
+                "index": 23226,
+                "center": {
+                  "X": 15.75677,
+                  "Y": 13.66039,
+                  "Z": 24.950752
+                },
+                "dot": 0.97318566,
+                "source": "regular-fine"
+              },
+              {
+                "index": 2370,
+                "center": {
+                  "X": 15.763864,
+                  "Y": 11.306338,
+                  "Z": 11.655408
+                },
+                "dot": 0.97321475,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 438,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 24102,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 9.494896,
+                  "Z": 18.022692
+                },
+                "dot": 0.9678066,
+                "source": "transition"
+              },
+              {
+                "index": 15598,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 27.511065,
+                  "Z": 15.966274
+                },
+                "dot": 0.96786433,
+                "source": "transition"
+              },
+              {
+                "index": 15583,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 27.00386,
+                  "Z": 13.995239
+                },
+                "dot": 0.9679137,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 5066,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 36975,
+                "center": {
+                  "X": 22.498466,
+                  "Y": 20.49214,
+                  "Z": 19.493315
+                },
+                "dot": 0.99946254,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 15670,
+                "center": {
+                  "X": 16.999922,
+                  "Y": 18.000883,
+                  "Z": 8.500029
+                },
+                "dot": 0.9994686,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 16864,
+                "center": {
+                  "X": 22.49734,
+                  "Y": 16.513186,
+                  "Z": 15.0118475
+                },
+                "dot": 0.99948555,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 277961,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3315,
+            "MissedHitRays": 1,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 1,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.2683277
+          },
+          "lod-band": {
+            "Rays": 411,
+            "DensityHitRays": 411,
+            "MeshHitRays": 411,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.18126297
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": null,
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 112,
+              "expectedHits": 112,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 112,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.089304805
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 21.673,
+              "Y": 23.319,
+              "Z": 0
+            },
+            "Density": [
+              17.035343,
+              17.424656
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    }
+  ]
+}

@@ -78,6 +78,7 @@ static class GeometryProbe
         var groups = new Dictionary<string, CollisionStats>();
         var examples = new List<CollisionExample>();
         CollisionExample? grazingTrace = null;
+        CollisionExample? bridgeEdgeTrace = null;
         for (var axis = 0; axis < 3; axis++)
         {
             var u = I3.Axis((axis + 1) % 3).Position;
@@ -92,6 +93,7 @@ static class GeometryProbe
 
         if (fixture == "bridge")
         {
+            Trace("bridge-edge-regression", 0, new Vector3(0, 16.673f, 14.819f));
             // Rays along the passage stay in the analytic bridge core. Transverse
             // rays sample its cross-section on either side of the fine/coarse plane.
             for (var y = 15.57f; y <= 16.73f; y += 0.19f)
@@ -107,7 +109,7 @@ static class GeometryProbe
         return new
         {
             normalSummary, testedPairs, intersections, collisionTolerance = CollisionTolerance,
-            collision = groups, grazingTrace, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
+            collision = groups, grazingTrace, bridgeEdgeTrace, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
         };
 
         void Trace(string group, int axis, Vector3 origin)
@@ -118,6 +120,8 @@ static class GeometryProbe
             Compare(group);
             if (group == "grazing-regression")
                 grazingTrace = new CollisionExample(group, axis, origin, expected, actual);
+            else if (group == "bridge-edge-regression")
+                bridgeEdgeTrace = new CollisionExample(group, axis, origin, expected, actual);
             else if (layout != "uniform" && (NearTransition(expected) || NearTransition(actual)))
                 Compare("lod-band");
 

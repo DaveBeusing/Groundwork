@@ -3,8 +3,8 @@ using System.Numerics;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
-if (args.Length != 5)
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision>");
+if (args.Length is not (5 or 6))
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision|tangential-baseline> [benchmark-repetitions]");
 
 const int n = 32;
 var algorithm = args[1];
@@ -13,17 +13,27 @@ var layout = args[3];
 var refineCollision = args[4] == "collision-refined";
 var junctionCollision = args[4] == "junction-collision";
 var mixedCollision = args[4] == "mixed-collision";
-var tangentialCollision = args[4] == "tangential-collision";
+var tangentialBaseline = args[4] == "tangential-baseline";
+var tangentialCollision = args[4] == "tangential-collision" || tangentialBaseline;
+var benchmarkCollision = args.Length == 6;
 var geometry = args[4] == "geometry" || refineCollision || junctionCollision || mixedCollision || tangentialCollision;
-var repetitions = geometry ? 1 : int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
-if (repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
+var repetitions = geometry && !benchmarkCollision ? 1 :
+    int.Parse(args[benchmarkCollision ? 5 : 4], System.Globalization.CultureInfo.InvariantCulture);
+if (benchmarkCollision && !(tangentialCollision || junctionCollision) || repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
     throw new ArgumentOutOfRangeException(nameof(args));
 var tables = new Tables(File.ReadAllText(args[0]));
-var grid = new Grid(n, fixture, layout, refineCollision, junctionCollision, mixedCollision, tangentialCollision);
+Grid CreateGrid() => new(n, fixture, layout, refineCollision, junctionCollision, mixedCollision, tangentialCollision, tangentialBaseline);
+if (geometry && (algorithm != "mc" || layout == "pressure" || junctionCollision && layout != "corner" ||
+    (mixedCollision || tangentialCollision) && layout != "face"))
+    throw new ArgumentException("Use MC with uniform, face or corner geometry, corner junction collision, or face mixed collision.");
+if (benchmarkCollision)
+{
+    Console.WriteLine(JsonSerializer.Serialize(CollisionBenchmark.Measure(CreateGrid, tables, fixture, args[4], repetitions)));
+    return;
+}
+var grid = CreateGrid();
 if (geometry)
 {
-    if (algorithm != "mc" || layout == "pressure" || junctionCollision && layout != "corner" || (mixedCollision || tangentialCollision) && layout != "face")
-        throw new ArgumentException("Use MC with uniform, face or corner geometry, corner junction collision, or face mixed collision.");
     Mesh mesh;
     object? sharedBoundary = null;
     if (mixedCollision)
@@ -142,15 +152,18 @@ sealed class Grid
         return position;
     }
 
-    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision)
+    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline)
     {
         _fixture = fixture;
-        ThinFeatureWitness = refineCollision ? FindThinSolid(n) : null;
+        ThinFeatureWitness = refineCollision || tangentialCollision && !tangentialBaseline ? FindThinSolid(n) : null;
         // This probe publishes one collision region. Promote it as a unit so
         // collision never crosses a coarse seam inside the protected feature.
         _mixedCollision = mixedCollision;
-        var useFineGrid = ThinFeatureWitness.HasValue || mixedCollision;
-        CellSize = junctionCollision || tangentialCollision ? 0.25f : useFineGrid ? 0.5f : 1f;
+        var useFineGrid = refineCollision && ThinFeatureWitness.HasValue || mixedCollision;
+        // Keep a true 2:1 seam. If the thin-solid scan triggers, even the
+        // coarse side must use at most a quarter cell to retain the contour.
+        CellSize = tangentialCollision && ThinFeatureWitness.HasValue ? 0.125f :
+            junctionCollision || tangentialCollision ? 0.25f : useFineGrid ? 0.5f : 1f;
         N = (int)(n / CellSize);
         XCells = mixedCollision ? Mid + n / 2 : N;
         _layout = useFineGrid || junctionCollision ? "uniform" : layout;
