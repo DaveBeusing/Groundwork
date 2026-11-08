@@ -27,15 +27,24 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 | WP09 · Surface to orbit (complete) | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to a visibly marked, edited landing site | [Windows flight and landing pad handover](wp09-handover.md) and [surface-to-orbit contract](architecture/wp09-surface-to-orbit-contract.md) |
 | WP10 · Windows alpha (accepted) | Stability, diagnostics, package compatibility and reproducible builds | Per-user installer, onboarding, persistent settings, rescue-to-orbit mission, ESC sidebar and F1 performance panel | [Owner acceptance and evidence](wp10-handover.md), [Windows alpha contract](architecture/wp10-windows-alpha-contract.md) and [UI playtest](https://github.com/DaveBeusing/wyu/pull/26) |
 
+## WP11 – Procedural volumetric planet generation (proposed)
+
+WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse three-dimensional planet terrain system. **No compatibility obligation** applies to old planet APIs, alpha save schemas, smoke modes, or fixtures: these can be replaced when it improves the architecture. Old save data must nevertheless be detected as incompatible and preserved rather than silently overwritten. Existing tests can be rewritten, but new deterministic, GPU ownership, crash recovery, precision, and flight/landing tests must prove the replacement.
+
+- **WP11-A:** architecture freeze; planet identity, canonical 64-bit addresses, deterministic volumetric density, and sparse brick representation.
+- **WP11-B:** seed-dependent landforms, cavity/overhang synthetic fixtures, watertight multi-LOD meshing and chart seams.
+- **WP11-C:** bounded generation/meshing jobs, streaming, collision, coherent D3D12 presentation, instrumentation and budgets.
+- **WP11-D:** deterministic terrain editing, new save/recovery schema, WYU playable/flight integration and clean Windows handover.
+
+The [WP11 proposal](architecture/wp11-procedural-planet-contract.md) defines scope, ownership, requirement identifiers, issue DAG, explicit exclusions and acceptance. WP11 work remains **unapproved** until architecture review, measured resource baseline and owner acceptance of the contract. WP12 expands underground geology/caves and WP13 addresses biomes/vegetation.
+
 ## After WP10
 
 The fresh Windows 11 offline run remains open as a follow-up to the
 accepted WP10 milestone. The [handover](wp10-handover.md) records its
 scope and the existing evidence.
 
-WP11 is unassigned. Use playtest findings to choose between deeper
-gameplay in the current region and a larger world, then review the next
-contract before implementation.
+WP11 now has a proposed volumetric procedural planet scope; review and accept its architecture contract before implementation.
 
 ## Planning and verification
 
