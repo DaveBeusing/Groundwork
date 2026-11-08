@@ -151,6 +151,23 @@ the whole brush before the swap. Never enqueue its effects in the generic
 deferred batch. Standalone unrelated ECS batches retain their usual phase
 semantics. A committed receipt is derived from the swap, not a second mutation.
 
+**Cross-path ECS conflicts.** At finalization use one conflict check against
+the barrier-entry ECS root. It includes versioned component reads and
+writes, entity/partition membership and structural wildcards for both the
+private brush effects and regular ECS batches. First analyze ordinary
+batches using the existing canonical ECS order. For any overlapping
+read/write, write/write or structural scope of an ordinary batch eligible
+to commit or defer at that barrier, reject the entire brush as
+`EcsConflict` and leave the ordinary dispositions unchanged. Read/read is
+allowed. The brush cannot commit a structural effect through BeginTick
+deferral. For nonconflicting effects revalidate their versions and apply
+them to the composed ECS root before the one swap. No receipt can report
+success before this decision. Journal the conflicting scope and outcome.
+Test two writes to the same inventory component/version, read/write
+conflicts and entity destruction/deferral with both worker orders. Assert
+the final root, both receipts and a save at the cut. A disjoint ordinary
+batch still commits.
+
 **Save cut.** Capture one finalized `WorldPublication` after the outcome of
 `CommitResults(T)` under a pre-reserved bounded checkpoint lease. Allocate or
 reject capture before the swap, then bind the lease to that finalized root
@@ -194,6 +211,31 @@ Replay waits outside simulated time for required matching artifacts at the
 recorded cut (bounded by a test timeout); missing or mismatching evidence fails
 replay. Unrecorded early artifacts cannot advance the effective tick. Live
 unrelated systems do not wait on this replay-only rule.
+
+**Bounded semantic evidence.** Core assigns a monotone gate sequence
+to semantic operations, including ingress cutoffs, immediate revocation,
+finalization and hold release. Persist the gate order within the recorded
+tick/phase, including revocation after the cutoff but before the swap,
+or after the swap before evidence delivery. Replay injects each event at
+that gate position and verifies its disposition. Record the finalized
+stamp and its mandatory record together under the authority gate. There
+is no external logger callback at this point.
+
+Reserve bounded journal capacity before accepting any regular operation
+that can change authoritative WP11 state. Use preallocated record storage
+and a bounded FIFO for the journal consumer. Acknowledged handoff frees
+credits, and a slow consumer cannot drop or overwrite semantic records.
+Keep a separate pre-reserved terminal evidence cell for a revoke or
+journal fault even if the ordinary queue is full. Gate sequence and
+terminal cell are covered by the same authority as the state transition.
+On saturation or loss of evidence, revoke affected admission and stop the
+affected journal epoch before further WP11 publication. Report the last
+complete sequence and mark the capture incomplete. An incomplete capture
+cannot qualify as a replay pass. The semantic journal has its own
+capacity and is independent of diagnostic logging. Test full-queue
+revocation, consumer failure, cutoff-before-revoke-before-swap, and
+swap-before-revoke-before-handoff. A later fault cannot erase an already
+recorded swap.
 
 **Required fixtures:** reverse completion, Ready/watchdog in both orders,
 stale and duplicate IDs, cancelled head, ECS effects on reject and deferral,
@@ -298,6 +340,11 @@ checkpoint cut, in-flight ownership and final release.
 The **owner-approved first reference candidate** is Marching Cubes with validated Transvoxel-style transitions, behind a replaceable meshing interface. It is **not yet the selected production algorithm**. The production surface algorithm and mixed-resolution transition mechanism are an **explicit measured C00 decision**, not an implicit promise. Compare at least **(a) Marching Cubes with a validated crack-free mixed-resolution transition such as Transvoxel-style transition cells**, and **(b) a dual-contouring/surface-nets family with explicit adaptive boundary topology**. An alternative is valid if equivalent seam/winding and cavity evidence is provided. Document topology consistency, material/normal interpolation, thin structures, sharp features, difficult mixed-LOD corners, cube-chart edges, deterministic vertex ordering, memory traffic and CPU meshing cost. A naive independent per-brick triangulation without boundary stitching cannot pass.
 
 Provisional ceilings from R05 — 4 generating jobs, 2 meshing jobs, 1 staged generation, 512 MiB CPU terrain and 256 MiB GPU geometry — are **planning limits only**. Before C00 acceptance, choose documented reference hardware and scene seeds, benchmark both candidates or a defensible reduced prototype, publish actual high-water allocation and p50/p95/p99 times, and freeze explicit acceptance ceilings with justification. Count CPU active, pending, leased, obsolete and retiring buffers and GPU upload, active, candidate and retirement buffers; keep the workload bounded and reject reservations before allocation. A measurement not run must be marked `NOT MEASURED` and is a remaining C00 gate, not estimated proof. Geometry and memory budget tuning may change the 32-cell/1 m reference after measurements without a backward compatibility obligation.
+
+C00 owns the reduced pre-approval comparison and capacity prototype.
+It has no dependency on the production B01/Q01/Q02 packages. Freeze
+the prototype evidence before opening those production gates. Q01 and
+Q02 subsequently qualify the implementation with the frozen criteria.
 
 **Protected progress credits.** The world coordinator admits a complete
 resource vector before dispatch. It atomically reserves job/queue and lease
