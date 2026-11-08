@@ -415,7 +415,31 @@ verify, then atomically publish to the allowed alternating target,
 verify and acknowledge. A process interruption before publication leaves
 the prior durable cut. After publication, rescan under the lease to
 prove the result or return Indeterminate. An identical retry uses the
-same payload, base and retry ID. Same-ID different bytes reject.
+same payload, base and retry ID. The retry ID is structurally the
+(slot identity, expected base generation, operation nonce) tuple.
+Reject a request whose tuple disagrees with its slot or declared base.
+The base cannot be refreshed for a retry. Store the tuple and verified
+payload identity in the committed frame. While the receipt is retained,
+identical content returns AlreadyCommitted and different bytes reject.
+After both alternating files have rotated past that receipt, an old
+tuple rejects Stale because its fixed base is older than the selected
+generation. Reusing the nonce with a fresh base creates a different
+operation ID, never a retry. An unresolved Indeterminate writer blocks
+successor writes until a rescan settles its original base and bytes or
+the slot fails closed. Exercise restart after receipt rotation,
+changed bytes, changed declared base and no overtaking after lost ACK.
+
+The classification-to-publish invariant assumes exclusive namespace
+writers: all supported writer and recovery processes use the same
+slot lease, no other supported path mutates slot members, and platform
+path containment is verified. D02 must pin the validated directory
+chain against rename/reparse substitution, use an exclusive private
+temporary file and directory-relative publication, and verify target
+identity under the lease before rename. If the platform cannot establish
+these conditions, deny writes. The lease coordinates participating
+writers. It makes no security guarantee against an arbitrary process
+with the same OS write authority. Test ancestor substitution, target
+replacement and reparse insertion around classification and publish.
 
 Test every compatible/damaged/protected/access A/B pairing in both
 generation orders, especially valid newer plus older unsupported and
