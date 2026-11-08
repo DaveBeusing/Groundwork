@@ -38,7 +38,30 @@ sealed class ClippedSphere
     internal static ClippedSphere? Create(CollisionSphere solid, DensityEdit[] edits) =>
         edits.Length is >= 1 and <= MaxEdits && edits.Any(edit => !edit.Add &&
             Intersect(solid, new CollisionSphere(edit.Center, edit.Radius), 0, 1).HasValue)
-            ? new ClippedSphere(solid, edits) : null;
+            ? new ClippedSphere(solid, RemoveOverwrittenAdditions(edits)) : null;
+
+    private static DensityEdit[] RemoveOverwrittenAdditions(DensityEdit[] edits)
+    {
+        var remaining = new List<DensityEdit>(edits.Length);
+        for (var i = 0; i < edits.Length; i++)
+        {
+            var edit = edits[i];
+            if (!edit.Add || !edits.Skip(i + 1).Any(later => !later.Add && Contains(later, edit)))
+                remaining.Add(edit);
+        }
+        return remaining.ToArray();
+
+        static bool Contains(DensityEdit outer, DensityEdit inner)
+        {
+            // Any point changed by this addition is overwritten by the
+            // later subtraction, even if other edits intervene.
+            var margin = (double)outer.Radius - inner.Radius;
+            var x = (double)outer.Center.X - inner.Center.X;
+            var y = (double)outer.Center.Y - inner.Center.Y;
+            var z = (double)outer.Center.Z - inner.Center.Z;
+            return margin >= 0 && x * x + y * y + z * z <= margin * margin;
+        }
+    }
 
     internal float Distance(Vector3 point)
     {

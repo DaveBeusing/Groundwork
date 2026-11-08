@@ -30,6 +30,7 @@ static class RayLatencyProbe
             new(new(15.7f, 25.173f, 26.319f), .1f, true),
             new(new(15.7f, 25.173f, 26.319f), .15f, false)
         ];
+        var cancelledBrushPair = CheckCancelledBrushPair(tables, edits);
         var original = Create([]);
         var sourceEdits = edits.ToArray();
         var edited = Create(sourceEdits);
@@ -91,6 +92,7 @@ static class RayLatencyProbe
         var overlapGeometry = GeometryProbe.Check(overlapMesh, overlapping, "bridge", "face");
         var mixedEdits = CheckMixedEdits(tables, edits);
         var largerEditGroups = CheckLargerEditGroups(tables, edits);
+        var upperEditGroups = CheckUpperEditGroups(tables, edits);
         var added = after.Trace(Added.Origin, Added.Direction);
         if (added.Hits.Count != 2 || MathF.Abs(added.Hits[0] - 24.2f) > .0001f ||
             MathF.Abs(added.Hits[1] - 24.4f) > .0001f ||
@@ -109,7 +111,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
-            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups,
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, cancelledBrushPair,
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -421,6 +423,97 @@ static class RayLatencyProbe
                 throw new InvalidOperationException($"Large edit group ray failed for {group.Name}.");
 
             return (object)new { group.Name, brushCount = group.Ordered.Length, edits = ordered, sweeps,
+                ray = new { origin, direction = outward, expected, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
+                checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
+        }).ToArray();
+
+        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
+    }
+
+    private static object CheckCancelledBrushPair(Tables tables, DensityEdit[] edits)
+    {
+        var cut = edits[0];
+        var outward = Vector3.Normalize(cut.Center - Grid.BridgeRight.Center);
+        var add = new DensityEdit(cut.Center + .16f * outward, .30f, true);
+        var trim = new DensityEdit(cut.Center + .38f * outward, .18f, false);
+        var restore = new DensityEdit(cut.Center + .40f * outward, .12f, true);
+        var cancelled = new DensityEdit(cut.Center + .59f * outward, .04f, true);
+        var grid = Create([cut, add, trim, restore, cancelled, cancelled with { Add = false }, .. edits[1..]]);
+        var mesh = Marching.Extract(grid, tables);
+        var path = new SphereSweep.SweepCase("cancelled-shell", cut.Center + .72f * outward,
+            cut.Center - .30f * outward, .02f);
+        var actual = SphereSweep.TraceCollision(grid, mesh, path);
+        const float expectedDistance = .18f;
+        if (actual.State != "hit" || actual.Distance is not { } hit || MathF.Abs(hit - expectedDistance) > .001f)
+            throw new InvalidOperationException($"Cancelled brush shell contact: {actual}, expected {expectedDistance}.");
+        var origin = cut.Center - 12 * outward;
+        var ray = new CollisionRayQuery(grid, mesh).Trace(origin, outward);
+        var expected = GeometryProbe.DensityHits(grid, origin, outward);
+        if (expected.Count != 6 || ray.Hits.Count != 6 || ray.Exhausted ||
+            MathF.Abs(ray.Hits[^1] - 12.52f) > .001f)
+            throw new InvalidOperationException("Cancelled brush shell produced a spurious ray hit.");
+        return new { path, actual, expectedDistance, meshOnly = SphereSweep.TraceMesh(mesh, path),
+            ray = new { origin, expected, actual = ray.Hits } };
+    }
+
+    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits)
+    {
+        var cut = edits[0];
+        var outward = Vector3.Normalize(cut.Center - Grid.BridgeRight.Center);
+        var add = new DensityEdit(cut.Center + .16f * outward, .30f, true);
+        var trim = new DensityEdit(cut.Center + .38f * outward, .18f, false);
+        var restore = new DensityEdit(cut.Center + .40f * outward, .12f, true);
+        var trimRestore = new DensityEdit(cut.Center + .46f * outward, .095f, false);
+        var outerAdd = new DensityEdit(cut.Center + .49f * outward, .07f, true);
+        var outerTrim = new DensityEdit(cut.Center + .52f * outward, .065f, false);
+        var tip = new DensityEdit(cut.Center + .56f * outward, .045f, true);
+        DensityEdit[] brushes = [cut, add, trim, restore, trimRestore, outerAdd, outerTrim, tip];
+        var groups = new (int Count, float FirstSolid, float[] AxialCrossings)[]
+        {
+            (5, .365f, [11.60f, 11.86f, 12.20f, 12.28f, 12.365f]),
+            (6, .56f, [11.60f, 11.86f, 12.20f, 12.28f, 12.365f, 12.42f, 12.56f]),
+            (7, .455f, [11.60f, 11.86f, 12.20f, 12.28f, 12.365f, 12.42f, 12.455f]),
+            (8, .605f, [11.60f, 11.86f, 12.20f, 12.28f, 12.365f, 12.42f, 12.455f, 12.515f, 12.605f])
+        };
+
+        return groups.Select(group =>
+        {
+            DensityEdit[] ordered = [.. brushes[..group.Count], .. edits[1..]];
+            var grid = Create(ordered);
+            var mesh = Marching.Extract(grid, tables, trackSources: true);
+            if (!grid.CollisionCuts.IsEmpty)
+                throw new InvalidOperationException("Upper edit group used isolated-cut shortcut.");
+
+            var cases = new List<(SphereSweep.SweepCase Path, float? Distance)>();
+            foreach (var radius in new[] { .02f, .04f })
+            {
+                cases.Add((new("upper-axis-enter", Point(.72f, 0), Point(-.30f, 0), radius),
+                    .72f - group.FirstSolid - radius));
+                cases.Add((new("upper-axis-exit", Point(-.30f, 0), Point(.72f, 0), radius), .16f - radius));
+            }
+            cases.Add((new("upper-bypass-enter", Point(.72f, .34f), Point(-.10f, .34f), .025f), null));
+            cases.Add((new("upper-bypass-exit", Point(-.10f, .34f), Point(.72f, .34f), .025f), null));
+
+            var sweeps = cases.Select(test =>
+            {
+                var actual = SphereSweep.TraceCollision(grid, mesh, test.Path);
+                var expectedState = test.Distance.HasValue ? "hit" : "clear";
+                if (actual.State != expectedState || test.Distance is { } distance &&
+                    (actual.Distance is not { } hit || MathF.Abs(hit - distance) > .001f))
+                    throw new InvalidOperationException($"Brush count {group.Count}, {test.Path.Group}: {actual}, expected {test.Distance}.");
+                return new { test.Path, expectedState, expectedDistance = test.Distance, actual,
+                    meshOnly = SphereSweep.TraceMesh(mesh, test.Path) };
+            }).ToArray();
+
+            var origin = Point(-12, 0);
+            var ray = new CollisionRayQuery(grid, mesh).Trace(origin, outward);
+            var expected = GeometryProbe.DensityHits(grid, origin, outward);
+            if (expected.Count != group.AxialCrossings.Length + 1 || ray.Hits.Count != expected.Count || ray.Exhausted ||
+                group.AxialCrossings.Where((crossing, index) => MathF.Abs(expected[index + 1] - crossing) > .001f ||
+                    MathF.Abs(ray.Hits[index + 1] - crossing) > .001f).Any())
+                throw new InvalidOperationException($"Upper group ray failed for {group.Count}: reference {expected.Count}, query {ray.Hits.Count}.");
+
+            return (object)new { brushCount = group.Count, edits = ordered, sweeps,
                 ray = new { origin, direction = outward, expected, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
                 checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
         }).ToArray();

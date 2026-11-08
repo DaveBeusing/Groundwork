@@ -366,11 +366,32 @@ four-brush orders. The fourth brush either restores a solid fragment
 or is overwritten by the final subtraction. Each group runs seven
 targeted sphere paths, the broad ray grid and the 76 bridge sweeps.
 The targeted ray checks four crossings with the fragment removed and
-six with it restored. The eight-edit bound is an implementation
-limit. The largest geometry tested here contains four brushes.
+six with it restored. The next suite exercises the eight-edit bound.
 
 ```powershell
 ./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-larger-groups.json -RayLatency -RayRuns 1 -RaySamples 1000
 ```
 
 [Larger edit group results](results-windows-mc-larger-edit-groups.json)
+
+## Five through eight overlapping brushes
+
+The upper-bound suite adds four alternating additive and subtractive
+operations to the existing four-brush sequence. It checks an axial
+entry and exit at two radii, two free bypass directions and an axial
+ray with six, eight or ten crossings depending on the final solids.
+Each variant also runs the broad ray grid and the existing 76 bridge
+sweeps.
+
+A separate six-brush control cancels an addition with a later
+subtraction of exactly the same sphere. The local boundary solver
+drops an addition if a later subtraction wholly contains its support.
+No solid membership is changed by this simplification. It prevents
+a coincident zero-valued shell from being treated as collision
+geometry. The ray and sphere controls both verify the cancellation.
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-upper-groups.json -RayLatency -RayRuns 1 -RaySamples 1000
+```
+
+[Five-to-eight brush results](results-windows-mc-upper-edit-groups.json)

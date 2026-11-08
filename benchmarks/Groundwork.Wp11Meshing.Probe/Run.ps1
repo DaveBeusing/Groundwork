@@ -122,6 +122,23 @@ try {
                     throw "Larger edit group regression for $($group.Name) in process $run."
                 }
             }
+            if (($result.upperEditGroups.brushCount -join ',') -ne '5,6,7,8' -or
+                $result.cancelledBrushPair.actual.State -ne 'hit') {
+                throw "Upper edit groups or cancellation control missing in process $run."
+            }
+            foreach ($group in $result.upperEditGroups) {
+                $groupRays = $group.geometry.collision.grid
+                $groupBand = $group.geometry.collision.'lod-band'
+                $groupSweeps = $group.geometry.movingBodies.summary
+                if ($group.sweeps.Count -ne 6 -or $groupRays.Rays -ne 12288 -or
+                    $groupRays.CrossingCountMismatches -or $groupRays.MissedHitRays -or
+                    $groupRays.UnexpectedHitRays -or $groupRays.FallbackBudgetExhaustedRays -or
+                    $groupBand.CrossingCountMismatches -or
+                    ($groupSweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
+                    ($groupSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                    throw "Upper edit group regression for $($group.brushCount) brushes in process $run."
+                }
+            }
             $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run
             $rows += $result
             Write-Host "Ray latency and edit validation completed in process $run."
