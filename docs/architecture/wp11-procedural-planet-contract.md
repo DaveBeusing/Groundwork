@@ -393,7 +393,7 @@ Missing, ValidCompatible, DamagedCompatible, Protected or AccessError.
 DamagedCompatible requires positive evidence from a complete,
 independently integrity-checked identity header that binds the supported
 format, world/lineage, descriptor and slot identity. A damaged payload
-alone may then allow fallback to a valid compatible sibling. Legacy or
+alone may then allow read-only fallback to a valid compatible sibling. Legacy or
 unsupported format, incompatible lineage, unknown magic, short or
 unverifiable identity, unsafe path or size, and other ambiguous evidence
 are Protected. Classify independently of any header generation advertised
@@ -404,8 +404,15 @@ Offer a separate new world slot. This precedence supersedes the generic
 WP06 malformed-member fallback where it would allow replacement of
 protected data.
 
-Recover from DamagedCompatible only with a valid compatible sibling.
-With no valid member and any damaged member, block Continue and writes.
+With a DamagedCompatible member and a valid compatible sibling, offer
+explicit read-only recovery of the valid cut. Deny every in-place write,
+including identical or modified retries, before matching any receipt.
+The unreadable member might contain a newer committed receipt, so falling
+back must never reopen the valid sibling's older generation as a write base.
+Preserve both members. To continue saving, reserve a separate empty slot
+with a new slot identity and lineage and explicitly copy the recovered
+coherent cut into it. No in-place repair is part of WP11. With no valid
+member and any damaged member, block Continue and writes.
 With both members Missing, only an explicitly reserved new world may
 start at Empty. Check target identity again at publication under the
 lease, including reparse protection. Stage to an exclusively created
@@ -427,7 +434,7 @@ generation. Reusing the nonce with a fresh base creates a different
 operation ID, never a retry. An unresolved Indeterminate writer blocks
 successor writes until a rescan settles its original base and bytes or
 the slot fails closed. Exercise restart after receipt rotation,
-changed bytes, changed declared base and no overtaking after lost ACK.
+changed bytes, changed declared base, compatible corruption of a newer receipt with both identical and modified retries, and no overtaking after lost ACK.
 
 The classification-to-publish invariant assumes exclusive namespace
 writers: all supported writer and recovery processes use the same
