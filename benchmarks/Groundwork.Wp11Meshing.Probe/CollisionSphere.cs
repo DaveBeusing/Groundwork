@@ -41,9 +41,9 @@ sealed class CollisionRayQuery(Grid grid, Mesh mesh)
             ? _fallback.Trace(origin, direction) : (meshHits, false, 0);
         var usedFallback = meshHits.Count == 0 && baseHits.Count > 0;
         var repairedIntervals = 0;
-        if (meshHits.Count > 0 && _repair is not null)
+        if (_repair is not null && (meshHits.Count > 0 || _repair.AllowsEmptyMesh))
         {
-            (baseHits, repairedIntervals, var repairExhausted) = _repair.Trace(origin, direction, meshHits);
+            (baseHits, repairedIntervals, var repairExhausted) = _repair.Trace(origin, direction, baseHits);
             exhausted |= repairExhausted;
         }
         if (grid.CollisionSpheres.IsEmpty)

@@ -141,6 +141,7 @@ sealed class Grid
 {
     internal static readonly CollisionSphere BridgeLeft = new(new(8.67f, 16.19f, 15.53f), 4.16f);
     internal static readonly CollisionSphere BridgeRight = new(new(23.17f, 16.13f, 15.49f), 4.26f);
+    internal static readonly CollisionSphere SeamOpeningTerrain = new(new(11.744f, 16, 16), 4.26f);
     private static readonly Vector3 BridgeStemCenter = new(15.84f, 16.15f, 15.51f);
     private static readonly Vector3 BridgeStemExtent = new(7.22f, .77f, .78f);
     private readonly float[] _density;
@@ -151,6 +152,7 @@ sealed class Grid
     private readonly CollisionSphere[] _collisionCuts;
     private readonly CollisionSphere[] _openingCuts;
     internal ReadOnlySpan<CollisionSphere> OpeningCuts => _openingCuts;
+    private bool IsSeamOpening => _fixture == "seam-opening";
     internal ReadOnlySpan<CollisionSphere> CollisionCuts => _collisionCuts;
     internal ReadOnlySpan<CollisionSphere> CollisionSpheres => _collisionSpheres;
     private readonly string _layout;
@@ -197,11 +199,11 @@ sealed class Grid
             else
                 meshEdits.Add(edit);
             if (tangentialCollision && !edit.Add && float.IsFinite(edit.Radius) && edit.Radius > 0 &&
-                MathF.Abs(edit.Center.X - n / 2f) - edit.Radius > GrazingRayFallback.SeamHalfWidth)
+                (IsSeamOpening || MathF.Abs(edit.Center.X - n / 2f) - edit.Radius > GrazingRayFallback.SeamHalfWidth))
             {
                 var cut = new CollisionSphere(edit.Center, edit.Radius);
                 openings.Add(cut);
-                if (HasDisjointEditSupport(edit, index))
+                if (!IsSeamOpening && HasDisjointEditSupport(edit, index))
                     cuts.Add(cut);
             }
         }
@@ -332,14 +334,14 @@ sealed class Grid
 
     internal SubtractiveRayRepair? CreateSubtractiveRayRepair()
     {
-        if (!LocalFineMin.HasValue)
+        var acrossSeam = IsSeamOpening && _openingCuts.Length > 0 && _meshEdits.Length <= ClippedSphere.MaxEdits;
+        if (!acrossSeam && !LocalFineMin.HasValue)
             return null;
-        var brushes = _meshEdits.Where(edit => !edit.Add && edit.Radius > 0 &&
-            MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius > GrazingRayFallback.SeamHalfWidth)
+        var brushes = _meshEdits.Where(edit => edit.Radius > 0 && (acrossSeam || !edit.Add &&
+            MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius > GrazingRayFallback.SeamHalfWidth))
             .Select(edit => new CollisionSphere(edit.Center, edit.Radius)).ToArray();
-        return brushes.Length == 0 ? null : new SubtractiveRayRepair(MeshField, brushes, Extent);
+        return brushes.Length == 0 ? null : new SubtractiveRayRepair(MeshField, brushes, Extent, acrossSeam);
     }
-
     internal GrazingRayFallback? CreateGrazingFallback()
     {
         if (!LocalFineMin.HasValue)
@@ -355,7 +357,15 @@ sealed class Grid
     internal ClippedSphere? GetLocalOpening(CollisionSphere cut, Vector3 start, Vector3 end, float radius)
     {
         var reach = Math.Max(Vector3.Distance(start, cut.Center), Vector3.Distance(end, cut.Center)) + radius + .0001f;
-        if (_fixture != "bridge" || reach > cut.Radius + .5f ||
+        if (IsSeamOpening)
+        {
+            var delta = end - start;
+            var lengthSquared = delta.LengthSquared();
+            var t = lengthSquared > 0 ? Math.Clamp(Vector3.Dot(cut.Center - start, delta) / lengthSquared, 0, 1) : 0;
+            if (reach > 3 || Vector3.Distance(start + t * delta, cut.Center) > cut.Radius + radius + .5f)
+                return null;
+        }
+        else if (_fixture != "bridge" || reach > cut.Radius + .5f ||
             Box(cut.Center, BridgeStemCenter, BridgeStemExtent) <= reach)
             return null;
 
@@ -366,13 +376,15 @@ sealed class Grid
             if (separation - edit.Radius > reach)
                 continue;
             if (!float.IsFinite(edit.Radius) || edit.Radius <= 0 ||
-                MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius <= GrazingRayFallback.SeamHalfWidth ||
+                (!IsSeamOpening && MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius <= GrazingRayFallback.SeamHalfWidth) ||
                 localEdits.Count == ClippedSphere.MaxEdits)
                 return null;
             localEdits.Add(edit);
         }
         if (!FormsOverlappingGroup(localEdits, cut))
             return null;
+        if (IsSeamOpening)
+            return ClippedSphere.Create(SeamOpeningTerrain, localEdits.ToArray());
         // The convex bound encloses the whole swept ball, so components
         // that cannot enter it cannot provide an earlier contact.
         var touchesLeft = Vector3.Distance(BridgeLeft.Center, cut.Center) - BridgeLeft.Radius <= reach;
@@ -429,6 +441,7 @@ sealed class Grid
             "bridge" => MathF.Min(MathF.Min(Sphere(p, BridgeLeft.Center, BridgeLeft.Radius),
                 Sphere(p, BridgeRight.Center, BridgeRight.Radius)),
                 Box(p, BridgeStemCenter, BridgeStemExtent)),
+            "seam-opening" => Sphere(p, SeamOpeningTerrain.Center, SeamOpeningTerrain.Radius),
             "seam" => Sphere(p, center + new Vector3(-2.1f, 2.3f, 1.4f), 9.38f),
             "junction" => Sphere(p, new(11.37f, 10.8f, 11.8f), 8.15f),
             _ => throw new ArgumentOutOfRangeException(nameof(fixture)),

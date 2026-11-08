@@ -417,3 +417,27 @@ terrain lobe and a local opening outside the protected seam.
 ```
 
 [Spatial brush group results](results-windows-mc-spatial-edit-groups.json)
+
+## Spatial brush groups on the active 2:1 seam
+
+This fixture places the opening center at X = 16 on the active
+Transvoxel transition. The brush centers are noncoplanar. Targeted
+entry and exit paths span both sides of the seam. Two bypasses
+actually cross without contact, and a separate inward sweep crosses
+before reaching the inner cut wall. The analytic opening solver can
+query the seam fixture because its bounded neighborhood contains
+one known spherical terrain lobe and a connected local edit group.
+Other fixtures retain their existing seam restrictions.
+
+For this spherical fixture the bounded ray repair can splice a
+brush-local interval across the seam when mesh parity and field sign
+agree at both endpoints. It can also recheck an empty mesh query near
+the opening, including a grazing ray that the transition triangles
+missed just beyond the brush support. The empty-query radial margin
+is one cell. The existing budget and endpoint checks still apply.
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-spatial-seam-groups.json -RayLatency -RayRuns 1 -RaySamples 1000
+```
+
+[Spatial seam brush group results](results-windows-mc-spatial-seam-edit-groups.json)

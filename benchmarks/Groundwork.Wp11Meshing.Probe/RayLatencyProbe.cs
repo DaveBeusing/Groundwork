@@ -30,6 +30,7 @@ static class RayLatencyProbe
             new(new(15.7f, 25.173f, 26.319f), .1f, true),
             new(new(15.7f, 25.173f, 26.319f), .15f, false)
         ];
+        var seamEditGroups = CheckUpperEditGroups(tables, edits, spatial: true, atSeam: true);
         var cancelledBrushPair = CheckCancelledBrushPair(tables, edits);
         var spatialEditGroups = CheckUpperEditGroups(tables, edits, spatial: true);
         var original = Create([]);
@@ -112,7 +113,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
-            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, spatialEditGroups, cancelledBrushPair,
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, spatialEditGroups, seamEditGroups, cancelledBrushPair,
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -457,10 +458,12 @@ static class RayLatencyProbe
             ray = new { origin, expected, actual = ray.Hits } };
     }
 
-    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits, bool spatial = false)
+    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits, bool spatial = false, bool atSeam = false)
     {
-        var cut = edits[0];
-        var outward = Vector3.Normalize(cut.Center - Grid.BridgeRight.Center);
+        var terrain = atSeam ? Grid.SeamOpeningTerrain : Grid.BridgeRight;
+        var cut = atSeam ? edits[0] with { Center = new Vector3(16, 16, 16) } : edits[0];
+        var outward = Vector3.Normalize(cut.Center - terrain.Center);
+        var lateral = atSeam ? Vector3.UnitY : Vector3.UnitX;
         var add = new DensityEdit(cut.Center + .16f * outward, .30f, true);
         var trim = new DensityEdit(cut.Center + .38f * outward, .18f, false);
         var restore = new DensityEdit(cut.Center + .40f * outward, .12f, true);
@@ -468,7 +471,7 @@ static class RayLatencyProbe
         var outerAdd = new DensityEdit(cut.Center + .49f * outward, .07f, true);
         var outerTrim = new DensityEdit(cut.Center + .52f * outward, .065f, false);
         var tip = new DensityEdit(cut.Center + .56f * outward, .045f, true);
-        var transverse = Vector3.Normalize(Vector3.Cross(outward, Vector3.UnitX));
+        var transverse = Vector3.Normalize(Vector3.Cross(outward, lateral));
         if (spatial)
         {
             add = Offset(add, .021f, -.018f);
@@ -494,8 +497,10 @@ static class RayLatencyProbe
 
         return groups.Select(group =>
         {
-            DensityEdit[] ordered = [.. brushes[..group.Count], .. edits[1..]];
-            var grid = Create(ordered);
+            DensityEdit[] ordered = atSeam ? brushes[..group.Count] : [.. brushes[..group.Count], .. edits[1..]];
+            var fixture = atSeam ? "seam-opening" : "bridge";
+            var grid = atSeam ? new Grid(32, fixture, "face", false, false, false, true, false, false, ordered) :
+                Create(ordered);
             var mesh = Marching.Extract(grid, tables, trackSources: true);
             if (!grid.CollisionCuts.IsEmpty)
                 throw new InvalidOperationException("Upper edit group used isolated-cut shortcut.");
@@ -527,6 +532,17 @@ static class RayLatencyProbe
                     Point(axial, .11f) + offset, radius), contact));
             }
 
+            if (atSeam)
+            {
+                if (mesh.TransitionTriangles == 0 || cases.Take(6).Any(test =>
+                    (test.Path.Start.X < 16) == (test.Path.End.X < 16)))
+                    throw new InvalidOperationException("Spatial sweeps must cross an active 2:1 plane.");
+                const float radius = .025f;
+                const float side = -.35f;
+                var wall = MathF.Sqrt(MathF.Pow(cut.Radius - radius, 2) - side * side);
+                cases.Add((new("seam-crossing-inner-wall", Point(.72f, side), Point(-.30f, side), radius), .72f + wall));
+            }
+
             var sweeps = cases.Select(test =>
             {
                 var actual = SphereSweep.TraceCollision(grid, mesh, test.Path);
@@ -541,22 +557,36 @@ static class RayLatencyProbe
             var origin = Point(-12, 0);
             var ray = new CollisionRayQuery(grid, mesh).Trace(origin, outward);
             var expected = GeometryProbe.DensityHits(grid, origin, outward);
-            var analyticCrossings = spatial ? OrderedAxisCrossings(origin, outward, brushes[..group.Count]) : null;
+            var analyticCrossings = spatial ? OrderedAxisCrossings(origin, outward, terrain, brushes[..group.Count]) : null;
             var editedCrossings = analyticCrossings is null ? group.AxialCrossings : analyticCrossings[1..];
             if (expected.Count != editedCrossings.Length + 1 || ray.Hits.Count != expected.Count || ray.Exhausted ||
                 editedCrossings.Where((crossing, index) => MathF.Abs(expected[index + 1] - crossing) > .001f ||
                     MathF.Abs(ray.Hits[index + 1] - crossing) > .001f).Any())
                 throw new InvalidOperationException($"Upper group ray failed for {group.Count}: reference {expected.Count}, query {ray.Hits.Count}.");
 
-            return (object)new { brushCount = group.Count, spatial, edits = ordered, sweeps,
+            object? seamGrazing = null;
+            if (atSeam)
+            {
+                var grazingOrigin = new Vector3(15.819f, 0, 17.173f);
+                var grazing = new CollisionRayQuery(grid, mesh).Trace(grazingOrigin, Vector3.UnitY);
+                var grazingReference = OrderedAxisCrossings(grazingOrigin, Vector3.UnitY, terrain, brushes[..group.Count]);
+                if (grazingReference.Length != 2 || grazing.MeshHits.Count != 0 || grazing.Hits.Count != 2 ||
+                    grazing.RepairedIntervals == 0 || grazing.Exhausted ||
+                    grazingReference.Where((hit, index) => MathF.Abs(hit - grazing.Hits[index]) > .001f).Any())
+                    throw new InvalidOperationException($"Seam grazing ray failed for {group.Count} brushes.");
+                seamGrazing = new { origin = grazingOrigin, expected = grazingReference, actual = grazing.Hits };
+            }
+
+            return (object)new { brushCount = group.Count, spatial, atSeam, edits = ordered, sweeps,
+                transitionTriangles = mesh.TransitionTriangles, seamGrazing,
                 ray = new { origin, direction = outward, expected, analyticCrossings, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
-                checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
+                checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, fixture, "face") };
         }).ToArray();
 
-        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
+        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * lateral;
 
         DensityEdit Offset(DensityEdit edit, float x, float side) =>
-            edit with { Center = edit.Center + x * Vector3.UnitX + side * transverse };
+            edit with { Center = edit.Center + x * lateral + side * transverse };
 
         Vector3 Lateral(DensityEdit edit)
         {
@@ -565,11 +595,10 @@ static class RayLatencyProbe
         }
     }
 
-    private static float[] OrderedAxisCrossings(Vector3 origin, Vector3 direction, DensityEdit[] edits)
+    private static float[] OrderedAxisCrossings(Vector3 origin, Vector3 direction, CollisionSphere terrain, DensityEdit[] edits)
     {
         // Independently combine one-dimensional intervals in edit order.
         // The tested ray stays in the meridian of the right lobe only.
-        var terrain = Grid.BridgeRight;
         DensityEdit[] solids = [new(terrain.Center, terrain.Radius, true), .. edits];
         var intervals = solids.Select(edit =>
         {

@@ -1,27 +1,32 @@
 using System.Numerics;
 
-sealed class SubtractiveRayRepair(Func<Vector3, float> field, CollisionSphere[] brushes, float extent)
+sealed class SubtractiveRayRepair(Func<Vector3, float> field, CollisionSphere[] brushes, float extent, bool acrossSeam)
 {
     private const int SampleBudget = 4096;
     private const float Padding = .5f;
     private const float RadialPadding = .125f;
+    private const float SeamMissPadding = 1f;
     private const float EndpointTolerance = 1e-5f;
     private readonly GrazingRayFallback _search = new(field, extent);
+    internal bool AllowsEmptyMesh => acrossSeam;
 
     internal (List<float> Hits, int Intervals, bool Exhausted) Trace(
         Vector3 origin, Vector3 direction, List<float> meshHits)
     {
+        // A transition can miss grazing terrain even just beyond the edit.
+        // Expand only empty mesh queries in the certified seam fixture.
+        var radialPadding = acrossSeam && meshHits.Count == 0 ? SeamMissPadding : RadialPadding;
         var ranges = new List<(float Start, float End)>();
         foreach (var brush in brushes)
         {
             // A sampled cut can protrude slightly beyond the analytic brush.
-            if (brush.Roots(origin, direction, RadialPadding) is not { } roots || roots.Enter == roots.Exit ||
+            if (brush.Roots(origin, direction, radialPadding) is not { } roots || roots.Enter == roots.Exit ||
                 roots.Exit < 0 || roots.Enter > extent)
                 continue;
             var start = Math.Max(0, roots.Enter - Padding);
             var end = Math.Min(extent, roots.Exit + Padding);
             var left = brush.Center.X < extent / 2;
-            if (direction.X != 0)
+            if (!acrossSeam && direction.X != 0)
             {
                 var seam = extent / 2 + (left ? -1 : 1) * GrazingRayFallback.SeamHalfWidth;
                 var boundary = (seam - origin.X) / direction.X;
