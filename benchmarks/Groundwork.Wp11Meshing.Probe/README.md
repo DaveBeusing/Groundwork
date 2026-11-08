@@ -257,8 +257,9 @@ overlapping other edits remain in the sampled CSG path.
 
 A ray with mesh hits can recheck a local interval around a subtractive
 sphere that lies wholly outside the protected seam. The ray must
-intersect the brush. The probe pads the resulting interval by half a
-cell, clips it outside the seam and merges overlaps. It replaces
+intersect the brush or pass within a margin of 0.125 cells. The probe
+pads the resulting interval by half a cell, clips it outside the seam
+and merges overlaps. It replaces
 crossings only when mesh parity and density agree at both endpoints.
 The bounded signed-distance search then finds sign changes in the final
 edited snapshot, including a short empty interval inside a solid. A
@@ -301,8 +302,8 @@ cut, the probe sweeps against the remaining clipped solid. The
 distance considers valid projections onto either spherical face and
 the circular edge where they meet. The solver is eligible only when
 a convex bound around the entire swept sphere excludes the other
-terrain components and edit supports. Other terrain shapes, overlapping
-edits and longer paths are outside the opening solver's coverage.
+terrain components and unrelated edit supports. The local model
+below extends this to a pair of overlapping subtractive spheres.
 
 The edited suite checks four free passages through the opening
 at two radii and in both directions, plus an entry and exit that hit
@@ -311,3 +312,22 @@ are checked against an independent planar intersection. A raw CSG
 field sweep and the mesh-only sweep are recorded as comparisons.
 
 [Opening and collision regression results](results-windows-mc-cut-opening.json)
+
+## Overlapping cuts at an opening
+
+The local distance query supports one spherical terrain lobe and up
+to two overlapping spherical cuts. A candidate on a spherical face
+or an intersection circle must satisfy all remaining solid/void
+constraints. Three-surface intersection points provide the endpoints
+when an otherwise nearest point lies on a clipped portion of a circle.
+The swept-volume bound must still exclude other terrain and edit
+supports. Mixed or larger edit groups and longer paths remain outside
+this local model.
+
+The edited matrix adds a symmetric pair of cuts. Its midplane provides
+independent controls for four clear passes at two radii and two rim
+contacts. The expanded brush margin in the ray repair also covers a
+mesh gap where a ray passes just outside both cuts. The same run checks
+the broad ray grid and the 76 existing bridge sweeps in that snapshot.
+
+[Overlapping-cut and collision regression results](results-windows-mc-overlapping-cuts.json)

@@ -82,6 +82,17 @@ try {
                 ($sweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
                 throw "Edited seam collision regression in process $run."
             }
+            $overlapRays = $result.overlapGeometry.collision.grid
+            $overlapBand = $result.overlapGeometry.collision.'lod-band'
+            $overlapSweeps = $result.overlapGeometry.movingBodies.summary
+            if ($result.overlapOpeningCases.Count -ne 6 -or $overlapRays.Rays -ne 12288 -or
+                $overlapRays.CrossingCountMismatches -or $overlapRays.MissedHitRays -or
+                $overlapRays.UnexpectedHitRays -or $overlapRays.FallbackBudgetExhaustedRays -or
+                $overlapBand.CrossingCountMismatches -or
+                ($overlapSweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
+                ($overlapSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                throw "Overlapping cut regression in process $run."
+            }
             $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run
             $rows += $result
             Write-Host "Ray latency and edit validation completed in process $run."

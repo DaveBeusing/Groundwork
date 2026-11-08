@@ -4,6 +4,7 @@ sealed class SubtractiveRayRepair(Func<Vector3, float> field, CollisionSphere[] 
 {
     private const int SampleBudget = 4096;
     private const float Padding = .5f;
+    private const float RadialPadding = .125f;
     private const float EndpointTolerance = 1e-5f;
     private readonly GrazingRayFallback _search = new(field, extent);
 
@@ -13,7 +14,8 @@ sealed class SubtractiveRayRepair(Func<Vector3, float> field, CollisionSphere[] 
         var ranges = new List<(float Start, float End)>();
         foreach (var brush in brushes)
         {
-            if (brush.Roots(origin, direction) is not { } roots || roots.Enter == roots.Exit ||
+            // A sampled cut can protrude slightly beyond the analytic brush.
+            if (brush.Roots(origin, direction, RadialPadding) is not { } roots || roots.Enter == roots.Exit ||
                 roots.Exit < 0 || roots.Enter > extent)
                 continue;
             var start = Math.Max(0, roots.Enter - Padding);

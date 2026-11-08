@@ -72,6 +72,23 @@ static class RayLatencyProbe
         var sphereCases = CheckEditedSweeps(original, originalMesh, edited, editedMesh);
         var openingCases = CheckOpeningSweeps(edited, editedMesh);
         var editedGeometry = GeometryProbe.Check(editedMesh, edited, "bridge", "face");
+
+        var offset = Vector3.UnitX * .21f;
+        DensityEdit[] overlapEdits =
+        [
+            edits[0] with { Center = edits[0].Center - offset },
+            edits[0] with { Center = edits[0].Center + offset },
+            .. edits[1..]
+        ];
+        var overlapping = Create(overlapEdits);
+        var overlapMesh = Marching.Extract(overlapping, tables, trackSources: true);
+        if (overlapping.OpeningCuts.Length != 2 || !overlapping.CollisionCuts.IsEmpty)
+            throw new InvalidOperationException("Overlapping cuts must bypass the isolated-cut shortcut.");
+        var overlapOpeningCases = CheckOpeningSweeps(overlapping, overlapMesh, overlappingCuts: true);
+        var overlapQuery = new CollisionRayQuery(overlapping, overlapMesh);
+        var overlapRay = CheckOverlapRay(overlapping, overlapQuery);
+        var overlapNearMiss = CheckOverlapNearMiss(overlapping, overlapQuery);
+        var overlapGeometry = GeometryProbe.Check(overlapMesh, overlapping, "bridge", "face");
         var added = after.Trace(Added.Origin, Added.Direction);
         if (added.Hits.Count != 2 || MathF.Abs(added.Hits[0] - 24.2f) > .0001f ||
             MathF.Abs(added.Hits[1] - 24.4f) > .0001f ||
@@ -90,6 +107,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh),
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -178,12 +196,17 @@ static class RayLatencyProbe
             return (object)new { path, reference, actual, meshOnly, old, oldReference, test.ExpectedDistance };
         }).ToArray();
     }
-    private static object[] CheckOpeningSweeps(Grid grid, Mesh mesh)
+    private static object[] CheckOpeningSweeps(Grid grid, Mesh mesh, bool overlappingCuts = false)
     {
-        var cut = grid.CollisionCuts[0];
+        var first = grid.OpeningCuts[0];
+        var second = overlappingCuts ? grid.OpeningCuts[1] : first;
+        var halfSeparation = Vector3.Distance(first.Center, second.Center) / 2;
+        var cut = new CollisionSphere((first.Center + second.Center) / 2,
+            MathF.Sqrt(first.Radius * first.Radius - halfSeparation * halfSeparation));
         var terrain = Grid.BridgeRight;
         var separation = Vector3.Distance(cut.Center, terrain.Center);
         var outward = (cut.Center - terrain.Center) / separation;
+        var lateral = overlappingCuts ? Vector3.Normalize(Vector3.Cross(Vector3.UnitX, outward)) : Vector3.UnitX;
         var rimAxial = ((terrain.Radius - separation) * (terrain.Radius + separation) - cut.Radius * cut.Radius) /
             (2 * separation);
         var rimSide = MathF.Sqrt(cut.Radius * cut.Radius - rimAxial * rimAxial);
@@ -201,8 +224,11 @@ static class RayLatencyProbe
             cases.Add((new("opening-enter-clear", outside, inside, radius), null));
             cases.Add((new("opening-exit-clear", inside, outside, radius), null));
         }
-        AddRim("opening-enter-rim", new(.52f, .34f), new(-.16f, .34f), .1f);
-        AddRim("opening-exit-rim", new(-.05f, .20f), new(.27f, .72f), .1f);
+        var scale = cut.Radius / first.Radius;
+        AddRim("opening-enter-rim", new Vector2(.52f, .34f) * scale,
+            new Vector2(-.16f, .34f) * scale, .1f * scale);
+        AddRim("opening-exit-rim", new Vector2(-.05f, .20f) * scale,
+            new Vector2(.27f, .72f) * scale, .1f * scale);
 
         return cases.Select(test =>
         {
@@ -217,7 +243,7 @@ static class RayLatencyProbe
             return (object)new { path = test.Sweep, expectedState, test.ExpectedDistance, actual, meshOnly, rawField };
         }).ToArray();
 
-        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
+        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * lateral;
 
         void AddRim(string label, Vector2 start, Vector2 end, float radius)
         {
@@ -233,6 +259,29 @@ static class RayLatencyProbe
                 throw new InvalidOperationException("Opening rim control has no contact.");
             cases.Add((new(label, Point(start.X, start.Y), Point(end.X, end.Y), radius), distance));
         }
+    }
+
+    private static object CheckOverlapRay(Grid grid, CollisionRayQuery query)
+    {
+        var origin = new Vector3(23.17f, 19.873f, 0);
+        var expected = GeometryProbe.DensityHits(grid, origin, Vector3.UnitZ);
+        var actual = query.Trace(origin, Vector3.UnitZ);
+        if (expected.Count != 4 || actual.Hits.Count != 4 || actual.Exhausted ||
+            MathF.Abs(expected[1] - actual.Hits[1]) > .001f ||
+            MathF.Abs(expected[2] - actual.Hits[2]) > .001f)
+            throw new InvalidOperationException("Overlapping subtraction ray failed.");
+        return new { origin, expected, actual = actual.Hits, actual.MeshHits, actual.RepairedIntervals };
+    }
+
+    private static object CheckOverlapNearMiss(Grid grid, CollisionRayQuery query)
+    {
+        var origin = new Vector3(23.173f, 19.819f, 0);
+        var expected = GeometryProbe.DensityHits(grid, origin, Vector3.UnitZ);
+        var actual = query.Trace(origin, Vector3.UnitZ);
+        if (expected.Count != 2 || actual.MeshHits.Count != 4 || actual.Hits.Count != 2 ||
+            actual.RepairedIntervals != 1 || actual.Exhausted)
+            throw new InvalidOperationException("Overlapping subtraction produced a spurious gap.");
+        return new { origin, expected, actual = actual.Hits, actual.MeshHits, actual.RepairedIntervals };
     }
 
     private static object Measure(string name, GrazingRayFallback query, Ray[] rays, int samples)

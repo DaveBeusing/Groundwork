@@ -151,7 +151,7 @@ static class SphereSweep
 
     private static Contact? TraceCutOpening(Grid grid, SweepCase sweep)
     {
-        foreach (var cut in grid.CollisionCuts)
+        foreach (var cut in grid.OpeningCuts)
             if (grid.GetLocalOpening(cut, sweep.Start, sweep.End, sweep.Radius) is { } opening)
                 return Sweep(sweep, opening.Distance);
         return null;

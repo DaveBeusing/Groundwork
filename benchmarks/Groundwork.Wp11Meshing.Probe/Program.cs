@@ -149,6 +149,8 @@ sealed class Grid
     private readonly DensityEdit[] _meshEdits;
     private readonly CollisionSphere[] _collisionSpheres;
     private readonly CollisionSphere[] _collisionCuts;
+    private readonly CollisionSphere[] _openingCuts;
+    internal ReadOnlySpan<CollisionSphere> OpeningCuts => _openingCuts;
     internal ReadOnlySpan<CollisionSphere> CollisionCuts => _collisionCuts;
     internal ReadOnlySpan<CollisionSphere> CollisionSpheres => _collisionSpheres;
     private readonly string _layout;
@@ -185,6 +187,7 @@ sealed class Grid
         _edits = edits is null ? [] : edits.ToArray();
         var spheres = new List<CollisionSphere>();
         var cuts = new List<CollisionSphere>();
+        var openings = new List<CollisionSphere>();
         var meshEdits = new List<DensityEdit>();
         for (var index = 0; index < _edits.Length; index++)
         {
@@ -194,12 +197,17 @@ sealed class Grid
             else
                 meshEdits.Add(edit);
             if (tangentialCollision && !edit.Add && float.IsFinite(edit.Radius) && edit.Radius > 0 &&
-                MathF.Abs(edit.Center.X - n / 2f) - edit.Radius > GrazingRayFallback.SeamHalfWidth &&
-                HasDisjointEditSupport(edit, index))
-                cuts.Add(new CollisionSphere(edit.Center, edit.Radius));
+                MathF.Abs(edit.Center.X - n / 2f) - edit.Radius > GrazingRayFallback.SeamHalfWidth)
+            {
+                var cut = new CollisionSphere(edit.Center, edit.Radius);
+                openings.Add(cut);
+                if (HasDisjointEditSupport(edit, index))
+                    cuts.Add(cut);
+            }
         }
         _collisionSpheres = spheres.ToArray();
         _collisionCuts = cuts.ToArray();
+        _openingCuts = openings.ToArray();
         _meshEdits = meshEdits.ToArray();
 
         bool IsIsolatedSeamAddition(DensityEdit edit, int index)
@@ -351,21 +359,26 @@ sealed class Grid
             Box(cut.Center, BridgeStemCenter, BridgeStemExtent) <= reach)
             return null;
 
+        var localCuts = new List<CollisionSphere> { cut };
         foreach (var edit in _edits)
         {
             if (!edit.Add && edit.Center == cut.Center && edit.Radius == cut.Radius)
                 continue;
-            if (Vector3.Distance(edit.Center, cut.Center) - edit.Radius <= reach)
+            if (Vector3.Distance(edit.Center, cut.Center) - edit.Radius > reach)
+                continue;
+            var other = new CollisionSphere(edit.Center, edit.Radius);
+            if (edit.Add || !_openingCuts.Contains(other) || localCuts.Count == 2 ||
+                Vector3.Distance(cut.Center, other.Center) >= cut.Radius + other.Radius)
                 return null;
+            localCuts.Add(other);
         }
-
         // The convex bound encloses the whole swept ball, so components
         // that cannot enter it cannot provide an earlier contact.
         var touchesLeft = Vector3.Distance(BridgeLeft.Center, cut.Center) - BridgeLeft.Radius <= reach;
         var touchesRight = Vector3.Distance(BridgeRight.Center, cut.Center) - BridgeRight.Radius <= reach;
         if (touchesLeft == touchesRight)
             return null;
-        return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, cut);
+        return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, localCuts.ToArray());
     }
     private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
 
