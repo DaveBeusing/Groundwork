@@ -1,7 +1,7 @@
-# WP01-B00 Groundwork build bootstrap
+# Groundwork build and verification
 
-The solution keeps the six approved WP01 shipping projects and adds separate
-contract test projects as modules land. Each implementation lane owns its tests.
+The solution contains the Groundwork runtime, terrain and rendering modules
+and their test suites. See the [roadmap](roadmap.md) for milestone evidence.
 
 ## Windows prerequisites and verification
 

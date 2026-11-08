@@ -84,3 +84,9 @@ The [installer](https://github.com/DaveBeusing/wyu/pull/22),
 [mission](https://github.com/DaveBeusing/wyu/pull/24) and
 [diagnostics](https://github.com/DaveBeusing/wyu/pull/25) are on WYU
 `master`.
+
+After WP10 acceptance, [WYU PR #26](https://github.com/DaveBeusing/wyu/pull/26)
+added the ESC sidebar and F1 performance panel. The owner playtest
+passed and [Windows CI](https://github.com/DaveBeusing/wyu/actions/runs/42471309455)
+was green on merge commit `96902f6ac85723f1013f8d8212dbeef30445d8dc`.
+The rehearsal installer above records the earlier WYU baseline.

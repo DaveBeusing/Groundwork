@@ -1,11 +1,10 @@
 # Groundwork and Worlds Yet Unseen roadmap
 
-This roadmap starts after the [WP03 handover](wp03-handover.md). WYU's
+WP01 through WP10 established the Windows single-player alpha. WYU's
 long-term goal is first-person survival and exploration on procedural,
-destructible planets, with modular construction and travel from the surface
-to orbit. The first playable goal is a bounded region where a player can
-land, orient themselves, edit terrain, recover a resource, build something
-and resume the same game later. See the [WYU product vision](https://github.com/DaveBeusing/wyu/blob/a1ee1f623b9082602d81bc0dbd5bdcbbc912e635/README.md).
+destructible planets, with modular construction and travel from the
+surface to orbit. See the [WYU product vision](https://github.com/DaveBeusing/wyu/blob/master/docs/World_Vision.md).
+
 
 Groundwork owns reusable simulation, world and mesh data, rendering and
 resource management. WYU owns rules, content, controls and the user interface.
@@ -26,7 +25,17 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 | WP07 · Playable prototype (complete) | Stable interfaces and diagnostics for the features the game exercises | Explore the landing region, mine stone and assemble a rescue beacon | [Windows handover and playtest outcomes](wp07-handover.md) and [prototype contract](architecture/wp07-playable-prototype-contract.md) |
 | WP08 · Spherical planet (complete) | Planet coordinates, local precision, consistent gravity and terrain detail transitions | Traversable route on a small spherical world | [Clean Windows handover](wp08-handover.md) and [spherical planet contract](architecture/wp08-spherical-planet-contract.md) |
 | WP09 · Surface to orbit (complete) | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to a visibly marked, edited landing site | [Windows flight and landing pad handover](wp09-handover.md) and [surface-to-orbit contract](architecture/wp09-surface-to-orbit-contract.md) |
-| WP10 · Windows alpha | Stability, diagnostics, package compatibility and reproducible builds | Installable single-player build, onboarding, settings and a complete test mission | [Proposed Windows alpha acceptance contract](architecture/wp10-windows-alpha-contract.md) |
+| WP10 · Windows alpha (accepted) | Stability, diagnostics, package compatibility and reproducible builds | Per-user installer, onboarding, persistent settings, rescue-to-orbit mission, ESC sidebar and F1 performance panel | [Owner acceptance and evidence](wp10-handover.md), [Windows alpha contract](architecture/wp10-windows-alpha-contract.md) and [UI playtest](https://github.com/DaveBeusing/wyu/pull/26) |
+
+## After WP10
+
+The fresh Windows 11 offline run remains open as a follow-up to the
+accepted WP10 milestone. The [handover](wp10-handover.md) records its
+scope and the existing evidence.
+
+WP11 is unassigned. Use playtest findings to choose between deeper
+gameplay in the current region and a larger world, then review the next
+contract before implementation.
 
 ## Planning and verification
 

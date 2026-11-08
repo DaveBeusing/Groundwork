@@ -1,5 +1,9 @@
 # WP01 module boundaries and dependency contracts
 
+> Historical WP01 proposal. The [WP01 handover](../wp01-handover.md) records
+> the implemented and verified foundation. The proposal below preserves
+> the review context.
+
 **Status:** Review proposal for [WP01-C00](https://github.com/DaveBeusing/Groundwork/issues/1). These are proposed boundaries, not existing compiled assemblies. Implementation is gated on review and merge of this documentation.  
 **Repositories:** public `DaveBeusing/Groundwork` and `DaveBeusing/wyu`; both target `master`.  
 **Runtime:** C# / .NET 10, Windows first. Direct3D 12 is a **WP02 target** behind an abstraction, not a WP01 dependency. C++ requires a measured performance justification.
