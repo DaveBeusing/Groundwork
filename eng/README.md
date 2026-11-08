@@ -1,7 +1,8 @@
-# WP01-L4 — Package integrity scripts (draft)
+# Groundwork package integrity scripts
 
-These scripts are a scoped first slice of Groundwork Issue #7, stacked on B00 PR #12.
-They do not edit root build settings or publish a release.
+The Windows CI and archive workflows use these scripts to produce and
+verify packages consumed by WYU. See the [current handover](../docs/wp10-handover.md)
+for the alpha's exact package baseline.
 
 ## Producer
 

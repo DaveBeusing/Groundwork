@@ -1,5 +1,9 @@
 # WP01 — ECS, jobs and supervision: contract clarification for review
 
+> Historical WP01 proposal. The [WP01 handover](../wp01-handover.md) records
+> the implemented and verified foundation. The proposal below preserves
+> the review context.
+
 **Status:** Proposed API-level contract, not implemented or signed off. Supplements [WP01-C00](https://github.com/DaveBeusing/Groundwork/issues/1) and [runtime contracts](runtime-contracts.md). Existing approved policies remain authoritative. The C00/L2/L3A/L3B/L5 owners must review the concrete choices below before implementation.
 
 ## 1. Entity and read access

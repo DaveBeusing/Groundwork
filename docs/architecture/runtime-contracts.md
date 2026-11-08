@@ -1,5 +1,9 @@
 # WP01 runtime, ECS and job contracts
 
+> Historical WP01 proposal. The [WP01 handover](../wp01-handover.md) records
+> the implemented and verified foundation. The proposal below preserves
+> the review context.
+
 **Status:** Architecture review proposal; **not implemented**. The approved product policies below are distinct from illustrative API choices awaiting C00/L3A/L3B sign-off. Source: [WP01-C00](https://github.com/DaveBeusing/Groundwork/issues/1).  
 **Boundaries:** Groundwork is game-agnostic; WYU is the composition root and consumes immutable engine packages.
 

@@ -11,8 +11,8 @@ See docs/build-bootstrap.md for prerequisites, build commands, package
 identity/provenance policy, ownership boundaries and verification limitations.
 Changes are made through scoped PRs targeting master.
 
-The [WP01 foundation handover](docs/wp01-handover.md) records the verified
-engine and WYU baselines, reproduction steps and WP02 entry conditions.
+The [WP10 Windows alpha handover](docs/wp10-handover.md) records the accepted
+baseline, Windows verification and the open offline follow-up.
 
 The [Groundwork and WYU roadmap](docs/roadmap.md) tracks completed handovers
 and planned milestones across both repositories.
