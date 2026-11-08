@@ -224,10 +224,31 @@ for addition and maximum of the negated brush for subtraction. The
 mesh and the fallback share the same copied edit snapshot. The checks
 cover removing an existing grazing hit, recovering an off-seam
 sub-grid addition, retaining other grazing hits, keeping the old
-snapshot stable, excluding a sub-grid addition in the protected seam,
-and failing closed on budget exhaustion. The sub-grid seam addition
-requires a direct mesh hit under the current policy and is an explicit
-coverage limit. The fixture does not exercise persisted edits or
-concurrent publication.
+snapshot stable, and failing closed on budget exhaustion. The historical
+latency run documented a sub-grid addition that the mesh missed inside
+the seam. The edited seam run below covers that case with a collision
+primitive. The fixture does not exercise persisted edits or concurrent
+publication.
 
 [Edited density and query latency results](results-windows-mc-edited-ray-latency.json)
+
+## Small additions inside the protected seam
+
+An additive spherical brush wholly inside the protected band becomes
+an analytic collision sphere if the base field proves it is isolated
+and its support is disjoint from all other edit supports. The same
+immutable snapshot keeps the sphere out of the sampled mesh field and
+includes it in the reference field. The query merges analytic sphere
+crossings with mesh and off-seam fallback crossings. A moving sphere
+tests the sum of the two radii and uses the earliest valid contact.
+No seam density fallback or extra grid resolution is required.
+
+The edited run uses the same -RayLatency command. It reruns the broad
+ray grid, the 76 existing bridge sweeps and 17 targeted edited sweeps,
+including forward and reverse passage, misses, initial overlaps and
+removed material. It tests one isolated addition within the band and
+one straddling the actual 2:1 plane. An overlapping subtractive edit
+prevents separation into a primitive. Brushes attached to terrain or
+overlapping other edits remain in the sampled CSG path.
+
+[Edited seam ray and sphere results](results-windows-mc-edited-seam.json)

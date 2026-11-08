@@ -1,0 +1,4795 @@
+{
+  "timestampUtc": "2026-11-08T22:56:43.3739979Z",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "physicalMemoryBytes": 68137205760,
+  "installedMemoryBytes": 68719476736.0,
+  "referenceHardwareRequired": false,
+  "geometryOnly": false,
+  "collisionComparison": false,
+  "collisionBoundaries": false,
+  "collisionPerformance": false,
+  "rayLatency": true,
+  "sdk": "10.0.403",
+  "runtime": "Microsoft.NETCore.App 10.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
+  "sourceBase": "1d6f439c17abf2ebdb40fe7970a3e995cf5c286f",
+  "tablesCommit": "51a494f03c5b024cd153b596bcc7152eb3cc93a6",
+  "tablesSha256": "83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4",
+  "tieredCompilation": false,
+  "results": [
+    {
+      "samplesPerCase": 10000,
+      "stopwatchFrequencyHz": 10000000,
+      "latency": [
+        {
+          "name": "original-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 12,
+          "p95us": 18,
+          "p99us": 26.5,
+          "maxUs": 276,
+          "p50DensitySamples": 477,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "original-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0.1,
+          "p95us": 0.2,
+          "p99us": 0.2,
+          "maxUs": 18.8,
+          "p50DensitySamples": 4,
+          "maxDensitySamples": 4
+        },
+        {
+          "name": "edited-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 16.7,
+          "p95us": 25.1,
+          "p99us": 46.3,
+          "maxUs": 289.9,
+          "p50DensitySamples": 519,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "edited-added-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 0.9,
+          "p95us": 1,
+          "p99us": 2.2,
+          "maxUs": 224,
+          "p50DensitySamples": 32,
+          "maxDensitySamples": 32
+        },
+        {
+          "name": "edited-removed-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 2.3,
+          "p95us": 3.8,
+          "p99us": 5.4,
+          "maxUs": 248.5,
+          "p50DensitySamples": 80,
+          "maxDensitySamples": 80
+        },
+        {
+          "name": "edited-seam-excluded",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0,
+          "p95us": 0.1,
+          "p99us": 0.1,
+          "maxUs": 15.6,
+          "p50DensitySamples": 0,
+          "maxDensitySamples": 0
+        }
+      ],
+      "originalChecksum": "6B6314081CF1203C",
+      "editedChecksum": "0F45DD177D8B01E0",
+      "edits": [
+        {
+          "Center": {
+            "X": 23.17,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Radius": 0.4,
+          "Add": false
+        },
+        {
+          "Center": {
+            "X": 24.3,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.02,
+            "Y": 24.673,
+            "Z": 22.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 15.7,
+            "Y": 25.173,
+            "Z": 26.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 15.7,
+            "Y": 25.173,
+            "Z": 26.319
+          },
+          "Radius": 0.15,
+          "Add": false
+        }
+      ],
+      "originalCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            22.98159,
+            23.35841
+          ],
+          "meshHits": [],
+          "actual": [
+            22.981586,
+            23.358414
+          ],
+          "Samples": 407,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 3.8146973E-06
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "Samples": 477,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 7.6293945E-06
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "Samples": 519,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.3841858E-05
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "Samples": 674,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.5749207E-05
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-in-seam",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-across-seam",
+          "Origin": {
+            "X": 16.02,
+            "Y": 0,
+            "Z": 22.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-then-removed",
+          "Origin": {
+            "X": 15.7,
+            "Y": 0,
+            "Z": 26.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        }
+      ],
+      "editedCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 80,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "Samples": 477,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 7.6293945E-06
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "Samples": 519,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.3841858E-05
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "Samples": 674,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.5749207E-05
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            24.2,
+            24.399998
+          ],
+          "meshHits": [],
+          "actual": [
+            24.199999,
+            24.4
+          ],
+          "Samples": 32,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-in-seam",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.073002,
+            24.272999
+          ],
+          "meshHits": [],
+          "actual": [
+            24.073,
+            24.273
+          ],
+          "Samples": 0,
+          "PrimitiveCrossings": 2,
+          "UsedFallback": false,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-across-seam",
+          "Origin": {
+            "X": 16.02,
+            "Y": 0,
+            "Z": 22.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.573002,
+            24.772999
+          ],
+          "meshHits": [],
+          "actual": [
+            24.573,
+            24.773
+          ],
+          "Samples": 0,
+          "PrimitiveCrossings": 2,
+          "UsedFallback": false,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-then-removed",
+          "Origin": {
+            "X": 15.7,
+            "Y": 0,
+            "Z": 26.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        }
+      ],
+      "sphereCases": [
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 2.0499992
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 2.0499992
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 2.0499992
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.4500008
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.4500008
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.4500008
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.3,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.8499993
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.8499992
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.8499992
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.2500007
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.2500007
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.2500007
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.3,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.7700005
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.7700005
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.7700005
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.7299995
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.7299995
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.7299995
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.02,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.5700004
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.5700004
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.5700004
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.5299995
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.5299995
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.5299995
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.02,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "removed-cap-clear",
+            "Start": {
+              "X": 23.03,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "End": {
+              "X": 23.31,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "Radius": 0.1
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "oldReference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "ExpectedDistance": null
+        }
+      ],
+      "editedGeometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 24980,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 4554,
+                "center": {
+                  "X": 12.743203,
+                  "Y": 15.383332,
+                  "Z": 14.791667
+                },
+                "dot": 0.693717,
+                "source": "regular-fine"
+              },
+              {
+                "index": 17622,
+                "center": {
+                  "X": 12.746704,
+                  "Y": 15.381295,
+                  "Z": 16.208334
+                },
+                "dot": 0.83770955,
+                "source": "regular-fine"
+              },
+              {
+                "index": 24994,
+                "center": {
+                  "X": 12.707184,
+                  "Y": 16.916666,
+                  "Z": 16.307924
+                },
+                "dot": 0.9217311,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 76,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 15416,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.873335,
+                  "Z": 14.791667
+                },
+                "dot": 0.4674653,
+                "source": "transition"
+              },
+              {
+                "index": 30042,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.89,
+                  "Z": 16.208334
+                },
+                "dot": 0.56022274,
+                "source": "transition"
+              },
+              {
+                "index": 6613,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 15.415555,
+                  "Z": 14.791667
+                },
+                "dot": 0.6284501,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 6536,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 30680,
+                "center": {
+                  "X": 23.312075,
+                  "Y": 19.96087,
+                  "Z": 17.064346
+                },
+                "dot": 0.6185009,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 30575,
+                "center": {
+                  "X": 23.527573,
+                  "Y": 20.00609,
+                  "Z": 16.883064
+                },
+                "dot": 0.68609345,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 30561,
+                "center": {
+                  "X": 23.527573,
+                  "Y": 19.990606,
+                  "Z": 16.79973
+                },
+                "dot": 0.6897932,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 234208,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1202,
+            "MeshHitRays": 1196,
+            "QueryHitRays": 1202,
+            "MeshMissedHitRays": 6,
+            "FallbackHitRays": 4,
+            "PrimitiveHitRays": 2,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 1,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.18964195
+          },
+          "lod-band": {
+            "Rays": 58,
+            "DensityHitRays": 58,
+            "MeshHitRays": 56,
+            "QueryHitRays": 58,
+            "MeshMissedHitRays": 2,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 2,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.059972763
+          },
+          "bridge-edge-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 1,
+            "QueryHitRays": 1,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.003419876
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "QueryHitRays": 49,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.003709793
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "QueryHitRays": 64,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 1.9073486E-06
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": {
+          "Group": "bridge-edge-regression",
+          "Axis": 0,
+          "Origin": {
+            "X": 0,
+            "Y": 16.673,
+            "Z": 14.819
+          },
+          "Density": [
+            4.5997686,
+            27.341633
+          ],
+          "Mesh": [
+            4.600785,
+            27.338213
+          ],
+          "Resolved": null
+        },
+        "fallbackTraces": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 23.173,
+              "Z": 24.319
+            },
+            "Density": [
+              24.2,
+              24.399998
+            ],
+            "Mesh": [],
+            "Resolved": [
+              24.199999,
+              24.4
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 19.319,
+              "Y": 0,
+              "Z": 13.673
+            },
+            "Density": [
+              16.003849,
+              16.25615
+            ],
+            "Mesh": [],
+            "Resolved": [
+              16.003841,
+              16.256153
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 8.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.430261,
+              15.629739
+            ],
+            "Mesh": [],
+            "Resolved": [
+              15.430237,
+              15.629751
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 9.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.467172,
+              15.592828
+            ],
+            "Mesh": [],
+            "Resolved": [
+              15.467146,
+              15.592843
+            ]
+          }
+        ],
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 9.536743E-07
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 7.1525574E-07
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 23.173,
+              "Y": 19.819,
+              "Z": 0
+            },
+            "Density": [
+              13.35954,
+              16.63279,
+              17.00521,
+              17.62046
+            ],
+            "Mesh": [
+              13.389616,
+              17.599234
+            ],
+            "Resolved": [
+              13.389616,
+              17.599234
+            ]
+          }
+        ]
+      },
+      "collisionSpheres": [
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1
+        },
+        {
+          "Center": {
+            "X": 16.02,
+            "Y": 24.673,
+            "Z": 22.319
+          },
+          "Radius": 0.1
+        }
+      ],
+      "budgetControl": {
+        "Exhausted": true,
+        "Samples": 4096
+      },
+      "processRun": 1
+    },
+    {
+      "samplesPerCase": 10000,
+      "stopwatchFrequencyHz": 10000000,
+      "latency": [
+        {
+          "name": "original-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 14.7,
+          "p95us": 21.7,
+          "p99us": 23,
+          "maxUs": 241,
+          "p50DensitySamples": 477,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "original-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0.2,
+          "p95us": 0.2,
+          "p99us": 0.2,
+          "maxUs": 119.8,
+          "p50DensitySamples": 4,
+          "maxDensitySamples": 4
+        },
+        {
+          "name": "edited-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 30.6,
+          "p95us": 41.5,
+          "p99us": 60.2,
+          "maxUs": 315.5,
+          "p50DensitySamples": 519,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "edited-added-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 1.6,
+          "p95us": 1.6,
+          "p99us": 1.8,
+          "maxUs": 71.8,
+          "p50DensitySamples": 32,
+          "maxDensitySamples": 32
+        },
+        {
+          "name": "edited-removed-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 3.7,
+          "p95us": 4.4,
+          "p99us": 5.6,
+          "maxUs": 202.8,
+          "p50DensitySamples": 80,
+          "maxDensitySamples": 80
+        },
+        {
+          "name": "edited-seam-excluded",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0,
+          "p95us": 0.1,
+          "p99us": 0.1,
+          "maxUs": 1.8,
+          "p50DensitySamples": 0,
+          "maxDensitySamples": 0
+        }
+      ],
+      "originalChecksum": "6B6314081CF1203C",
+      "editedChecksum": "0F45DD177D8B01E0",
+      "edits": [
+        {
+          "Center": {
+            "X": 23.17,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Radius": 0.4,
+          "Add": false
+        },
+        {
+          "Center": {
+            "X": 24.3,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.02,
+            "Y": 24.673,
+            "Z": 22.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 15.7,
+            "Y": 25.173,
+            "Z": 26.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 15.7,
+            "Y": 25.173,
+            "Z": 26.319
+          },
+          "Radius": 0.15,
+          "Add": false
+        }
+      ],
+      "originalCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            22.98159,
+            23.35841
+          ],
+          "meshHits": [],
+          "actual": [
+            22.981586,
+            23.358414
+          ],
+          "Samples": 407,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 3.8146973E-06
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "Samples": 477,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 7.6293945E-06
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "Samples": 519,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.3841858E-05
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "Samples": 674,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.5749207E-05
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-in-seam",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-across-seam",
+          "Origin": {
+            "X": 16.02,
+            "Y": 0,
+            "Z": 22.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-then-removed",
+          "Origin": {
+            "X": 15.7,
+            "Y": 0,
+            "Z": 26.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        }
+      ],
+      "editedCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 80,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "Samples": 477,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 7.6293945E-06
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "Samples": 519,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.3841858E-05
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "Samples": 674,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.5749207E-05
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            24.2,
+            24.399998
+          ],
+          "meshHits": [],
+          "actual": [
+            24.199999,
+            24.4
+          ],
+          "Samples": 32,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-in-seam",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.073002,
+            24.272999
+          ],
+          "meshHits": [],
+          "actual": [
+            24.073,
+            24.273
+          ],
+          "Samples": 0,
+          "PrimitiveCrossings": 2,
+          "UsedFallback": false,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-across-seam",
+          "Origin": {
+            "X": 16.02,
+            "Y": 0,
+            "Z": 22.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.573002,
+            24.772999
+          ],
+          "meshHits": [],
+          "actual": [
+            24.573,
+            24.773
+          ],
+          "Samples": 0,
+          "PrimitiveCrossings": 2,
+          "UsedFallback": false,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-then-removed",
+          "Origin": {
+            "X": 15.7,
+            "Y": 0,
+            "Z": 26.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        }
+      ],
+      "sphereCases": [
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 2.0499992
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 2.0499992
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 2.0499992
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.4500008
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.4500008
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.4500008
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.3,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.8499993
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.8499992
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.8499992
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.2500007
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.2500007
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.2500007
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.3,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.7700005
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.7700005
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.7700005
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.7299995
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.7299995
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.7299995
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.02,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.5700004
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.5700004
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.5700004
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.5299995
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.5299995
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.5299995
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.02,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "removed-cap-clear",
+            "Start": {
+              "X": 23.03,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "End": {
+              "X": 23.31,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "Radius": 0.1
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "oldReference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "ExpectedDistance": null
+        }
+      ],
+      "editedGeometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 24980,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 4554,
+                "center": {
+                  "X": 12.743203,
+                  "Y": 15.383332,
+                  "Z": 14.791667
+                },
+                "dot": 0.693717,
+                "source": "regular-fine"
+              },
+              {
+                "index": 17622,
+                "center": {
+                  "X": 12.746704,
+                  "Y": 15.381295,
+                  "Z": 16.208334
+                },
+                "dot": 0.83770955,
+                "source": "regular-fine"
+              },
+              {
+                "index": 24994,
+                "center": {
+                  "X": 12.707184,
+                  "Y": 16.916666,
+                  "Z": 16.307924
+                },
+                "dot": 0.9217311,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 76,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 15416,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.873335,
+                  "Z": 14.791667
+                },
+                "dot": 0.4674653,
+                "source": "transition"
+              },
+              {
+                "index": 30042,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.89,
+                  "Z": 16.208334
+                },
+                "dot": 0.56022274,
+                "source": "transition"
+              },
+              {
+                "index": 6613,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 15.415555,
+                  "Z": 14.791667
+                },
+                "dot": 0.6284501,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 6536,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 30680,
+                "center": {
+                  "X": 23.312075,
+                  "Y": 19.96087,
+                  "Z": 17.064346
+                },
+                "dot": 0.6185009,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 30575,
+                "center": {
+                  "X": 23.527573,
+                  "Y": 20.00609,
+                  "Z": 16.883064
+                },
+                "dot": 0.68609345,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 30561,
+                "center": {
+                  "X": 23.527573,
+                  "Y": 19.990606,
+                  "Z": 16.79973
+                },
+                "dot": 0.6897932,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 234208,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1202,
+            "MeshHitRays": 1196,
+            "QueryHitRays": 1202,
+            "MeshMissedHitRays": 6,
+            "FallbackHitRays": 4,
+            "PrimitiveHitRays": 2,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 1,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.18964195
+          },
+          "lod-band": {
+            "Rays": 58,
+            "DensityHitRays": 58,
+            "MeshHitRays": 56,
+            "QueryHitRays": 58,
+            "MeshMissedHitRays": 2,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 2,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.059972763
+          },
+          "bridge-edge-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 1,
+            "QueryHitRays": 1,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.003419876
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "QueryHitRays": 49,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.003709793
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "QueryHitRays": 64,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 1.9073486E-06
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": {
+          "Group": "bridge-edge-regression",
+          "Axis": 0,
+          "Origin": {
+            "X": 0,
+            "Y": 16.673,
+            "Z": 14.819
+          },
+          "Density": [
+            4.5997686,
+            27.341633
+          ],
+          "Mesh": [
+            4.600785,
+            27.338213
+          ],
+          "Resolved": null
+        },
+        "fallbackTraces": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 23.173,
+              "Z": 24.319
+            },
+            "Density": [
+              24.2,
+              24.399998
+            ],
+            "Mesh": [],
+            "Resolved": [
+              24.199999,
+              24.4
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 19.319,
+              "Y": 0,
+              "Z": 13.673
+            },
+            "Density": [
+              16.003849,
+              16.25615
+            ],
+            "Mesh": [],
+            "Resolved": [
+              16.003841,
+              16.256153
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 8.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.430261,
+              15.629739
+            ],
+            "Mesh": [],
+            "Resolved": [
+              15.430237,
+              15.629751
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 9.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.467172,
+              15.592828
+            ],
+            "Mesh": [],
+            "Resolved": [
+              15.467146,
+              15.592843
+            ]
+          }
+        ],
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 9.536743E-07
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 7.1525574E-07
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 23.173,
+              "Y": 19.819,
+              "Z": 0
+            },
+            "Density": [
+              13.35954,
+              16.63279,
+              17.00521,
+              17.62046
+            ],
+            "Mesh": [
+              13.389616,
+              17.599234
+            ],
+            "Resolved": [
+              13.389616,
+              17.599234
+            ]
+          }
+        ]
+      },
+      "collisionSpheres": [
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1
+        },
+        {
+          "Center": {
+            "X": 16.02,
+            "Y": 24.673,
+            "Z": 22.319
+          },
+          "Radius": 0.1
+        }
+      ],
+      "budgetControl": {
+        "Exhausted": true,
+        "Samples": 4096
+      },
+      "processRun": 2
+    },
+    {
+      "samplesPerCase": 10000,
+      "stopwatchFrequencyHz": 10000000,
+      "latency": [
+        {
+          "name": "original-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 10.8,
+          "p95us": 15.2,
+          "p99us": 18.8,
+          "maxUs": 782.4,
+          "p50DensitySamples": 477,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "original-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0.1,
+          "p95us": 0.2,
+          "p99us": 0.2,
+          "maxUs": 1.3,
+          "p50DensitySamples": 4,
+          "maxDensitySamples": 4
+        },
+        {
+          "name": "edited-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 19.1,
+          "p95us": 26.3,
+          "p99us": 42.5,
+          "maxUs": 1955.6,
+          "p50DensitySamples": 519,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "edited-added-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 1,
+          "p95us": 1.1,
+          "p99us": 1.1,
+          "maxUs": 66,
+          "p50DensitySamples": 32,
+          "maxDensitySamples": 32
+        },
+        {
+          "name": "edited-removed-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 2.5,
+          "p95us": 2.5,
+          "p99us": 2.8,
+          "maxUs": 136.5,
+          "p50DensitySamples": 80,
+          "maxDensitySamples": 80
+        },
+        {
+          "name": "edited-seam-excluded",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0,
+          "p95us": 0.1,
+          "p99us": 0.1,
+          "maxUs": 0.6,
+          "p50DensitySamples": 0,
+          "maxDensitySamples": 0
+        }
+      ],
+      "originalChecksum": "6B6314081CF1203C",
+      "editedChecksum": "0F45DD177D8B01E0",
+      "edits": [
+        {
+          "Center": {
+            "X": 23.17,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Radius": 0.4,
+          "Add": false
+        },
+        {
+          "Center": {
+            "X": 24.3,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.02,
+            "Y": 24.673,
+            "Z": 22.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 15.7,
+            "Y": 25.173,
+            "Z": 26.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 15.7,
+            "Y": 25.173,
+            "Z": 26.319
+          },
+          "Radius": 0.15,
+          "Add": false
+        }
+      ],
+      "originalCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            22.98159,
+            23.35841
+          ],
+          "meshHits": [],
+          "actual": [
+            22.981586,
+            23.358414
+          ],
+          "Samples": 407,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 3.8146973E-06
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "Samples": 477,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 7.6293945E-06
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "Samples": 519,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.3841858E-05
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "Samples": 674,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.5749207E-05
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-in-seam",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-across-seam",
+          "Origin": {
+            "X": 16.02,
+            "Y": 0,
+            "Z": 22.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "added-then-removed",
+          "Origin": {
+            "X": 15.7,
+            "Y": 0,
+            "Z": 26.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        }
+      ],
+      "editedCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 80,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "Samples": 477,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 7.6293945E-06
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "Samples": 519,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.3841858E-05
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "Samples": 674,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 2.5749207E-05
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            24.2,
+            24.399998
+          ],
+          "meshHits": [],
+          "actual": [
+            24.199999,
+            24.4
+          ],
+          "Samples": 32,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": true,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-in-seam",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.073002,
+            24.272999
+          ],
+          "meshHits": [],
+          "actual": [
+            24.073,
+            24.273
+          ],
+          "Samples": 0,
+          "PrimitiveCrossings": 2,
+          "UsedFallback": false,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-across-seam",
+          "Origin": {
+            "X": 16.02,
+            "Y": 0,
+            "Z": 22.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.573002,
+            24.772999
+          ],
+          "meshHits": [],
+          "actual": [
+            24.573,
+            24.773
+          ],
+          "Samples": 0,
+          "PrimitiveCrossings": 2,
+          "UsedFallback": false,
+          "error": 1.9073486E-06
+        },
+        {
+          "Name": "added-then-removed",
+          "Origin": {
+            "X": 15.7,
+            "Y": 0,
+            "Z": 26.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 0,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "Samples": 4,
+          "PrimitiveCrossings": 0,
+          "UsedFallback": false,
+          "error": 0
+        }
+      ],
+      "sphereCases": [
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 2.0499992
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 2.0499992
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 2.0499992
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.4500008
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.4500008
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.4500008
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.3,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.8499993
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.8499992
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.8499992
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.2500007
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.2500007
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.2500007
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.919
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.3,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.173,
+              "Z": 24.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.7700005
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.7700005
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.7700005
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.7299995
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.7299995
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.7299995
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.02,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.15
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "seam-addition-forward",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.5700004
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.5700004
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.5700004
+        },
+        {
+          "path": {
+            "Group": "seam-addition-reverse",
+            "Start": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "hit",
+            "Distance": 1.5299995
+          },
+          "actual": {
+            "State": "hit",
+            "Distance": 1.5299995
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 1.5299995
+        },
+        {
+          "path": {
+            "Group": "seam-addition-clear",
+            "Start": {
+              "X": 14,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.919
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": null
+        },
+        {
+          "path": {
+            "Group": "seam-addition-overlap",
+            "Start": {
+              "X": 16.02,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "End": {
+              "X": 18,
+              "Y": 24.673,
+              "Z": 22.319
+            },
+            "Radius": 0.35
+          },
+          "reference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "actual": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "clear",
+            "Distance": null
+          },
+          "oldReference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "ExpectedDistance": 0
+        },
+        {
+          "path": {
+            "Group": "removed-cap-clear",
+            "Start": {
+              "X": 23.03,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "End": {
+              "X": 23.31,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "Radius": 0.1
+          },
+          "reference": {
+            "State": "clear",
+            "Distance": null
+          },
+          "actual": {
+            "State": "clear",
+            "Distance": null
+          },
+          "meshOnly": {
+            "State": "clear",
+            "Distance": null
+          },
+          "old": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "oldReference": {
+            "State": "initial-overlap",
+            "Distance": 0
+          },
+          "ExpectedDistance": null
+        }
+      ],
+      "editedGeometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 24980,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 4554,
+                "center": {
+                  "X": 12.743203,
+                  "Y": 15.383332,
+                  "Z": 14.791667
+                },
+                "dot": 0.693717,
+                "source": "regular-fine"
+              },
+              {
+                "index": 17622,
+                "center": {
+                  "X": 12.746704,
+                  "Y": 15.381295,
+                  "Z": 16.208334
+                },
+                "dot": 0.83770955,
+                "source": "regular-fine"
+              },
+              {
+                "index": 24994,
+                "center": {
+                  "X": 12.707184,
+                  "Y": 16.916666,
+                  "Z": 16.307924
+                },
+                "dot": 0.9217311,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 76,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 15416,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.873335,
+                  "Z": 14.791667
+                },
+                "dot": 0.4674653,
+                "source": "transition"
+              },
+              {
+                "index": 30042,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 16.89,
+                  "Z": 16.208334
+                },
+                "dot": 0.56022274,
+                "source": "transition"
+              },
+              {
+                "index": 6613,
+                "center": {
+                  "X": 15.958333,
+                  "Y": 15.415555,
+                  "Z": 14.791667
+                },
+                "dot": 0.6284501,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 6536,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 30680,
+                "center": {
+                  "X": 23.312075,
+                  "Y": 19.96087,
+                  "Z": 17.064346
+                },
+                "dot": 0.6185009,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 30575,
+                "center": {
+                  "X": 23.527573,
+                  "Y": 20.00609,
+                  "Z": 16.883064
+                },
+                "dot": 0.68609345,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 30561,
+                "center": {
+                  "X": 23.527573,
+                  "Y": 19.990606,
+                  "Z": 16.79973
+                },
+                "dot": 0.6897932,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 234208,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1202,
+            "MeshHitRays": 1196,
+            "QueryHitRays": 1202,
+            "MeshMissedHitRays": 6,
+            "FallbackHitRays": 4,
+            "PrimitiveHitRays": 2,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 1,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.18964195
+          },
+          "lod-band": {
+            "Rays": 58,
+            "DensityHitRays": 58,
+            "MeshHitRays": 56,
+            "QueryHitRays": 58,
+            "MeshMissedHitRays": 2,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 2,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.059972763
+          },
+          "bridge-edge-regression": {
+            "Rays": 1,
+            "DensityHitRays": 1,
+            "MeshHitRays": 1,
+            "QueryHitRays": 1,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.003419876
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "QueryHitRays": 49,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.003709793
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "QueryHitRays": 64,
+            "MeshMissedHitRays": 0,
+            "FallbackHitRays": 0,
+            "PrimitiveHitRays": 0,
+            "FallbackBudgetExhaustedRays": 0,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 1.9073486E-06
+          }
+        },
+        "grazingTrace": null,
+        "bridgeEdgeTrace": {
+          "Group": "bridge-edge-regression",
+          "Axis": 0,
+          "Origin": {
+            "X": 0,
+            "Y": 16.673,
+            "Z": 14.819
+          },
+          "Density": [
+            4.5997686,
+            27.341633
+          ],
+          "Mesh": [
+            4.600785,
+            27.338213
+          ],
+          "Resolved": null
+        },
+        "fallbackTraces": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 23.173,
+              "Z": 24.319
+            },
+            "Density": [
+              24.2,
+              24.399998
+            ],
+            "Mesh": [],
+            "Resolved": [
+              24.199999,
+              24.4
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 19.319,
+              "Y": 0,
+              "Z": 13.673
+            },
+            "Density": [
+              16.003849,
+              16.25615
+            ],
+            "Mesh": [],
+            "Resolved": [
+              16.003841,
+              16.256153
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 8.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.430261,
+              15.629739
+            ],
+            "Mesh": [],
+            "Resolved": [
+              15.430237,
+              15.629751
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 9.173,
+              "Y": 20.319,
+              "Z": 0
+            },
+            "Density": [
+              15.467172,
+              15.592828
+            ],
+            "Mesh": [],
+            "Resolved": [
+              15.467146,
+              15.592843
+            ]
+          }
+        ],
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 9.536743E-07
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 7.1525574E-07
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 2,
+            "Origin": {
+              "X": 23.173,
+              "Y": 19.819,
+              "Z": 0
+            },
+            "Density": [
+              13.35954,
+              16.63279,
+              17.00521,
+              17.62046
+            ],
+            "Mesh": [
+              13.389616,
+              17.599234
+            ],
+            "Resolved": [
+              13.389616,
+              17.599234
+            ]
+          }
+        ]
+      },
+      "collisionSpheres": [
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1
+        },
+        {
+          "Center": {
+            "X": 16.02,
+            "Y": 24.673,
+            "Z": 22.319
+          },
+          "Radius": 0.1
+        }
+      ],
+      "budgetControl": {
+        "Exhausted": true,
+        "Samples": 4096
+      },
+      "processRun": 3
+    }
+  ]
+}

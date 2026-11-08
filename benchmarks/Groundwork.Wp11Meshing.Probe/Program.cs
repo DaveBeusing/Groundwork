@@ -142,6 +142,9 @@ sealed class Grid
     private readonly float[] _density;
     private readonly string _fixture;
     private readonly DensityEdit[] _edits;
+    private readonly DensityEdit[] _meshEdits;
+    private readonly CollisionSphere[] _collisionSpheres;
+    internal ReadOnlySpan<CollisionSphere> CollisionSpheres => _collisionSpheres;
     private readonly string _layout;
     internal int N { get; }
     internal int Mid => N / 2;
@@ -174,6 +177,38 @@ sealed class Grid
     {
         _fixture = fixture;
         _edits = edits is null ? [] : edits.ToArray();
+        var spheres = new List<CollisionSphere>();
+        var meshEdits = new List<DensityEdit>();
+        for (var index = 0; index < _edits.Length; index++)
+        {
+            var edit = _edits[index];
+            if (tangentialCollision && IsIsolatedSeamAddition(edit, index))
+                spheres.Add(new CollisionSphere(edit.Center, edit.Radius));
+            else
+                meshEdits.Add(edit);
+        }
+        _collisionSpheres = spheres.ToArray();
+        _meshEdits = meshEdits.ToArray();
+
+        bool IsIsolatedSeamAddition(DensityEdit edit, int index)
+        {
+            // A Lipschitz lower bound and disjoint edit supports make removing
+            // this component from the sampled field equivalent to adding it
+            // back as a separate solid at query time.
+            if (!edit.Add || !float.IsFinite(edit.Radius) || edit.Radius <= 0 ||
+                MathF.Abs(edit.Center.X - n / 2f) + edit.Radius >= GrazingRayFallback.SeamHalfWidth ||
+                EvaluateField(fixture, edit.Center) <= edit.Radius)
+                return false;
+            for (var otherIndex = 0; otherIndex < _edits.Length; otherIndex++)
+            {
+                if (otherIndex == index)
+                    continue;
+                var other = _edits[otherIndex];
+                if (Vector3.Distance(edit.Center, other.Center) <= edit.Radius + other.Radius)
+                    return false;
+            }
+            return true;
+        }
         var localRefinement = tangentialCollision && !tangentialBaseline && !tangentialFull;
         var thinSolid = refineCollision || tangentialCollision && !tangentialBaseline
             ? FindThinSolid(n, localRefinement) : null;
@@ -214,7 +249,7 @@ sealed class Grid
         for (var x = 0; x <= _cellCounts.X; x++)
         {
             var p = new I3(x, y, z);
-            _density[DensityIndex(p)] = Field(Position(p));
+            _density[DensityIndex(p)] = MeshField(Position(p));
         }
 
         static float Aligned(float radius) => MathF.Ceiling(radius * 2) * 0.5f;
@@ -239,12 +274,12 @@ sealed class Grid
         for (var x = 0.25f; x < extent; x += 0.5f)
         {
             var p = new Vector3(x, y, z);
-            if (Field(p) > -0.25f)
+            if (MeshField(p) > -0.25f)
                 continue;
             for (var axis = 0; axis < 3; axis++)
             {
                 var offset = I3.Axis(axis).Position;
-                if (Field(p - offset) > 0 && Field(p + offset) > 0)
+                if (MeshField(p - offset) > 0 && MeshField(p + offset) > 0)
                 {
                     if (!collectBounds)
                         return (p, p, p);
@@ -275,11 +310,12 @@ sealed class Grid
         if (!LocalFineMin.HasValue)
             return null;
         var fixture = _fixture;
-        var edits = _edits;
+        var edits = _meshEdits;
         return new GrazingRayFallback(p => EvaluateEditedField(fixture, edits, p), Extent);
     }
 
     internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p);
+    private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
 
     private static float EvaluateEditedField(string fixture, DensityEdit[] edits, Vector3 p)
     {

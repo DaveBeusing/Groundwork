@@ -11,7 +11,9 @@ static class RayLatencyProbe
         new("original-cap-z-b", new(9.173f, 20.319f, 0), Vector3.UnitZ)
     ];
     private static readonly Ray Added = new("added-off-seam", new(0, 23.173f, 24.319f), Vector3.UnitX);
-    private static readonly Ray Seam = new("seam-excluded", new(16.3f, 0, 24.319f), Vector3.UnitY);
+    private static readonly Ray Seam = new("added-in-seam", new(16.3f, 0, 24.319f), Vector3.UnitY);
+    private static readonly Ray Straddling = new("added-across-seam", new(16.02f, 0, 22.319f), Vector3.UnitY);
+    private static readonly Ray Cancelled = new("added-then-removed", new(15.7f, 0, 26.319f), Vector3.UnitY);
     private static readonly Ray Clear = new("clear", new(0, 1.173f, 1.319f), Vector3.UnitX);
 
     internal static object Run(Tables tables, int samples)
@@ -23,7 +25,10 @@ static class RayLatencyProbe
         [
             new(new(23.17f, 20.173f, 16.819f), .4f, false),
             new(new(24.3f, 23.173f, 24.319f), .1f, true),
-            new(new(16.3f, 24.173f, 24.319f), .1f, true)
+            new(new(16.3f, 24.173f, 24.319f), .1f, true),
+            new(new(16.02f, 24.673f, 22.319f), .1f, true),
+            new(new(15.7f, 25.173f, 26.319f), .1f, true),
+            new(new(15.7f, 25.173f, 26.319f), .15f, false)
         ];
         var original = Create([]);
         var sourceEdits = edits.ToArray();
@@ -45,17 +50,21 @@ static class RayLatencyProbe
 
         var latency = work.Select(x => Measure(x.Name, x.Query, x.Rays, samples)).ToArray();
         var originalMesh = Marching.Extract(original, tables);
-        var editedMesh = Marching.Extract(edited, tables);
+        var editedMesh = Marching.Extract(edited, tables, trackSources: true);
         var originalChecksum = Audit.Digest(originalMesh);
         var editedChecksum = Audit.Digest(editedMesh);
         if (originalChecksum == editedChecksum)
             throw new InvalidOperationException("The edited collision snapshot did not change the mesh.");
 
-        var originalCases = Grazing.Concat([Added, Seam, Clear])
-            .Select(ray => Check(original, originalMesh, before, ray, false)).ToArray();
-        var editedCases = Grazing.Concat([Added, Seam, Clear])
-            .Select(ray => Check(edited, editedMesh, after, ray, ray == Seam)).ToArray();
-
+        if (edited.CollisionSpheres.Length != 2 || !original.CollisionSpheres.IsEmpty)
+            throw new InvalidOperationException("Expected two independent seam primitives and none in the old snapshot.");
+        var originalQuery = new CollisionRayQuery(original, originalMesh);
+        var editedQuery = new CollisionRayQuery(edited, editedMesh);
+        var rays = Grazing.Concat([Added, Seam, Straddling, Cancelled, Clear]).ToArray();
+        var originalCases = rays.Select(ray => Check(original, originalQuery, ray, false)).ToArray();
+        var editedCases = rays.Select(ray => Check(edited, editedQuery, ray, ray == Seam || ray == Straddling)).ToArray();
+        var sphereCases = CheckEditedSweeps(original, originalMesh, edited, editedMesh);
+        var editedGeometry = GeometryProbe.Check(editedMesh, edited, "bridge", "face");
         var added = after.Trace(Added.Origin, Added.Direction);
         if (added.Hits.Count != 2 || MathF.Abs(added.Hits[0] - 24.2f) > .0001f ||
             MathF.Abs(added.Hits[1] - 24.4f) > .0001f ||
@@ -72,7 +81,8 @@ static class RayLatencyProbe
         return new
         {
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
-            latency, originalChecksum, editedChecksum, edits, originalCases, editedCases,
+            latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, sphereCases, editedGeometry,
+            collisionSpheres = edited.CollisionSpheres.ToArray(),
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -80,21 +90,57 @@ static class RayLatencyProbe
     private static Grid Create(IReadOnlyList<DensityEdit> edits) =>
         new(32, "bridge", "face", false, false, false, true, false, false, edits);
 
-    private static object Check(Grid grid, Mesh mesh, GrazingRayFallback fallback, Ray ray, bool seamExcluded)
+    private static object Check(Grid grid, CollisionRayQuery query, Ray ray, bool requirePrimitive)
     {
         var expected = GeometryProbe.DensityHits(grid, ray.Origin, ray.Direction);
-        var meshHits = GeometryProbe.MeshHits(mesh, ray.Origin, ray.Direction);
-        var queried = meshHits.Count == 0;
-        var (actual, exhausted, samples) = queried ? fallback.Trace(ray.Origin, ray.Direction) : (meshHits, false, 0);
+        var result = query.Trace(ray.Origin, ray.Direction);
+        var actual = result.Hits;
         var error = expected.Count == actual.Count
             ? expected.Zip(actual, (a, b) => MathF.Abs(a - b)).DefaultIfEmpty().Max() : (float?)null;
-        if (exhausted || (seamExcluded
-            ? expected.Count != 2 || actual.Count != 0 || samples != 0
-            : error is null || error > .001f))
-            throw new InvalidOperationException($"Ray {ray.Name}: expected {expected.Count}, mesh {meshHits.Count}, query {actual.Count}, error {error}, exhausted {exhausted}.");
-        return new { ray.Name, ray.Origin, ray.Direction, expected, meshHits, actual, queried, samples, error, seamExcluded };
+        if (result.Exhausted || error is null || error > .001f ||
+            (requirePrimitive && (result.PrimitiveCrossings != 2 || result.MeshHits.Count != 0 ||
+                result.Samples != 0 || result.UsedFallback)))
+            throw new InvalidOperationException($"Edited ray check failed for {ray.Name}.");
+        return new { ray.Name, ray.Origin, ray.Direction, expected, meshHits = result.MeshHits, actual,
+            result.Samples, result.PrimitiveCrossings, result.UsedFallback, error };
     }
 
+    private static object[] CheckEditedSweeps(Grid original, Mesh originalMesh, Grid edited, Mesh editedMesh)
+    {
+        var cases = new List<(SphereSweep.SweepCase Sweep, string State, float? ExpectedDistance)>();
+        foreach (var sphere in edited.CollisionSpheres)
+        foreach (var radius in new[] { .15f, .35f })
+        {
+            var left = new Vector3(14, sphere.Center.Y, sphere.Center.Z);
+            var right = new Vector3(18, sphere.Center.Y, sphere.Center.Z);
+            var contactRadius = sphere.Radius + radius;
+            cases.Add((new("seam-addition-forward", left, right, radius), "hit", sphere.Center.X - 14 - contactRadius));
+            cases.Add((new("seam-addition-reverse", right, left, radius), "hit", 18 - sphere.Center.X - contactRadius));
+            var clearOffset = Vector3.UnitZ * .6f;
+            cases.Add((new("seam-addition-clear", left + clearOffset, right + clearOffset, radius), "clear", null));
+            cases.Add((new("seam-addition-overlap", sphere.Center, right, radius), "initial-overlap", 0));
+        }
+        cases.Add((new("removed-cap-clear", new(23.03f, 20.173f, 16.819f),
+            new(23.31f, 20.173f, 16.819f), .1f), "clear", null));
+        return cases.Select(test =>
+        {
+            var path = test.Sweep;
+            var reference = SphereSweep.TraceDensity(edited, path);
+            var actual = SphereSweep.TraceCollision(edited, editedMesh, path);
+            var meshOnly = SphereSweep.TraceMesh(editedMesh, path);
+            var old = SphereSweep.TraceCollision(original, originalMesh, path);
+            var oldReference = SphereSweep.TraceDensity(original, path);
+            if (reference.State != test.State || actual.State != test.State ||
+                (test.ExpectedDistance is { } distance &&
+                    (actual.Distance is not { } contact || MathF.Abs(contact - distance) > .001f ||
+                     reference.Distance is not { } expected || MathF.Abs(expected - distance) > .001f)) ||
+                (path.Group == "removed-cap-clear" && (old.State != "initial-overlap" || oldReference.State != old.State)) ||
+                (path.Group.StartsWith("seam-addition", StringComparison.Ordinal) &&
+                    (meshOnly.State != "clear" || old.State != "clear")))
+                throw new InvalidOperationException($"Edited sphere check failed for {path.Group}: {actual}, {reference}, old {old}.");
+            return (object)new { path, reference, actual, meshOnly, old, oldReference, test.ExpectedDistance };
+        }).ToArray();
+    }
     private static object Measure(string name, GrazingRayFallback query, Ray[] rays, int samples)
     {
         for (var i = 0; i < 512; i++)

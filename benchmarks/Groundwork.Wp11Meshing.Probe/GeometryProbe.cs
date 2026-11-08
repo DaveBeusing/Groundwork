@@ -77,7 +77,7 @@ static class GeometryProbe
 
         var groups = new Dictionary<string, CollisionStats>();
         var examples = new List<CollisionExample>();
-        var fallback = grid.CreateGrazingFallback();
+        var query = new CollisionRayQuery(grid, mesh);
         var fallbackTraces = new List<CollisionExample>();
         CollisionExample? grazingTrace = null;
         CollisionExample? bridgeEdgeTrace = null;
@@ -118,10 +118,10 @@ static class GeometryProbe
         {
             var direction = I3.Axis(axis).Position;
             var expected = DensityHits(grid, origin, direction);
-            var meshHits = MeshHits(mesh, origin, direction);
-            var (actual, exhausted, _) = meshHits.Count == 0 && fallback is not null
-                ? fallback.Trace(origin, direction) : (meshHits, false, 0);
-            if (meshHits.Count == 0 && actual.Count > 0)
+            var result = query.Trace(origin, direction);
+            var meshHits = result.MeshHits;
+            var actual = result.Hits;
+            if (result.UsedFallback)
                 fallbackTraces.Add(new CollisionExample(group, axis, origin, expected, meshHits) { Resolved = actual });
             Compare(group);
             if (group == "grazing-regression")
@@ -150,8 +150,9 @@ static class GeometryProbe
                 if (meshHits.Count > 0) stats.MeshHitRays++;
                 if (actual.Count > 0) stats.QueryHitRays++;
                 if (expected.Count > 0 && meshHits.Count == 0) stats.MeshMissedHitRays++;
-                if (meshHits.Count == 0 && actual.Count > 0) stats.FallbackHitRays++;
-                if (exhausted) stats.FallbackBudgetExhaustedRays++;
+                if (result.UsedFallback) stats.FallbackHitRays++;
+                if (result.PrimitiveCrossings > 0) stats.PrimitiveHitRays++;
+                if (result.Exhausted) stats.FallbackBudgetExhaustedRays++;
                 if (expected.Count > 0 && actual.Count == 0) stats.MissedHitRays++;
                 if (expected.Count == 0 && actual.Count > 0) stats.UnexpectedHitRays++;
                 if (expected.Count != actual.Count) stats.CrossingCountMismatches++;
@@ -188,6 +189,7 @@ static class GeometryProbe
         public int QueryHitRays { get; set; }
         public int MeshMissedHitRays { get; set; }
         public int FallbackHitRays { get; set; }
+        public int PrimitiveHitRays { get; set; }
         public int FallbackBudgetExhaustedRays { get; set; }
         public int MissedHitRays { get; set; }
         public int UnexpectedHitRays { get; set; }

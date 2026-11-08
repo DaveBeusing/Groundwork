@@ -63,10 +63,8 @@ static class SphereSweep
 
         var traces = cases.Select(s =>
         {
-            var reference = Sweep(s, p => Math.Max(0, grid.Field(p)));
-            var actual = GeometryProbe.IsInside(mesh, s.Start)
-                ? new Contact("initial-overlap", 0)
-                : Sweep(s, p => MeshDistance(mesh, p));
+            var reference = TraceDensity(grid, s);
+            var actual = TraceCollision(grid, mesh, s);
             float? error = reference.Distance is { } a && actual.Distance is { } b ? MathF.Abs(a - b) : null;
             return new { path = s, reference, actual, error };
         }).ToArray();
@@ -91,8 +89,36 @@ static class SphereSweep
         };
     }
 
-    private sealed record SweepCase(string Group, Vector3 Start, Vector3 End, float Radius);
-    private readonly record struct Contact(string State, float? Distance);
+    internal sealed record SweepCase(string Group, Vector3 Start, Vector3 End, float Radius);
+    internal readonly record struct Contact(string State, float? Distance);
+
+    internal static Contact TraceDensity(Grid grid, SweepCase sweep) =>
+        Sweep(sweep, p => Math.Max(0, grid.Field(p)));
+
+    internal static Contact TraceMesh(Mesh mesh, SweepCase sweep) =>
+        GeometryProbe.IsInside(mesh, sweep.Start)
+            ? new Contact("initial-overlap", 0)
+            : Sweep(sweep, p => MeshDistance(mesh, p));
+
+    internal static Contact TraceCollision(Grid grid, Mesh mesh, SweepCase sweep)
+    {
+        var delta = sweep.End - sweep.Start;
+        var length = delta.Length();
+        var direction = length > 0 ? delta / length : Vector3.Zero;
+        var first = TraceMesh(mesh, sweep);
+        foreach (var sphere in grid.CollisionSpheres)
+        {
+            var radius = sphere.Radius + sweep.Radius;
+            if (Vector3.DistanceSquared(sweep.Start, sphere.Center) <= radius * radius)
+                return new Contact("initial-overlap", 0);
+            if (length > 0 && first.State != "indeterminate" &&
+                sphere.Roots(sweep.Start, direction, sweep.Radius) is { } roots &&
+                roots.Enter >= 0 && roots.Enter <= length &&
+                (first.Distance is null || roots.Enter < first.Distance))
+                first = new Contact("hit", roots.Enter);
+        }
+        return first;
+    }
 
     private static Contact Sweep(SweepCase sweep, Func<Vector3, float> distanceToSurface)
     {
