@@ -45,8 +45,8 @@ static class GeometryProbe
         {
             var u = I3.Axis((axis + 1) % 3).Position;
             var v = I3.Axis((axis + 2) % 3).Position;
-            for (var a = 0.173f; a < grid.N; a += 0.5f)
-            for (var b = 0.319f; b < grid.N; b += 0.5f)
+            for (var a = 0.173f; a < grid.Extent; a += 0.5f)
+            for (var b = 0.319f; b < grid.Extent; b += 0.5f)
                 Trace("grid", axis, u * a + v * b);
         }
 
@@ -67,7 +67,7 @@ static class GeometryProbe
         return new
         {
             normalSummary, testedPairs, intersections, collisionTolerance = CollisionTolerance,
-            collision = groups, examples
+            collision = groups, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
         };
 
         void Trace(string group, int axis, Vector3 origin)
@@ -83,10 +83,10 @@ static class GeometryProbe
             {
                 var p = origin + direction * t;
                 return layout == "corner"
-                    ? (MathF.Abs(p.X - grid.Mid) <= 1 && p.Y <= grid.Mid + 1 && p.Z <= grid.Mid + 1) ||
-                      (MathF.Abs(p.Y - grid.Mid) <= 1 && p.X <= grid.Mid + 1 && p.Z <= grid.Mid + 1) ||
-                      (MathF.Abs(p.Z - grid.Mid) <= 1 && p.X <= grid.Mid + 1 && p.Y <= grid.Mid + 1)
-                    : MathF.Abs(p.X - grid.Mid) <= 1;
+                    ? (MathF.Abs(p.X - grid.Extent / 2) <= 1 && p.Y <= grid.Extent / 2 + 1 && p.Z <= grid.Extent / 2 + 1) ||
+                      (MathF.Abs(p.Y - grid.Extent / 2) <= 1 && p.X <= grid.Extent / 2 + 1 && p.Z <= grid.Extent / 2 + 1) ||
+                      (MathF.Abs(p.Z - grid.Extent / 2) <= 1 && p.X <= grid.Extent / 2 + 1 && p.Y <= grid.Extent / 2 + 1)
+                    : MathF.Abs(p.X - grid.Extent / 2) <= 1;
             });
 
             void Compare(string name)
@@ -140,7 +140,7 @@ static class GeometryProbe
         var hits = new List<float>();
         const float step = 1f / 32;
         var previousInside = grid.Field(origin) < 0;
-        for (var t = step; t <= grid.N; t += step)
+        for (var t = step; t <= grid.Extent; t += step)
         {
             var inside = grid.Field(origin + t * direction) < 0;
             if (inside != previousInside)
@@ -159,6 +159,9 @@ static class GeometryProbe
         }
         return hits;
     }
+
+    internal static bool IsInside(Mesh mesh, Vector3 point) =>
+        (MeshHits(mesh, point, Vector3.Normalize(new(1, .371f, .193f))).Count & 1) != 0;
 
     private static List<float> MeshHits(Mesh mesh, Vector3 origin, Vector3 direction)
     {

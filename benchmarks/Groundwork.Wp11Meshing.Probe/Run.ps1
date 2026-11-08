@@ -3,7 +3,8 @@ param(
     [Parameter(Mandatory)][string]$Output,
     [ValidateRange(10, 1000)][int]$Repetitions = 100,
     [switch]$RequireReferenceHardware,
-    [switch]$GeometryOnly
+    [switch]$GeometryOnly,
+    [switch]$CollisionComparison
 )
 $ErrorActionPreference = 'Stop'
 $expected = '83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4'
@@ -60,7 +61,7 @@ try {
         @{ fixture = 'junction'; layout = 'corner' },
         @{ fixture = 'seam'; layout = 'pressure' }
     )
-    if ($GeometryOnly) {
+    if ($GeometryOnly -or $CollisionComparison) {
         $geometryCases = @(
             @{ fixture = 'bridge'; layout = 'uniform' },
             @{ fixture = 'bridge'; layout = 'face' },
@@ -70,13 +71,41 @@ try {
             @{ fixture = 'junction'; layout = 'corner' }
         )
         foreach ($case in $geometryCases) {
-            $row = dotnet $dll $Tables mc $case.fixture $case.layout geometry
-            if ($LASTEXITCODE) { throw "Geometry audit failed for $($case.fixture)/$($case.layout)." }
-            $rows += $row | ConvertFrom-Json
-            Write-Host "Geometry audit completed for $($case.fixture)/$($case.layout)."
+            $modes = if ($CollisionComparison) { 'geometry','collision-refined' } else { 'geometry' }
+            foreach ($mode in $modes) {
+                $row = dotnet $dll $Tables mc $case.fixture $case.layout $mode
+                if ($LASTEXITCODE) { throw "Geometry audit failed for $($case.fixture)/$($case.layout)/$mode." }
+                $rows += $row | ConvertFrom-Json
+                Write-Host "Geometry audit completed for $($case.fixture)/$($case.layout)/$mode."
+            }
         }
     } else {
         $rows = @(Measure-Extraction)
+    }
+    if ($CollisionComparison) {
+        foreach ($refined in ($rows | Where-Object refinementEnabled)) {
+            $baseline = $rows | Where-Object {
+                -not $_.refinementEnabled -and $_.fixture -eq $refined.fixture -and $_.layout -eq $refined.layout
+            }
+            if ($refined.fixture -ne 'bridge') {
+                if ($refined.CellSize -ne 1 -or $refined.checksum -ne $baseline.checksum) {
+                    throw "Resolution changed for the $($refined.fixture)/$($refined.layout) control."
+                }
+                continue
+            }
+            $audit = $refined.topology
+            $core = $refined.geometry.collision.'bridge-core'
+            $sweeps = $refined.geometry.movingBodies.summary
+            if ($refined.CellSize -ne 0.5 -or -not $refined.ThinFeatureWitness -or $audit.components -ne 1 -or
+                $audit.openEdges -or $audit.windingEdges -or $audit.nonManifoldEdges -or $audit.degenerates -or
+                $refined.geometry.intersections.Count -or
+                $core.Rays -ne 49 -or $core.CoreOccupancySamples -ne 1568 -or
+                $core.CrossingCountMismatches -or $core.MissingCoreOccupancySamples -or
+                ($sweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
+                ($sweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                throw "Thin bridge collision regression for $($refined.layout)."
+            }
+        }
     }
     [ordered]@{
         timestampUtc = (Get-Date -AsUTC -Format o)
@@ -85,7 +114,8 @@ try {
         physicalMemoryBytes = $physicalMemory
         installedMemoryBytes = $installedMemory
         referenceHardwareRequired = [bool]$RequireReferenceHardware
-        geometryOnly = [bool]$GeometryOnly
+        geometryOnly = [bool]($GeometryOnly -or $CollisionComparison)
+        collisionComparison = [bool]$CollisionComparison
         sdk = (dotnet --version)
         runtime = (dotnet --list-runtimes | Where-Object { $_ -like 'Microsoft.NETCore.App 10.*' } | Select-Object -Last 1)
         sourceBase = '1d6f439c17abf2ebdb40fe7970a3e995cf5c286f'

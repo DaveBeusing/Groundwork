@@ -4,18 +4,19 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length != 5)
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry>");
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined>");
 
 const int n = 32;
 var algorithm = args[1];
 var fixture = args[2];
 var layout = args[3];
-var geometry = args[4] == "geometry";
+var refineCollision = args[4] == "collision-refined";
+var geometry = args[4] == "geometry" || refineCollision;
 var repetitions = geometry ? 1 : int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
 if (repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
     throw new ArgumentOutOfRangeException(nameof(args));
 var tables = new Tables(File.ReadAllText(args[0]));
-var grid = new Grid(n, fixture, layout);
+var grid = new Grid(n, fixture, layout, refineCollision);
 if (geometry)
 {
     if (algorithm != "mc" || layout == "pressure")
@@ -23,7 +24,8 @@ if (geometry)
     var mesh = Marching.Extract(grid, tables, trackSources: true);
     Console.WriteLine(JsonSerializer.Serialize(new
     {
-        fixture, layout, triangles = mesh.Count, checksum = Audit.Digest(mesh),
+        fixture, layout, refinementEnabled = refineCollision, grid.ThinFeatureWitness,
+        grid.CellSize, grid.EffectiveLayout, triangles = mesh.Count, checksum = Audit.Digest(mesh),
         topology = Audit.Check(mesh, grid), geometry = GeometryProbe.Check(mesh, grid, fixture, layout)
     }, new JsonSerializerOptions { IncludeFields = true }));
     return;
@@ -94,18 +96,50 @@ sealed class Grid
     internal int N { get; }
     internal int Mid => N / 2;
     internal int Samples => N + 1;
+    internal float CellSize { get; }
+    internal float Extent => N * CellSize;
+    internal string EffectiveLayout => _layout;
+    internal Vector3? ThinFeatureWitness { get; }
+    internal Vector3 Position(I3 p) => p.Position * CellSize;
 
-    internal Grid(int n, string fixture, string layout)
+    internal Grid(int n, string fixture, string layout, bool refineCollision)
     {
-        (N, _fixture, _layout) = (n, fixture, layout);
+        _fixture = fixture;
+        ThinFeatureWitness = refineCollision ? FindThinSolid(n) : null;
+        // This probe publishes one collision region. Promote it as a unit so
+        // collision never crosses a coarse seam inside the protected feature.
+        CellSize = ThinFeatureWitness.HasValue ? 0.5f : 1f;
+        N = (int)(n / CellSize);
+        _layout = ThinFeatureWitness.HasValue ? "uniform" : layout;
         _density = new float[Samples * Samples * Samples];
         for (var z = 0; z <= N; z++)
         for (var y = 0; y <= N; y++)
         for (var x = 0; x <= N; x++)
         {
             var p = new I3(x, y, z);
-            _density[Index(p, Samples)] = Field(p.Position);
+            _density[Index(p, Samples)] = Field(Position(p));
         }
+    }
+
+    private Vector3? FindThinSolid(int extent)
+    {
+        // A solid core with air on opposite sides a unit away witnesses a
+        // feature too narrow for the normal two-unit coarse sampling.
+        for (var z = 0.25f; z < extent; z += 0.5f)
+        for (var y = 0.25f; y < extent; y += 0.5f)
+        for (var x = 0.25f; x < extent; x += 0.5f)
+        {
+            var p = new Vector3(x, y, z);
+            if (Field(p) > -0.25f)
+                continue;
+            for (var axis = 0; axis < 3; axis++)
+            {
+                var offset = I3.Axis(axis).Position;
+                if (Field(p - offset) > 0 && Field(p + offset) > 0)
+                    return p;
+            }
+        }
+        return null;
     }
 
     internal int Step(I3 p) => _layout switch
@@ -147,7 +181,7 @@ sealed class Grid
 
     internal Vector3 FinePosition(I3 p, I3 brick)
     {
-        var shifted = p.Position;
+        var shifted = Position(p);
         for (var axis = 0; axis < 3; axis++)
         {
             if (p[axis] != Mid)
@@ -155,7 +189,7 @@ sealed class Grid
             var dir = brick[axis] == 0 ? 1 : -1;
             var next = brick + I3.Axis(axis) * (Mid * dir);
             if (ContainsCell(next) && Step(next) == 2)
-                shifted -= I3.Axis(axis).Position * (.5f * dir);
+                shifted -= I3.Axis(axis).Position * (.5f * dir * CellSize);
         }
         return shifted;
     }
@@ -261,7 +295,7 @@ static class Marching
                 for (var c = 0; c < 8; c++)
                 {
                     var q = origin + I3.Corner(c) * step;
-                    p[c] = step == 1 ? grid.FinePosition(q, brick) : q.Position;
+                    p[c] = step == 1 ? grid.FinePosition(q, brick) : grid.Position(q);
                 }
                 Emit(output, tables.RegularCells[tables.RegularClass[code]], tables.RegularVertices[code], d, p, false);
                 RecordSource(step == 1 ? "regular-fine" : "regular-coarse");
@@ -293,7 +327,7 @@ static class Marching
                     {
                         var q = origin + u * ((c & 1) * 2) + v * ((c >> 1) * 2);
                         d[9 + c] = grid.At(q);
-                        p[9 + c] = q.Position;
+                        p[9 + c] = grid.Position(q);
                     }
                     var code = 0;
                     for (var i = 0; i < FaceBits.Length; i++)

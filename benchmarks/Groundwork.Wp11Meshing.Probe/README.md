@@ -91,3 +91,32 @@ production collision budget. The diagnostic does not exercise swept
 bodies, contact resolution or the production collision publisher.
 
 [Raw diagnostic results](results-windows-mc-geometry.json)
+
+## Thin collision features
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-collision.json -CollisionComparison
+```
+
+This mode runs the same six geometry cases with and without the collision
+resolution floor. A half-cell scan looks for a solid witness at density
+at most -0.25 with air one cell away on both sides along an axis. A
+positive witness promotes the entire published collision region to a
+uniform 0.5-cell lattice. Otherwise the requested LOD layout is preserved.
+The scan is a prototype heuristic over an analytic density source. It
+does not guarantee detection of arbitrary sub-grid features. The probe
+publishes one region and does not exercise transitions between a promoted
+region and adjacent collision regions.
+
+The comparison repeats the existing ray paths and sweeps spheres with
+radii 0.15 and 0.35 across and along the bridge and across active LOD
+planes in the sphere fixtures. The sweep uses conservative advancement
+by the clearance to the triangle mesh or analytic fixture. It records
+clear paths, first contact, initial overlap and unresolved queries.
+A 0.25-cell first-contact difference is a diagnostic cutoff. This is
+a swept-sphere test without a contact response solver. The runner gates
+the protected bridge and requires unchanged mesh hashes for the controls.
+LOD-band ray counts can change when a mesh crossing enters or leaves
+the band, so compare both numerator and denominator.
+
+[Paired workstation diagnostics](results-windows-mc-collision-refinement.json)

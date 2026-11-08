@@ -1,0 +1,5455 @@
+{
+  "timestampUtc": "2026-11-08T22:14:41.3576993Z",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "physicalMemoryBytes": 68137205760,
+  "installedMemoryBytes": 68719476736.0,
+  "referenceHardwareRequired": false,
+  "geometryOnly": true,
+  "collisionComparison": true,
+  "sdk": "10.0.403",
+  "runtime": "Microsoft.NETCore.App 10.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
+  "sourceBase": "1d6f439c17abf2ebdb40fe7970a3e995cf5c286f",
+  "tablesCommit": "51a494f03c5b024cd153b596bcc7152eb3cc93a6",
+  "tablesSha256": "83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4",
+  "tieredCompilation": false,
+  "results": [
+    {
+      "fixture": "bridge",
+      "layout": "uniform",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "uniform",
+      "triangles": 1392,
+      "checksum": "BF41B38102E6823B",
+      "topology": {
+        "weldedVertices": 698,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.20461512,
+        "minNormalDot": 0.41284308
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 1392,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 531,
+                "center": {
+                  "X": 12.931313,
+                  "Y": 16.92381,
+                  "Z": 15.333333
+                },
+                "dot": 0.41284308,
+                "source": "regular-fine"
+              },
+              {
+                "index": 532,
+                "center": {
+                  "X": 12.965848,
+                  "Y": 16.851736,
+                  "Z": 15.666667
+                },
+                "dot": 0.42820835,
+                "source": "regular-fine"
+              },
+              {
+                "index": 167,
+                "center": {
+                  "X": 12.875114,
+                  "Y": 15.374344,
+                  "Z": 15.666667
+                },
+                "dot": 0.57108957,
+                "source": "regular-fine"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 10210,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1200,
+            "MeshHitRays": 1171,
+            "MissedHitRays": 33,
+            "UnexpectedHitRays": 4,
+            "CrossingCountMismatches": 43,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 4,
+            "MaxPairedError": 1.0467596
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 8,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 256,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.061813354
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.19571495
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.1956923
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 0,
+              "missed": 4,
+              "unexpected": 0,
+              "statusDifferences": 4,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": null
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.23527503
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "bridge-along",
+                "Start": {
+                  "X": 14,
+                  "Y": 16.949999,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 18,
+                  "Y": 16.949999,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "initial-overlap",
+                "Distance": 0
+              },
+              "actual": {
+                "State": "clear",
+                "Distance": null
+              },
+              "error": null
+            },
+            {
+              "path": {
+                "Group": "bridge-along",
+                "Start": {
+                  "X": 18,
+                  "Y": 16.949999,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 14,
+                  "Y": 16.949999,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "initial-overlap",
+                "Distance": 0
+              },
+              "actual": {
+                "State": "clear",
+                "Distance": null
+              },
+              "error": null
+            },
+            {
+              "path": {
+                "Group": "bridge-along",
+                "Start": {
+                  "X": 14,
+                  "Y": 17.15,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 18,
+                  "Y": 17.15,
+                  "Z": 15.51
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "initial-overlap",
+                "Distance": 0
+              },
+              "actual": {
+                "State": "clear",
+                "Distance": null
+              },
+              "error": null
+            },
+            {
+              "path": {
+                "Group": "bridge-along",
+                "Start": {
+                  "X": 18,
+                  "Y": 17.15,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 14,
+                  "Y": 17.15,
+                  "Z": 15.51
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "initial-overlap",
+                "Distance": 0
+              },
+              "actual": {
+                "State": "clear",
+                "Distance": null
+              },
+              "error": null
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.673,
+              "Z": 13.319
+            },
+            "Density": [
+              8.451398,
+              8.888602,
+              21.952003,
+              24.387997
+            ],
+            "Mesh": [
+              22.157654,
+              24.181753
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 13.173,
+              "Z": 18.319
+            },
+            "Density": [
+              8.018247,
+              9.3217535,
+              21.986568,
+              24.353432
+            ],
+            "Mesh": [
+              8.967628,
+              9.006645,
+              22.205704,
+              24.153545
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 13.673,
+              "Z": 12.319
+            },
+            "Density": [
+              7.857726,
+              9.482274,
+              21.736294,
+              24.603706
+            ],
+            "Mesh": [
+              8.629763,
+              9.085286,
+              21.91783,
+              24.357967
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 13.673,
+              "Z": 18.819
+            },
+            "Density": [
+              8.279126,
+              9.060874,
+              22.155846,
+              24.184155
+            ],
+            "Mesh": [
+              22.493044,
+              24.006878
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 14.819
+            },
+            "Density": [
+              4.6039476,
+              27.351925
+            ],
+            "Mesh": [
+              4.6537833,
+              12.931914,
+              18.515484,
+              27.305449
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 14.94
+            },
+            "Density": [
+              4.5989943,
+              27.357063
+            ],
+            "Mesh": [
+              4.6391554,
+              12.953471,
+              18.315767,
+              27.31901
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.129999
+            },
+            "Density": [
+              4.5759554,
+              27.377659
+            ],
+            "Mesh": [
+              4.622123,
+              13.023925,
+              18.036463,
+              27.333239
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.319999
+            },
+            "Density": [
+              4.5618258,
+              27.38961
+            ],
+            "Mesh": [
+              4.620722,
+              13.373994,
+              18.02667,
+              27.332783
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.509998
+            },
+            "Density": [
+              4.55651,
+              27.392986
+            ],
+            "Mesh": [
+              4.619321,
+              13.658272,
+              18.016878,
+              27.332329
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.699998
+            },
+            "Density": [
+              4.5599756,
+              27.387806
+            ],
+            "Mesh": [
+              4.617887,
+              13.856537,
+              18.007088,
+              27.331865
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "bridge",
+      "layout": "uniform",
+      "refinementEnabled": true,
+      "ThinFeatureWitness": {
+        "X": 12.75,
+        "Y": 16.25,
+        "Z": 15.25
+      },
+      "CellSize": 0.5,
+      "EffectiveLayout": "uniform",
+      "triangles": 5596,
+      "checksum": "28D2C9EFEFFC16F2",
+      "topology": {
+        "weldedVertices": 2800,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.10818219,
+        "minNormalDot": 0.645477
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 5596,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 2954,
+                "center": {
+                  "X": 18.999586,
+                  "Y": 16.984402,
+                  "Z": 15.332149
+                },
+                "dot": 0.645477,
+                "source": "regular-fine"
+              },
+              {
+                "index": 4325,
+                "center": {
+                  "X": 12.8691225,
+                  "Y": 16.666666,
+                  "Z": 16.263334
+                },
+                "dot": 0.6592476,
+                "source": "regular-fine"
+              },
+              {
+                "index": 2054,
+                "center": {
+                  "X": 12.906918,
+                  "Y": 16.62857,
+                  "Z": 14.743333
+                },
+                "dot": 0.67909646,
+                "source": "regular-fine"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 40967,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1200,
+            "MeshHitRays": 1193,
+            "MissedHitRays": 10,
+            "UnexpectedHitRays": 3,
+            "CrossingCountMismatches": 15,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.4721384
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.015075684
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.0005607605
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 1.4305115E-06
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.0003874302
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.673,
+              "Z": 13.319
+            },
+            "Density": [
+              8.451398,
+              8.888602,
+              21.952003,
+              24.387997
+            ],
+            "Mesh": [
+              21.9928,
+              24.329496
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.673,
+              "Z": 14.819
+            },
+            "Density": [
+              4.5997686,
+              27.341633
+            ],
+            "Mesh": [
+              4.6143284,
+              12.961028,
+              18.598526,
+              27.327398
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "Density": [
+              22.98159,
+              23.35841
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 19.319,
+              "Y": 0,
+              "Z": 13.673
+            },
+            "Density": [
+              16.003849,
+              16.25615
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 12.819,
+              "Y": 0,
+              "Z": 14.673
+            },
+            "Density": [],
+            "Mesh": [
+              15.471021,
+              16.63154
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "bridge",
+      "layout": "face",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "face",
+      "triangles": 874,
+      "checksum": "BF5D0F176E98EBE7",
+      "topology": {
+        "weldedVertices": 439,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 10,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.62000036,
+        "minNormalDot": -0.66061956
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 680,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 388,
+                "center": {
+                  "X": 12.931313,
+                  "Y": 16.92381,
+                  "Z": 15.333333
+                },
+                "dot": 0.41284308,
+                "source": "regular-fine"
+              },
+              {
+                "index": 389,
+                "center": {
+                  "X": 12.965848,
+                  "Y": 16.851736,
+                  "Z": 15.666667
+                },
+                "dot": 0.42820835,
+                "source": "regular-fine"
+              },
+              {
+                "index": 167,
+                "center": {
+                  "X": 12.875114,
+                  "Y": 15.374344,
+                  "Z": 15.666667
+                },
+                "dot": 0.57108957,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 10,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 427,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 16.398262,
+                  "Z": 15.477124
+                },
+                "dot": 0.39748356,
+                "source": "transition"
+              },
+              {
+                "index": 177,
+                "center": {
+                  "X": 15.666667,
+                  "Y": 15.861538,
+                  "Z": 15.053791
+                },
+                "dot": 0.54311055,
+                "source": "transition"
+              },
+              {
+                "index": 176,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 15.7457695,
+                  "Z": 15.477124
+                },
+                "dot": 0.55758584,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 184,
+            "opposite": 2,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 461,
+                "center": {
+                  "X": 16.666666,
+                  "Y": 16.141119,
+                  "Z": 15.620915
+                },
+                "dot": -0.66061956,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 462,
+                "center": {
+                  "X": 17.333334,
+                  "Y": 16.28224,
+                  "Z": 15.810458
+                },
+                "dot": -0.5971872,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 222,
+                "center": {
+                  "X": 18.32775,
+                  "Y": 15.882458,
+                  "Z": 15.143791
+                },
+                "dot": 0.5252533,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 6523,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1200,
+            "MeshHitRays": 1137,
+            "MissedHitRays": 68,
+            "UnexpectedHitRays": 5,
+            "CrossingCountMismatches": 90,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 50,
+            "MaxPairedError": 1.6960526
+          },
+          "lod-band": {
+            "Rays": 94,
+            "DensityHitRays": 94,
+            "MeshHitRays": 87,
+            "MissedHitRays": 7,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 45,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 20,
+            "MaxPairedError": 1.1298313
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 40,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 834,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.10092354
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 32,
+            "MaxPairedError": 0.9028425
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 36,
+              "maxPairedError": 0.8015852
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 0,
+              "missed": 4,
+              "unexpected": 0,
+              "statusDifferences": 4,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": null
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 3,
+              "maxPairedError": 0.990896
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 15.875,
+                  "Y": 12,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 15.875,
+                  "Y": 21,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.2299995
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 3.517508
+              },
+              "error": 0.2875085
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 15.875,
+                  "Y": 16.15,
+                  "Z": 11
+                },
+                "End": {
+                  "X": 15.875,
+                  "Y": 16.15,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.5800002
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 4.0447474
+              },
+              "error": 0.4647472
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.125,
+                  "Y": 12,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 16.125,
+                  "Y": 21,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.2299995
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 3.7758365
+              },
+              "error": 0.5458369
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.125,
+                  "Y": 16.15,
+                  "Z": 11
+                },
+                "End": {
+                  "X": 16.125,
+                  "Y": 16.15,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.5800002
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 4.381584
+              },
+              "error": 0.801584
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.375,
+                  "Y": 12,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 16.375,
+                  "Y": 21,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.2299995
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 3.775095
+              },
+              "error": 0.54509544
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.375,
+                  "Y": 16.15,
+                  "Z": 11
+                },
+                "End": {
+                  "X": 16.375,
+                  "Y": 16.15,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.5800002
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 4.3815103
+              },
+              "error": 0.8015101
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.625,
+                  "Y": 12,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 16.625,
+                  "Y": 21,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.2299995
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 3.7747087
+              },
+              "error": 0.5447092
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.625,
+                  "Y": 16.15,
+                  "Z": 11
+                },
+                "End": {
+                  "X": 16.625,
+                  "Y": 16.15,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.5799997
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 4.381519
+              },
+              "error": 0.80151916
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.875,
+                  "Y": 12,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 16.875,
+                  "Y": 21,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.2299995
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 3.7746947
+              },
+              "error": 0.54469514
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 16.875,
+                  "Y": 16.15,
+                  "Z": 11
+                },
+                "End": {
+                  "X": 16.875,
+                  "Y": 16.15,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.5800002
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 4.381516
+              },
+              "error": 0.8015158
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 17.125,
+                  "Y": 12,
+                  "Z": 15.51
+                },
+                "End": {
+                  "X": 17.125,
+                  "Y": 21,
+                  "Z": 15.51
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.229999
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 3.7746809
+              },
+              "error": 0.5446818
+            },
+            {
+              "path": {
+                "Group": "bridge-transverse",
+                "Start": {
+                  "X": 17.125,
+                  "Y": 16.15,
+                  "Z": 11
+                },
+                "End": {
+                  "X": 17.125,
+                  "Y": 16.15,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 3.5799997
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 4.3815136
+              },
+              "error": 0.8015139
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.173,
+              "Z": 14.319
+            },
+            "Density": [
+              22.1124,
+              24.2276
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.173,
+              "Z": 14.819
+            },
+            "Density": [
+              7.8552694,
+              9.484731,
+              21.741882,
+              24.598118
+            ],
+            "Mesh": [
+              7.981847,
+              9.215786,
+              23.104687,
+              24.075468
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.173,
+              "Z": 16.319
+            },
+            "Density": [
+              7.9305525,
+              9.409448,
+              21.827423,
+              24.512577
+            ],
+            "Mesh": [
+              8.441395,
+              9.116184,
+              22.791927,
+              24.094337
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.173,
+              "Z": 16.819
+            },
+            "Density": [
+              22.3194,
+              24.0206
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.673,
+              "Z": 13.319
+            },
+            "Density": [
+              8.451398,
+              8.888602,
+              21.952003,
+              24.387997
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 15.319
+            },
+            "Density": [
+              4.5476484,
+              27.401962
+            ],
+            "Mesh": [
+              4.6029415,
+              15.708604,
+              18.422968,
+              27.205421
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 15.819
+            },
+            "Density": [
+              4.5523806,
+              27.39262
+            ],
+            "Mesh": [
+              4.5992174,
+              15.933533,
+              18.094852,
+              27.270916
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.173,
+              "Z": 14.819
+            },
+            "Density": [
+              4.571246,
+              27.376602
+            ],
+            "Mesh": [
+              4.609155,
+              15.520283,
+              18.569466,
+              27.205767
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.173,
+              "Z": 15.319
+            },
+            "Density": [
+              4.5153894,
+              27.42635
+            ],
+            "Mesh": [
+              4.5597477,
+              15.876724,
+              18.226004,
+              27.269201
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.673,
+              "Z": 15.319
+            },
+            "Density": [
+              4.5435266,
+              27.391788
+            ],
+            "Mesh": [
+              4.5981627,
+              15.642011,
+              18.65609,
+              27.154213
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 14.94
+            },
+            "Density": [
+              4.5989943,
+              27.357063
+            ],
+            "Mesh": [
+              4.6391554,
+              12.953471,
+              18.767841,
+              27.124718
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.129999
+            },
+            "Density": [
+              4.5759554,
+              27.377659
+            ],
+            "Mesh": [
+              4.622123,
+              13.023925,
+              18.643158,
+              27.14882
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.319999
+            },
+            "Density": [
+              4.5618258,
+              27.38961
+            ],
+            "Mesh": [
+              4.620722,
+              13.373994,
+              18.518475,
+              27.172926
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.509998
+            },
+            "Density": [
+              4.55651,
+              27.392986
+            ],
+            "Mesh": [
+              4.619321,
+              13.658272,
+              18.393791,
+              27.197031
+            ]
+          },
+          {
+            "Group": "bridge-core",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.57,
+              "Z": 15.699998
+            },
+            "Density": [
+              4.5599756,
+              27.387806
+            ],
+            "Mesh": [
+              4.617887,
+              13.856537,
+              18.269108,
+              27.222971
+            ]
+          },
+          {
+            "Group": "bridge-cross-section",
+            "Axis": 1,
+            "Origin": {
+              "X": 16.025,
+              "Y": 0,
+              "Z": 15.51
+            },
+            "Density": [
+              15.38,
+              16.919998
+            ],
+            "Mesh": [
+              15.951909,
+              16.05854
+            ]
+          },
+          {
+            "Group": "bridge-cross-section",
+            "Axis": 2,
+            "Origin": {
+              "X": 16.025,
+              "Y": 16.15,
+              "Z": 0
+            },
+            "Density": [
+              14.7300005,
+              16.29
+            ],
+            "Mesh": [
+              15.632841,
+              16.187704
+            ]
+          },
+          {
+            "Group": "bridge-cross-section",
+            "Axis": 1,
+            "Origin": {
+              "X": 16.15,
+              "Y": 0,
+              "Z": 15.51
+            },
+            "Density": [
+              15.38,
+              16.919998
+            ],
+            "Mesh": [
+              15.951577,
+              16.05854
+            ]
+          },
+          {
+            "Group": "bridge-cross-section",
+            "Axis": 2,
+            "Origin": {
+              "X": 16.15,
+              "Y": 16.15,
+              "Z": 0
+            },
+            "Density": [
+              14.7300005,
+              16.29
+            ],
+            "Mesh": [
+              15.632841,
+              16.189959
+            ]
+          },
+          {
+            "Group": "bridge-cross-section",
+            "Axis": 1,
+            "Origin": {
+              "X": 16.275,
+              "Y": 0,
+              "Z": 15.51
+            },
+            "Density": [
+              15.38,
+              16.919998
+            ],
+            "Mesh": [
+              15.951243,
+              16.05854
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "bridge",
+      "layout": "face",
+      "refinementEnabled": true,
+      "ThinFeatureWitness": {
+        "X": 12.75,
+        "Y": 16.25,
+        "Z": 15.25
+      },
+      "CellSize": 0.5,
+      "EffectiveLayout": "uniform",
+      "triangles": 5596,
+      "checksum": "28D2C9EFEFFC16F2",
+      "topology": {
+        "weldedVertices": 2800,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.10818219,
+        "minNormalDot": 0.645477
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 5596,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 2954,
+                "center": {
+                  "X": 18.999586,
+                  "Y": 16.984402,
+                  "Z": 15.332149
+                },
+                "dot": 0.645477,
+                "source": "regular-fine"
+              },
+              {
+                "index": 4325,
+                "center": {
+                  "X": 12.8691225,
+                  "Y": 16.666666,
+                  "Z": 16.263334
+                },
+                "dot": 0.6592476,
+                "source": "regular-fine"
+              },
+              {
+                "index": 2054,
+                "center": {
+                  "X": 12.906918,
+                  "Y": 16.62857,
+                  "Z": 14.743333
+                },
+                "dot": 0.67909646,
+                "source": "regular-fine"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 40967,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 1200,
+            "MeshHitRays": 1193,
+            "MissedHitRays": 10,
+            "UnexpectedHitRays": 3,
+            "CrossingCountMismatches": 15,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.4721384
+          },
+          "lod-band": {
+            "Rays": 56,
+            "DensityHitRays": 56,
+            "MeshHitRays": 56,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.2618885
+          },
+          "bridge-core": {
+            "Rays": 49,
+            "DensityHitRays": 49,
+            "MeshHitRays": 49,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 1568,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.015075684
+          },
+          "bridge-cross-section": {
+            "Rays": 64,
+            "DensityHitRays": 64,
+            "MeshHitRays": 64,
+            "MissedHitRays": 0,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 0,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.0005607605
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "bridge-transverse",
+              "sweeps": 64,
+              "expectedHits": 64,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 64,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 1.4305115E-06
+            },
+            {
+              "group": "bridge-along",
+              "sweeps": 8,
+              "expectedHits": 0,
+              "expectedInitialOverlaps": 4,
+              "actualHits": 0,
+              "actualInitialOverlaps": 4,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0
+            },
+            {
+              "group": "bridge-diagonal",
+              "sweeps": 4,
+              "expectedHits": 4,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 4,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 0,
+              "maxPairedError": 0.0003874302
+            }
+          ],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 12.673,
+              "Z": 13.319
+            },
+            "Density": [
+              8.451398,
+              8.888602,
+              21.952003,
+              24.387997
+            ],
+            "Mesh": [
+              21.9928,
+              24.329496
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 16.673,
+              "Z": 14.819
+            },
+            "Density": [
+              4.5997686,
+              27.341633
+            ],
+            "Mesh": [
+              4.6143284,
+              12.961028,
+              18.598526,
+              27.327398
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 20.173,
+              "Z": 16.819
+            },
+            "Density": [
+              22.98159,
+              23.35841
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 19.319,
+              "Y": 0,
+              "Z": 13.673
+            },
+            "Density": [
+              16.003849,
+              16.25615
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 1,
+            "Origin": {
+              "X": 12.819,
+              "Y": 0,
+              "Z": 14.673
+            },
+            "Density": [],
+            "Mesh": [
+              15.471021,
+              16.63154
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "uniform",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "uniform",
+      "triangles": 3276,
+      "checksum": "A7DF30564BB54B18",
+      "topology": {
+        "weldedVertices": 1640,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.013254166,
+        "minNormalDot": 0.9975772
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 3276,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 538,
+                "center": {
+                  "X": 12.988141,
+                  "Y": 16.993483,
+                  "Z": 7.9985847
+                },
+                "dot": 0.9975772,
+                "source": "regular-fine"
+              },
+              {
+                "index": 566,
+                "center": {
+                  "X": 12.960972,
+                  "Y": 20.022097,
+                  "Z": 7.9953423
+                },
+                "dot": 0.9977757,
+                "source": "regular-fine"
+              },
+              {
+                "index": 541,
+                "center": {
+                  "X": 14.056134,
+                  "Y": 16.975233,
+                  "Z": 7.9946218
+                },
+                "dot": 0.9978526,
+                "source": "regular-fine"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 23819,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3300,
+            "MissedHitRays": 16,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 16,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 4,
+            "MaxPairedError": 1.0091
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.319
+            },
+            "Density": [
+              12.959575,
+              14.2604265
+            ],
+            "Mesh": [
+              13.76087,
+              14.029511
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.819
+            },
+            "Density": [
+              13.320088,
+              13.899913
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.673,
+              "Z": 22.319
+            },
+            "Density": [
+              13.014987,
+              14.205014
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 8.319
+            },
+            "Density": [
+              12.964984,
+              14.255017
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "uniform",
+      "refinementEnabled": true,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "uniform",
+      "triangles": 3276,
+      "checksum": "A7DF30564BB54B18",
+      "topology": {
+        "weldedVertices": 1640,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 0,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.013254166,
+        "minNormalDot": 0.9975772
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 3276,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 538,
+                "center": {
+                  "X": 12.988141,
+                  "Y": 16.993483,
+                  "Z": 7.9985847
+                },
+                "dot": 0.9975772,
+                "source": "regular-fine"
+              },
+              {
+                "index": 566,
+                "center": {
+                  "X": 12.960972,
+                  "Y": 20.022097,
+                  "Z": 7.9953423
+                },
+                "dot": 0.9977757,
+                "source": "regular-fine"
+              },
+              {
+                "index": 541,
+                "center": {
+                  "X": 14.056134,
+                  "Y": 16.975233,
+                  "Z": 7.9946218
+                },
+                "dot": 0.9978526,
+                "source": "regular-fine"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 23819,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3300,
+            "MissedHitRays": 16,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 16,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 4,
+            "MaxPairedError": 1.0091
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [],
+          "examples": []
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.319
+            },
+            "Density": [
+              12.959575,
+              14.2604265
+            ],
+            "Mesh": [
+              13.76087,
+              14.029511
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.819
+            },
+            "Density": [
+              13.320088,
+              13.899913
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.673,
+              "Z": 22.319
+            },
+            "Density": [
+              13.014987,
+              14.205014
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 8.319
+            },
+            "Density": [
+              12.964984,
+              14.255017
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "face",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "face",
+      "triangles": 2444,
+      "checksum": "ACEA572C332D43F6",
+      "topology": {
+        "weldedVertices": 1224,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 108,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.12647915,
+        "minNormalDot": 0.9685482
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 2022,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1932,
+                "center": {
+                  "X": 15.004387,
+                  "Y": 26.82723,
+                  "Z": 21.337267
+                },
+                "dot": 0.96983355,
+                "source": "regular-fine"
+              },
+              {
+                "index": 136,
+                "center": {
+                  "X": 15.088565,
+                  "Y": 11.221417,
+                  "Z": 11.607005
+                },
+                "dot": 0.9706358,
+                "source": "regular-fine"
+              },
+              {
+                "index": 1420,
+                "center": {
+                  "X": 15.166667,
+                  "Y": 12.065056,
+                  "Z": 23.775656
+                },
+                "dot": 0.9715725,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 108,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 2328,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 20.219881,
+                  "Z": 26.119635
+                },
+                "dot": 0.9685482,
+                "source": "transition"
+              },
+              {
+                "index": 1535,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 9.929362,
+                  "Z": 20.084246
+                },
+                "dot": 0.96876013,
+                "source": "transition"
+              },
+              {
+                "index": 998,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 24.004425,
+                  "Z": 9.998273
+                },
+                "dot": 0.9710078,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 314,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 369,
+                "center": {
+                  "X": 17.93927,
+                  "Y": 12.702857,
+                  "Z": 11.435699
+                },
+                "dot": 0.99293494,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 377,
+                "center": {
+                  "X": 17.93927,
+                  "Y": 11.639491,
+                  "Z": 12.714813
+                },
+                "dot": 0.99346995,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 382,
+                "center": {
+                  "X": 18.645765,
+                  "Y": 12.702857,
+                  "Z": 12.048146
+                },
+                "dot": 0.9937755,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 17878,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3285,
+            "MissedHitRays": 31,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 31,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 7,
+            "MaxPairedError": 1.7222471
+          },
+          "lod-band": {
+            "Rays": 436,
+            "DensityHitRays": 436,
+            "MeshHitRays": 432,
+            "MissedHitRays": 4,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 4,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.6054764
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 112,
+              "expectedHits": 112,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 112,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 8,
+              "maxPairedError": 0.438478
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 12
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 15
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.77804434
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.1801019
+              },
+              "error": 0.40205753
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 22.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 19.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.267934
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5951676
+              },
+              "error": 0.32723367
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 25.375,
+                  "Z": 10
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 25.375,
+                  "Z": 13
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.0889648
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3458126
+              },
+              "error": 0.25684774
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 26.625,
+                  "Z": 11.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 26.625,
+                  "Z": 14.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.0165007
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4549787
+              },
+              "error": 0.438478
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 26.625,
+                  "Z": 23
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 26.625,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.5182551
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.771124
+              },
+              "error": 0.2528689
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 22.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 19.75
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.6008818
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 0.96823597
+              },
+              "error": 0.36735415
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 25.375,
+                  "Z": 24.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 25.375,
+                  "Z": 21.75
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.0775712
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3318049
+              },
+              "error": 0.25423372
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 26.625,
+                  "Z": 23
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 26.625,
+                  "Z": 20
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.8423344
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.1744983
+              },
+              "error": 0.33216393
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.319
+            },
+            "Density": [
+              12.959575,
+              14.2604265
+            ],
+            "Mesh": [
+              13.76087,
+              14.029511
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.819
+            },
+            "Density": [
+              13.320088,
+              13.899913
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.673,
+              "Z": 22.319
+            },
+            "Density": [
+              13.014987,
+              14.205014
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 8.319
+            },
+            "Density": [
+              12.964984,
+              14.255017
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 15.819,
+              "Y": 0,
+              "Z": 8.173
+            },
+            "Density": [
+              17.492947,
+              19.56705
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 16.319,
+              "Y": 0,
+              "Z": 26.173
+            },
+            "Density": [
+              17.71241,
+              19.347588
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 2,
+            "Origin": {
+              "X": 15.173,
+              "Y": 9.319,
+              "Z": 0
+            },
+            "Density": [
+              16.393978,
+              18.066021
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 2,
+            "Origin": {
+              "X": 16.673,
+              "Y": 27.319,
+              "Z": 0
+            },
+            "Density": [
+              16.065575,
+              18.394424
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "face",
+      "refinementEnabled": true,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "face",
+      "triangles": 2444,
+      "checksum": "ACEA572C332D43F6",
+      "topology": {
+        "weldedVertices": 1224,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 108,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.12647915,
+        "minNormalDot": 0.9685482
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 2022,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1932,
+                "center": {
+                  "X": 15.004387,
+                  "Y": 26.82723,
+                  "Z": 21.337267
+                },
+                "dot": 0.96983355,
+                "source": "regular-fine"
+              },
+              {
+                "index": 136,
+                "center": {
+                  "X": 15.088565,
+                  "Y": 11.221417,
+                  "Z": 11.607005
+                },
+                "dot": 0.9706358,
+                "source": "regular-fine"
+              },
+              {
+                "index": 1420,
+                "center": {
+                  "X": 15.166667,
+                  "Y": 12.065056,
+                  "Z": 23.775656
+                },
+                "dot": 0.9715725,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 108,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 2328,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 20.219881,
+                  "Z": 26.119635
+                },
+                "dot": 0.9685482,
+                "source": "transition"
+              },
+              {
+                "index": 1535,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 9.929362,
+                  "Z": 20.084246
+                },
+                "dot": 0.96876013,
+                "source": "transition"
+              },
+              {
+                "index": 998,
+                "center": {
+                  "X": 15.833333,
+                  "Y": 24.004425,
+                  "Z": 9.998273
+                },
+                "dot": 0.9710078,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 314,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 369,
+                "center": {
+                  "X": 17.93927,
+                  "Y": 12.702857,
+                  "Z": 11.435699
+                },
+                "dot": 0.99293494,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 377,
+                "center": {
+                  "X": 17.93927,
+                  "Y": 11.639491,
+                  "Z": 12.714813
+                },
+                "dot": 0.99346995,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 382,
+                "center": {
+                  "X": 18.645765,
+                  "Y": 12.702857,
+                  "Z": 12.048146
+                },
+                "dot": 0.9937755,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 17878,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3285,
+            "MissedHitRays": 31,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 31,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 7,
+            "MaxPairedError": 1.7222471
+          },
+          "lod-band": {
+            "Rays": 436,
+            "DensityHitRays": 436,
+            "MeshHitRays": 432,
+            "MissedHitRays": 4,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 4,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 0,
+            "MaxPairedError": 0.6054764
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 112,
+              "expectedHits": 112,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 112,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 8,
+              "maxPairedError": 0.438478
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 12
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 15
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.77804434
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.1801019
+              },
+              "error": 0.40205753
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 22.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 19.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.267934
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5951676
+              },
+              "error": 0.32723367
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 25.375,
+                  "Z": 10
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 25.375,
+                  "Z": 13
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.0889648
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3458126
+              },
+              "error": 0.25684774
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 26.625,
+                  "Z": 11.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 26.625,
+                  "Z": 14.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.0165007
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4549787
+              },
+              "error": 0.438478
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 26.625,
+                  "Z": 23
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 26.625,
+                  "Z": 20
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.5182551
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.771124
+              },
+              "error": 0.2528689
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 22.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 19.75
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.6008818
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 0.96823597
+              },
+              "error": 0.36735415
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 25.375,
+                  "Z": 24.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 25.375,
+                  "Z": 21.75
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.0775712
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3318049
+              },
+              "error": 0.25423372
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 26.625,
+                  "Z": 23
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 26.625,
+                  "Z": 20
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.8423344
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.1744983
+              },
+              "error": 0.33216393
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.319
+            },
+            "Density": [
+              12.959575,
+              14.2604265
+            ],
+            "Mesh": [
+              13.76087,
+              14.029511
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.819
+            },
+            "Density": [
+              13.320088,
+              13.899913
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.673,
+              "Z": 22.319
+            },
+            "Density": [
+              13.014987,
+              14.205014
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 8.319
+            },
+            "Density": [
+              12.964984,
+              14.255017
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 15.819,
+              "Y": 0,
+              "Z": 8.173
+            },
+            "Density": [
+              17.492947,
+              19.56705
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 16.319,
+              "Y": 0,
+              "Z": 26.173
+            },
+            "Density": [
+              17.71241,
+              19.347588
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 2,
+            "Origin": {
+              "X": 15.173,
+              "Y": 9.319,
+              "Z": 0
+            },
+            "Density": [
+              16.393978,
+              18.066021
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 2,
+            "Origin": {
+              "X": 16.673,
+              "Y": 27.319,
+              "Z": 0
+            },
+            "Density": [
+              16.065575,
+              18.394424
+            ],
+            "Mesh": []
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "corner",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "corner",
+      "triangles": 1150,
+      "checksum": "2D0B2F1554168B6C",
+      "topology": {
+        "weldedVertices": 577,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 76,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.22337914,
+        "minNormalDot": 0.71857697
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 339,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 23,
+                "center": {
+                  "X": 15.166667,
+                  "Y": 15.333333,
+                  "Z": 8.49384
+                },
+                "dot": 0.95457435,
+                "source": "regular-fine"
+              },
+              {
+                "index": 24,
+                "center": {
+                  "X": 15.333333,
+                  "Y": 15.166667,
+                  "Z": 8.683679
+                },
+                "dot": 0.9599574,
+                "source": "regular-fine"
+              },
+              {
+                "index": 161,
+                "center": {
+                  "X": 7.0243034,
+                  "Y": 15.333333,
+                  "Z": 11.226478
+                },
+                "dot": 0.96193004,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 76,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 412,
+                "center": {
+                  "X": 4.891253,
+                  "Y": 15.336617,
+                  "Z": 15.666667
+                },
+                "dot": 0.71857697,
+                "source": "transition"
+              },
+              {
+                "index": 411,
+                "center": {
+                  "X": 4.7765,
+                  "Y": 15.503284,
+                  "Z": 15.666667
+                },
+                "dot": 0.74215174,
+                "source": "transition"
+              },
+              {
+                "index": 366,
+                "center": {
+                  "X": 4.729198,
+                  "Y": 15.666667,
+                  "Z": 15.5
+                },
+                "dot": 0.774668,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 735,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 471,
+                "center": {
+                  "X": 14.058192,
+                  "Y": 20.033129,
+                  "Z": 7.9913917
+                },
+                "dot": 0.991284,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 470,
+                "center": {
+                  "X": 13.868535,
+                  "Y": 20.033129,
+                  "Z": 7.9913917
+                },
+                "dot": 0.9915656,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 986,
+                "center": {
+                  "X": 15.8767395,
+                  "Y": 16.111797,
+                  "Z": 25.97976
+                },
+                "dot": 0.9925135,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 8431,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3268,
+            "MissedHitRays": 48,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 52,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 35,
+            "MaxPairedError": 2.2744722
+          },
+          "lod-band": {
+            "Rays": 485,
+            "DensityHitRays": 485,
+            "MeshHitRays": 478,
+            "MissedHitRays": 7,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 11,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 6,
+            "MaxPairedError": 2.2744722
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 80,
+              "expectedHits": 80,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 80,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 4,
+              "maxPairedError": 0.40205753
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 12
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 15
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.77804434
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.1801019
+              },
+              "error": 0.40205753
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 8.25,
+                  "Y": 17,
+                  "Z": 9.125
+                },
+                "End": {
+                  "X": 11.25,
+                  "Y": 15,
+                  "Z": 9.125
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.94633186
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.2953119
+              },
+              "error": 0.34898007
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 8.25,
+                  "Y": 17,
+                  "Z": 9.125
+                },
+                "End": {
+                  "X": 11.25,
+                  "Y": 15,
+                  "Z": 9.125
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.30156317
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 0.67287636
+              },
+              "error": 0.37131318
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 6.25,
+                  "Y": 17,
+                  "Z": 10.375
+                },
+                "End": {
+                  "X": 9.25,
+                  "Y": 15,
+                  "Z": 10.375
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.9162096
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.184031
+              },
+              "error": 0.26782143
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.319
+            },
+            "Density": [
+              12.959575,
+              14.2604265
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.819
+            },
+            "Density": [
+              13.320088,
+              13.899913
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.173,
+              "Z": 21.319
+            },
+            "Density": [
+              12.416247,
+              14.803754
+            ],
+            "Mesh": [
+              13.718359,
+              14.123301
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.673,
+              "Z": 22.319
+            },
+            "Density": [
+              13.014987,
+              14.205014
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 8.319
+            },
+            "Density": [
+              12.964984,
+              14.255017
+            ],
+            "Mesh": [
+              12.204575,
+              14.947059
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 10.819,
+              "Y": 0,
+              "Z": 8.673
+            },
+            "Density": [
+              15.889455,
+              21.170544
+            ],
+            "Mesh": [
+              15.469517,
+              15.728848,
+              16.222277,
+              20.743198
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 6.8190002,
+              "Y": 0,
+              "Z": 11.173
+            },
+            "Density": [
+              16.254154,
+              20.805843
+            ],
+            "Mesh": [
+              17.02253,
+              20.22936
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 5.3190002,
+              "Y": 0,
+              "Z": 13.173
+            },
+            "Density": [
+              16.861328,
+              20.19867
+            ],
+            "Mesh": [
+              17.606293,
+              19.287153
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "seam",
+      "layout": "corner",
+      "refinementEnabled": true,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "corner",
+      "triangles": 1150,
+      "checksum": "2D0B2F1554168B6C",
+      "topology": {
+        "weldedVertices": 577,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 76,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.22337914,
+        "minNormalDot": 0.71857697
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 339,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 23,
+                "center": {
+                  "X": 15.166667,
+                  "Y": 15.333333,
+                  "Z": 8.49384
+                },
+                "dot": 0.95457435,
+                "source": "regular-fine"
+              },
+              {
+                "index": 24,
+                "center": {
+                  "X": 15.333333,
+                  "Y": 15.166667,
+                  "Z": 8.683679
+                },
+                "dot": 0.9599574,
+                "source": "regular-fine"
+              },
+              {
+                "index": 161,
+                "center": {
+                  "X": 7.0243034,
+                  "Y": 15.333333,
+                  "Z": 11.226478
+                },
+                "dot": 0.96193004,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 76,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 412,
+                "center": {
+                  "X": 4.891253,
+                  "Y": 15.336617,
+                  "Z": 15.666667
+                },
+                "dot": 0.71857697,
+                "source": "transition"
+              },
+              {
+                "index": 411,
+                "center": {
+                  "X": 4.7765,
+                  "Y": 15.503284,
+                  "Z": 15.666667
+                },
+                "dot": 0.74215174,
+                "source": "transition"
+              },
+              {
+                "index": 366,
+                "center": {
+                  "X": 4.729198,
+                  "Y": 15.666667,
+                  "Z": 15.5
+                },
+                "dot": 0.774668,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 735,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 471,
+                "center": {
+                  "X": 14.058192,
+                  "Y": 20.033129,
+                  "Z": 7.9913917
+                },
+                "dot": 0.991284,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 470,
+                "center": {
+                  "X": 13.868535,
+                  "Y": 20.033129,
+                  "Z": 7.9913917
+                },
+                "dot": 0.9915656,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 986,
+                "center": {
+                  "X": 15.8767395,
+                  "Y": 16.111797,
+                  "Z": 25.97976
+                },
+                "dot": 0.9925135,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 8431,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 3316,
+            "MeshHitRays": 3268,
+            "MissedHitRays": 48,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 52,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 35,
+            "MaxPairedError": 2.2744722
+          },
+          "lod-band": {
+            "Rays": 485,
+            "DensityHitRays": 485,
+            "MeshHitRays": 478,
+            "MissedHitRays": 7,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 11,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 6,
+            "MaxPairedError": 2.2744722
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 80,
+              "expectedHits": 80,
+              "expectedInitialOverlaps": 0,
+              "actualHits": 80,
+              "actualInitialOverlaps": 0,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 0,
+              "indeterminate": 0,
+              "overTolerance": 4,
+              "maxPairedError": 0.40205753
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 12
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 15
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.77804434
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.1801019
+              },
+              "error": 0.40205753
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 8.25,
+                  "Y": 17,
+                  "Z": 9.125
+                },
+                "End": {
+                  "X": 11.25,
+                  "Y": 15,
+                  "Z": 9.125
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.94633186
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.2953119
+              },
+              "error": 0.34898007
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 8.25,
+                  "Y": 17,
+                  "Z": 9.125
+                },
+                "End": {
+                  "X": 11.25,
+                  "Y": 15,
+                  "Z": 9.125
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.30156317
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 0.67287636
+              },
+              "error": 0.37131318
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 6.25,
+                  "Y": 17,
+                  "Z": 10.375
+                },
+                "End": {
+                  "X": 9.25,
+                  "Y": 15,
+                  "Z": 10.375
+                },
+                "Radius": 0.35
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.9162096
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.184031
+              },
+              "error": 0.26782143
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 16.819
+            },
+            "Density": [
+              13.098092,
+              14.121909
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.319
+            },
+            "Density": [
+              12.959575,
+              14.2604265
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 9.173,
+              "Z": 17.819
+            },
+            "Density": [
+              13.320088,
+              13.899913
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.173,
+              "Z": 21.319
+            },
+            "Density": [
+              12.416247,
+              14.803754
+            ],
+            "Mesh": [
+              13.718359,
+              14.123301
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 10.673,
+              "Z": 22.319
+            },
+            "Density": [
+              13.014987,
+              14.205014
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.673,
+              "Z": 8.319
+            },
+            "Density": [
+              12.964984,
+              14.255017
+            ],
+            "Mesh": [
+              12.204575,
+              14.947059
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 10.819,
+              "Y": 0,
+              "Z": 8.673
+            },
+            "Density": [
+              15.889455,
+              21.170544
+            ],
+            "Mesh": [
+              15.469517,
+              15.728848,
+              16.222277,
+              20.743198
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 6.8190002,
+              "Y": 0,
+              "Z": 11.173
+            },
+            "Density": [
+              16.254154,
+              20.805843
+            ],
+            "Mesh": [
+              17.02253,
+              20.22936
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 1,
+            "Origin": {
+              "X": 5.3190002,
+              "Y": 0,
+              "Z": 13.173
+            },
+            "Density": [
+              16.861328,
+              20.19867
+            ],
+            "Mesh": [
+              17.606293,
+              19.287153
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "junction",
+      "layout": "corner",
+      "refinementEnabled": false,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "corner",
+      "triangles": 1534,
+      "checksum": "5444AD5C29040550",
+      "topology": {
+        "weldedVertices": 769,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 116,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.6056957,
+        "minNormalDot": 0.15301938
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 1073,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 507,
+                "center": {
+                  "X": 6.4365463,
+                  "Y": 15.119071,
+                  "Z": 7.117428
+                },
+                "dot": 0.91999704,
+                "source": "regular-fine"
+              },
+              {
+                "index": 416,
+                "center": {
+                  "X": 7.501209,
+                  "Y": 15.068531,
+                  "Z": 6.1212063
+                },
+                "dot": 0.9212074,
+                "source": "regular-fine"
+              },
+              {
+                "index": 467,
+                "center": {
+                  "X": 15.145194,
+                  "Y": 5.438376,
+                  "Z": 7.13051
+                },
+                "dot": 0.92141277,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 116,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1143,
+                "center": {
+                  "X": 15.565091,
+                  "Y": 15.666667,
+                  "Z": 7.3995757
+                },
+                "dot": 0.15301938,
+                "source": "transition"
+              },
+              {
+                "index": 1128,
+                "center": {
+                  "X": 6.500238,
+                  "Y": 15.666667,
+                  "Z": 15.507062
+                },
+                "dot": 0.2069248,
+                "source": "transition"
+              },
+              {
+                "index": 1092,
+                "center": {
+                  "X": 15.666667,
+                  "Y": 15.577801,
+                  "Z": 7.3995757
+                },
+                "dot": 0.22774667,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 345,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1328,
+                "center": {
+                  "X": 8.000976,
+                  "Y": 17.999653,
+                  "Z": 10.002966
+                },
+                "dot": 0.989225,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 1500,
+                "center": {
+                  "X": 16.58447,
+                  "Y": 8.117139,
+                  "Z": 17.29514
+                },
+                "dot": 0.9907901,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 1402,
+                "center": {
+                  "X": 13.801608,
+                  "Y": 5.4495416,
+                  "Z": 17.274872
+                },
+                "dot": 0.9919418,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 11137,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 2509,
+            "MeshHitRays": 2472,
+            "MissedHitRays": 37,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 43,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 36,
+            "MaxPairedError": 1.5122013
+          },
+          "lod-band": {
+            "Rays": 892,
+            "DensityHitRays": 892,
+            "MeshHitRays": 888,
+            "MissedHitRays": 4,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 10,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 11,
+            "MaxPairedError": 1.4715176
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 124,
+              "expectedHits": 115,
+              "expectedInitialOverlaps": 9,
+              "actualHits": 116,
+              "actualInitialOverlaps": 8,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 1,
+              "indeterminate": 0,
+              "overTolerance": 47,
+              "maxPairedError": 1.352874
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 5.375,
+                  "Z": 6.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 5.375,
+                  "Z": 9.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.41229138
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4096227
+              },
+              "error": 0.99733126
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 5.375,
+                  "Z": 17.25
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 5.375,
+                  "Z": 14.25
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.80716157
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.2569281
+              },
+              "error": 0.44976652
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 6.625,
+                  "Z": 5.25
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 6.625,
+                  "Z": 8.25
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.7549547
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4690123
+              },
+              "error": 0.71405756
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 7.875,
+                  "Z": 4.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 7.875,
+                  "Z": 7.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.84241724
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3406888
+              },
+              "error": 0.49827158
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 9.125,
+                  "Z": 4
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 9.125,
+                  "Z": 7
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.99683976
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4569018
+              },
+              "error": 0.46006203
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 3.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 6.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.1241859
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4906944
+              },
+              "error": 0.36650848
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 11.625,
+                  "Z": 3.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 11.625,
+                  "Z": 6.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.1951656
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5419027
+              },
+              "error": 0.34673703
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 12.875,
+                  "Z": 4
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 12.875,
+                  "Z": 7
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.2195593
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.6153595
+              },
+              "error": 0.39580023
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 14.125,
+                  "Z": 4.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 14.125,
+                  "Z": 7.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.2575889
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5754687
+              },
+              "error": 0.3178798
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 15.375,
+                  "Z": 5.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 15.375,
+                  "Z": 8.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.8796704
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5994636
+              },
+              "error": 0.7197932
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 16.5,
+                  "Y": 15,
+                  "Z": 6.625
+                },
+                "End": {
+                  "X": 13.5,
+                  "Y": 17,
+                  "Z": 6.625
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.55577826
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.9086523
+              },
+              "error": 1.352874
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 5,
+                  "Y": 15,
+                  "Z": 7.875
+                },
+                "End": {
+                  "X": 8,
+                  "Y": 17,
+                  "Z": 7.875
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.94744277
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5920527
+              },
+              "error": 0.6446099
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 2.6729999,
+              "Z": 11.319
+            },
+            "Density": [
+              10.991864,
+              11.748136
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 2.6729999,
+              "Z": 12.319
+            },
+            "Density": [
+              11.045987,
+              11.694013
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 3.6729999,
+              "Z": 15.319
+            },
+            "Density": [
+              9.568612,
+              13.171388
+            ],
+            "Mesh": [
+              10.755298,
+              12.079825
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 3.6729999,
+              "Z": 15.319
+            },
+            "Density": [
+              9.568612,
+              13.171388
+            ],
+            "Mesh": [
+              10.755298,
+              12.079825
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.173,
+              "Z": 16.319
+            },
+            "Density": [
+              9.926396,
+              12.813603
+            ],
+            "Mesh": [
+              10.737169,
+              12.290893
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.173,
+              "Z": 16.319
+            },
+            "Density": [
+              9.926396,
+              12.813603
+            ],
+            "Mesh": [
+              10.737169,
+              12.290893
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.673,
+              "Z": 16.819
+            },
+            "Density": [
+              9.448543,
+              13.291457
+            ],
+            "Mesh": [
+              9.98515,
+              12.479738
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.673,
+              "Z": 16.819
+            },
+            "Density": [
+              9.448543,
+              13.291457
+            ],
+            "Mesh": [
+              9.98515,
+              12.479738
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 5.173,
+              "Z": 15.319
+            },
+            "Density": [
+              6.6396723,
+              16.100327
+            ],
+            "Mesh": [
+              6.935936,
+              15.395391,
+              15.620536,
+              15.813948
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.173,
+              "Z": 6.8190002
+            },
+            "Density": [
+              6.6277437,
+              16.112255
+            ],
+            "Mesh": [
+              6.8403378,
+              15.452475,
+              15.548848,
+              15.760568
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "fixture": "junction",
+      "layout": "corner",
+      "refinementEnabled": true,
+      "ThinFeatureWitness": null,
+      "CellSize": 1,
+      "EffectiveLayout": "corner",
+      "triangles": 1534,
+      "checksum": "5444AD5C29040550",
+      "topology": {
+        "weldedVertices": 769,
+        "components": 1,
+        "degenerates": 0,
+        "missingDualFaces": 0,
+        "TransitionTriangles": 116,
+        "openEdges": 0,
+        "nonManifoldEdges": 0,
+        "windingEdges": 0,
+        "maxFieldResidual": 0.6056957,
+        "minNormalDot": 0.15301938
+      },
+      "geometry": {
+        "normalSummary": [
+          {
+            "source": "regular-fine",
+            "faces": 1073,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 507,
+                "center": {
+                  "X": 6.4365463,
+                  "Y": 15.119071,
+                  "Z": 7.117428
+                },
+                "dot": 0.91999704,
+                "source": "regular-fine"
+              },
+              {
+                "index": 416,
+                "center": {
+                  "X": 7.501209,
+                  "Y": 15.068531,
+                  "Z": 6.1212063
+                },
+                "dot": 0.9212074,
+                "source": "regular-fine"
+              },
+              {
+                "index": 467,
+                "center": {
+                  "X": 15.145194,
+                  "Y": 5.438376,
+                  "Z": 7.13051
+                },
+                "dot": 0.92141277,
+                "source": "regular-fine"
+              }
+            ]
+          },
+          {
+            "source": "transition",
+            "faces": 116,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1143,
+                "center": {
+                  "X": 15.565091,
+                  "Y": 15.666667,
+                  "Z": 7.3995757
+                },
+                "dot": 0.15301938,
+                "source": "transition"
+              },
+              {
+                "index": 1128,
+                "center": {
+                  "X": 6.500238,
+                  "Y": 15.666667,
+                  "Z": 15.507062
+                },
+                "dot": 0.2069248,
+                "source": "transition"
+              },
+              {
+                "index": 1092,
+                "center": {
+                  "X": 15.666667,
+                  "Y": 15.577801,
+                  "Z": 7.3995757
+                },
+                "dot": 0.22774667,
+                "source": "transition"
+              }
+            ]
+          },
+          {
+            "source": "regular-coarse",
+            "faces": 345,
+            "opposite": 0,
+            "undefinedOrPerpendicular": 0,
+            "worst": [
+              {
+                "index": 1328,
+                "center": {
+                  "X": 8.000976,
+                  "Y": 17.999653,
+                  "Z": 10.002966
+                },
+                "dot": 0.989225,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 1500,
+                "center": {
+                  "X": 16.58447,
+                  "Y": 8.117139,
+                  "Z": 17.29514
+                },
+                "dot": 0.9907901,
+                "source": "regular-coarse"
+              },
+              {
+                "index": 1402,
+                "center": {
+                  "X": 13.801608,
+                  "Y": 5.4495416,
+                  "Z": 17.274872
+                },
+                "dot": 0.9919418,
+                "source": "regular-coarse"
+              }
+            ]
+          }
+        ],
+        "testedPairs": 11137,
+        "intersections": [],
+        "collisionTolerance": 0.75,
+        "collision": {
+          "grid": {
+            "Rays": 12288,
+            "DensityHitRays": 2509,
+            "MeshHitRays": 2472,
+            "MissedHitRays": 37,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 43,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 36,
+            "MaxPairedError": 1.5122013
+          },
+          "lod-band": {
+            "Rays": 892,
+            "DensityHitRays": 892,
+            "MeshHitRays": 888,
+            "MissedHitRays": 4,
+            "UnexpectedHitRays": 0,
+            "CrossingCountMismatches": 10,
+            "CoreOccupancySamples": 0,
+            "MissingCoreOccupancySamples": 0,
+            "OverToleranceRays": 11,
+            "MaxPairedError": 1.4715176
+          }
+        },
+        "movingBodies": {
+          "diagnosticError": 0.25,
+          "summary": [
+            {
+              "group": "lod-crossing",
+              "sweeps": 124,
+              "expectedHits": 115,
+              "expectedInitialOverlaps": 9,
+              "actualHits": 116,
+              "actualInitialOverlaps": 8,
+              "missed": 0,
+              "unexpected": 0,
+              "statusDifferences": 1,
+              "indeterminate": 0,
+              "overTolerance": 47,
+              "maxPairedError": 1.352874
+            }
+          ],
+          "examples": [
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 5.375,
+                  "Z": 6.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 5.375,
+                  "Z": 9.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.41229138
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4096227
+              },
+              "error": 0.99733126
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 5.375,
+                  "Z": 17.25
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 5.375,
+                  "Z": 14.25
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.80716157
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.2569281
+              },
+              "error": 0.44976652
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 6.625,
+                  "Z": 5.25
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 6.625,
+                  "Z": 8.25
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.7549547
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4690123
+              },
+              "error": 0.71405756
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 7.875,
+                  "Z": 4.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 7.875,
+                  "Z": 7.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.84241724
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.3406888
+              },
+              "error": 0.49827158
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 9.125,
+                  "Z": 4
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 9.125,
+                  "Z": 7
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.99683976
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4569018
+              },
+              "error": 0.46006203
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 10.375,
+                  "Z": 3.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 10.375,
+                  "Z": 6.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.1241859
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.4906944
+              },
+              "error": 0.36650848
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 11.625,
+                  "Z": 3.75
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 11.625,
+                  "Z": 6.75
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.1951656
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5419027
+              },
+              "error": 0.34673703
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 12.875,
+                  "Z": 4
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 12.875,
+                  "Z": 7
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.2195593
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.6153595
+              },
+              "error": 0.39580023
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 14.125,
+                  "Z": 4.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 14.125,
+                  "Z": 7.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 1.2575889
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5754687
+              },
+              "error": 0.3178798
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 15,
+                  "Y": 15.375,
+                  "Z": 5.5
+                },
+                "End": {
+                  "X": 17,
+                  "Y": 15.375,
+                  "Z": 8.5
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.8796704
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5994636
+              },
+              "error": 0.7197932
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 16.5,
+                  "Y": 15,
+                  "Z": 6.625
+                },
+                "End": {
+                  "X": 13.5,
+                  "Y": 17,
+                  "Z": 6.625
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.55577826
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.9086523
+              },
+              "error": 1.352874
+            },
+            {
+              "path": {
+                "Group": "lod-crossing",
+                "Start": {
+                  "X": 5,
+                  "Y": 15,
+                  "Z": 7.875
+                },
+                "End": {
+                  "X": 8,
+                  "Y": 17,
+                  "Z": 7.875
+                },
+                "Radius": 0.15
+              },
+              "reference": {
+                "State": "hit",
+                "Distance": 0.94744277
+              },
+              "actual": {
+                "State": "hit",
+                "Distance": 1.5920527
+              },
+              "error": 0.6446099
+            }
+          ]
+        },
+        "examples": [
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 2.6729999,
+              "Z": 11.319
+            },
+            "Density": [
+              10.991864,
+              11.748136
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 2.6729999,
+              "Z": 12.319
+            },
+            "Density": [
+              11.045987,
+              11.694013
+            ],
+            "Mesh": []
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 3.6729999,
+              "Z": 15.319
+            },
+            "Density": [
+              9.568612,
+              13.171388
+            ],
+            "Mesh": [
+              10.755298,
+              12.079825
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 3.6729999,
+              "Z": 15.319
+            },
+            "Density": [
+              9.568612,
+              13.171388
+            ],
+            "Mesh": [
+              10.755298,
+              12.079825
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.173,
+              "Z": 16.319
+            },
+            "Density": [
+              9.926396,
+              12.813603
+            ],
+            "Mesh": [
+              10.737169,
+              12.290893
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.173,
+              "Z": 16.319
+            },
+            "Density": [
+              9.926396,
+              12.813603
+            ],
+            "Mesh": [
+              10.737169,
+              12.290893
+            ]
+          },
+          {
+            "Group": "grid",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.673,
+              "Z": 16.819
+            },
+            "Density": [
+              9.448543,
+              13.291457
+            ],
+            "Mesh": [
+              9.98515,
+              12.479738
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 4.673,
+              "Z": 16.819
+            },
+            "Density": [
+              9.448543,
+              13.291457
+            ],
+            "Mesh": [
+              9.98515,
+              12.479738
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 5.173,
+              "Z": 15.319
+            },
+            "Density": [
+              6.6396723,
+              16.100327
+            ],
+            "Mesh": [
+              6.935936,
+              15.395391,
+              15.620536,
+              15.813948
+            ]
+          },
+          {
+            "Group": "lod-band",
+            "Axis": 0,
+            "Origin": {
+              "X": 0,
+              "Y": 15.173,
+              "Z": 6.8190002
+            },
+            "Density": [
+              6.6277437,
+              16.112255
+            ],
+            "Mesh": [
+              6.8403378,
+              15.452475,
+              15.548848,
+              15.760568
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}
