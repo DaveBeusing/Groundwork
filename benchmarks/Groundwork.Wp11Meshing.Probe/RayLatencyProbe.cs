@@ -31,6 +31,7 @@ static class RayLatencyProbe
             new(new(15.7f, 25.173f, 26.319f), .15f, false)
         ];
         var cancelledBrushPair = CheckCancelledBrushPair(tables, edits);
+        var spatialEditGroups = CheckUpperEditGroups(tables, edits, spatial: true);
         var original = Create([]);
         var sourceEdits = edits.ToArray();
         var edited = Create(sourceEdits);
@@ -111,7 +112,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
-            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, cancelledBrushPair,
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, spatialEditGroups, cancelledBrushPair,
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -456,7 +457,7 @@ static class RayLatencyProbe
             ray = new { origin, expected, actual = ray.Hits } };
     }
 
-    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits)
+    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits, bool spatial = false)
     {
         var cut = edits[0];
         var outward = Vector3.Normalize(cut.Center - Grid.BridgeRight.Center);
@@ -467,6 +468,21 @@ static class RayLatencyProbe
         var outerAdd = new DensityEdit(cut.Center + .49f * outward, .07f, true);
         var outerTrim = new DensityEdit(cut.Center + .52f * outward, .065f, false);
         var tip = new DensityEdit(cut.Center + .56f * outward, .045f, true);
+        var transverse = Vector3.Normalize(Vector3.Cross(outward, Vector3.UnitX));
+        if (spatial)
+        {
+            add = Offset(add, .021f, -.018f);
+            trim = Offset(trim, -.014f, .017f);
+            restore = Offset(restore, .026f, .011f);
+            trimRestore = Offset(trimRestore, .026f, .011f);
+            outerAdd = Offset(outerAdd, -.020f, .018f);
+            outerTrim = Offset(outerTrim, -.020f, .018f);
+            tip = Offset(tip, .013f, -.019f);
+            var volume = Vector3.Dot(add.Center - cut.Center,
+                Vector3.Cross(trim.Center - cut.Center, restore.Center - cut.Center));
+            if (MathF.Abs(volume) < 1e-5f)
+                throw new InvalidOperationException("Spatial brushes must span three dimensions.");
+        }
         DensityEdit[] brushes = [cut, add, trim, restore, trimRestore, outerAdd, outerTrim, tip];
         var groups = new (int Count, float FirstSolid, float[] AxialCrossings)[]
         {
@@ -485,14 +501,31 @@ static class RayLatencyProbe
                 throw new InvalidOperationException("Upper edit group used isolated-cut shortcut.");
 
             var cases = new List<(SphereSweep.SweepCase Path, float? Distance)>();
+            var entryOffset = spatial ? Lateral(brushes[group.Count - 1]) : Vector3.Zero;
+            var exitOffset = spatial ? Lateral(add) : Vector3.Zero;
+            var bypass = spatial ? -.35f : .34f;
             foreach (var radius in new[] { .02f, .04f })
             {
-                cases.Add((new("upper-axis-enter", Point(.72f, 0), Point(-.30f, 0), radius),
+                cases.Add((new("upper-axis-enter", Point(.72f, 0) + entryOffset, Point(-.30f, 0) + entryOffset, radius),
                     .72f - group.FirstSolid - radius));
-                cases.Add((new("upper-axis-exit", Point(-.30f, 0), Point(.72f, 0), radius), .16f - radius));
+                cases.Add((new("upper-axis-exit", Point(-.30f, 0) + exitOffset, Point(.72f, 0) + exitOffset, radius), .16f - radius));
             }
-            cases.Add((new("upper-bypass-enter", Point(.72f, .34f), Point(-.10f, .34f), .025f), null));
-            cases.Add((new("upper-bypass-exit", Point(-.10f, .34f), Point(.72f, .34f), .025f), null));
+            cases.Add((new("upper-bypass-enter", Point(.72f, bypass), Point(-.10f, bypass), .025f), null));
+            cases.Add((new("upper-bypass-exit", Point(-.10f, bypass), Point(.72f, bypass), .025f), null));
+
+            if (spatial && group.Count == 5)
+            {
+                const float separation = .06f;
+                const float radius = .025f;
+                const float axial = .49f;
+                var along = (restore.Radius * restore.Radius - trimRestore.Radius * trimRestore.Radius +
+                    separation * separation) / (2 * separation);
+                var circleRadius = MathF.Sqrt(restore.Radius * restore.Radius - along * along);
+                var contact = circleRadius - MathF.Sqrt(radius * radius - MathF.Pow(axial - .40f - along, 2)) - .04f;
+                var offset = Lateral(restore);
+                cases.Add((new("spatial-trim-rim", Point(axial, .04f) + offset,
+                    Point(axial, .11f) + offset, radius), contact));
+            }
 
             var sweeps = cases.Select(test =>
             {
@@ -508,17 +541,60 @@ static class RayLatencyProbe
             var origin = Point(-12, 0);
             var ray = new CollisionRayQuery(grid, mesh).Trace(origin, outward);
             var expected = GeometryProbe.DensityHits(grid, origin, outward);
-            if (expected.Count != group.AxialCrossings.Length + 1 || ray.Hits.Count != expected.Count || ray.Exhausted ||
-                group.AxialCrossings.Where((crossing, index) => MathF.Abs(expected[index + 1] - crossing) > .001f ||
+            var analyticCrossings = spatial ? OrderedAxisCrossings(origin, outward, brushes[..group.Count]) : null;
+            var editedCrossings = analyticCrossings is null ? group.AxialCrossings : analyticCrossings[1..];
+            if (expected.Count != editedCrossings.Length + 1 || ray.Hits.Count != expected.Count || ray.Exhausted ||
+                editedCrossings.Where((crossing, index) => MathF.Abs(expected[index + 1] - crossing) > .001f ||
                     MathF.Abs(ray.Hits[index + 1] - crossing) > .001f).Any())
                 throw new InvalidOperationException($"Upper group ray failed for {group.Count}: reference {expected.Count}, query {ray.Hits.Count}.");
 
-            return (object)new { brushCount = group.Count, edits = ordered, sweeps,
-                ray = new { origin, direction = outward, expected, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
+            return (object)new { brushCount = group.Count, spatial, edits = ordered, sweeps,
+                ray = new { origin, direction = outward, expected, analyticCrossings, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
                 checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
         }).ToArray();
 
         Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
+
+        DensityEdit Offset(DensityEdit edit, float x, float side) =>
+            edit with { Center = edit.Center + x * Vector3.UnitX + side * transverse };
+
+        Vector3 Lateral(DensityEdit edit)
+        {
+            var delta = edit.Center - cut.Center;
+            return delta - Vector3.Dot(delta, outward) * outward;
+        }
+    }
+
+    private static float[] OrderedAxisCrossings(Vector3 origin, Vector3 direction, DensityEdit[] edits)
+    {
+        // Independently combine one-dimensional intervals in edit order.
+        // The tested ray stays in the meridian of the right lobe only.
+        var terrain = Grid.BridgeRight;
+        DensityEdit[] solids = [new(terrain.Center, terrain.Radius, true), .. edits];
+        var intervals = solids.Select(edit =>
+        {
+            var offset = edit.Center - origin;
+            var center = Vector3.Dot(offset, direction);
+            var perpendicular = (offset - center * direction).LengthSquared();
+            var halfSpan = MathF.Sqrt(Math.Max(0, edit.Radius * edit.Radius - perpendicular));
+            return (Start: center - halfSpan, End: center + halfSpan, edit.Add);
+        }).ToArray();
+        var endpoints = intervals.Where(x => x.Start < x.End)
+            .SelectMany(x => new[] { x.Start, x.End }).Distinct().Order().ToArray();
+        var hits = new List<float>();
+        var prior = false;
+        for (var i = 0; i < endpoints.Length; i++)
+        {
+            var inside = false;
+            var sample = i + 1 < endpoints.Length ? (endpoints[i] + endpoints[i + 1]) * .5f : float.PositiveInfinity;
+            foreach (var interval in intervals)
+                if (sample > interval.Start && sample < interval.End)
+                    inside = interval.Add;
+            if (inside != prior)
+                hits.Add(endpoints[i]);
+            prior = inside;
+        }
+        return hits.ToArray();
     }
 
     private static object Measure(string name, GrazingRayFallback query, Ray[] rays, int samples)

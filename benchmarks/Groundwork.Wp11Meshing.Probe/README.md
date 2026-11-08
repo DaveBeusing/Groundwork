@@ -395,3 +395,25 @@ geometry. The ray and sphere controls both verify the cancellation.
 ```
 
 [Five-to-eight brush results](results-windows-mc-upper-edit-groups.json)
+
+## Spatially offset groups of five through eight brushes
+
+The spatial variant offsets the brush centers along both directions
+orthogonal to the opening axis. A nonzero scalar triple product
+guards against accidentally testing coplanar centers. Entry and exit
+paths are aligned with different exposed faces and use independently
+computed contact distances. The five-brush case also tests the
+intersection rim of the restored and trimmed material. The ray
+control composes one-dimensional intervals in edit order using
+independent sphere roots.
+
+Each variant runs the broad ray grid, targeted paths and the existing
+76 bridge sweeps. The previous coaxial and smaller edited matrices
+remain regression checks. The fixture still uses a single spherical
+terrain lobe and a local opening outside the protected seam.
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-spatial-groups.json -RayLatency -RayRuns 1 -RaySamples 1000
+```
+
+[Spatial brush group results](results-windows-mc-spatial-edit-groups.json)
