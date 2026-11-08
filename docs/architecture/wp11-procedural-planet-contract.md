@@ -64,7 +64,7 @@ A player can start a new world from an exact seed and generator version, walk th
 
 - Single-player edits follow the sealed intent order in C00-1C. Implement add/remove operations and deterministic conflict/revision checks. Reject stale edits as whole transactions. Edit impact includes neighbouring bricks, meshes, collision and the persisted overlay.
 - New save schema and planet lineage may replace prior formats completely. No mandatory migration. Encode descriptor, generator version/parameter identity, terrain edit overlay, player/world checkpoint and checksums with bounded canonical ordering.
-- Reuse or replace verified NTFS atomic publication, slot lease, retry-idempotency, stale-base rejection and corrupt/interrupted-write recovery; do not weaken these guarantees. Failed or unsupported saves remain intact and are reported as incompatible; they are not loaded with an incorrect generator.
+- Use the C00-5 classification precedence with NTFS atomic publication, exclusive slot lease, retry idempotency and stale-base rejection. Unclassified or incompatible saves are preserved and block writes.
 - Save during pending generation/edit, unload/reload, exit/restart, incompatible data, partial/corrupt writes and lost acknowledgement must be covered by deterministic tests.
 
 ### R08 – Render and game composition
@@ -79,7 +79,7 @@ A player can start a new world from an exact seed and generator version, walk th
 - Diagnostics expose seed, generator/schema version, planet identifier, camera origin, tiles and meshes active/staged/retained, queue admission, generated/meshed bytes, memory high-water, terrain generation time, LOD and collision coverage holds. No unbounded logs on hot paths.
 - Tests: golden sample hashes across deterministic fixtures, serial/parallel and repeated runs; extreme coordinate precision; all twelve cube edges and eight cube corners; mixed-LOD transitions and cavity/overhang; edit/unload/reload/save/restart; cancellation and stale work; low-memory quota rejection; writer termination; WARP readback and NVIDIA debug live-object shutdown.
 - Benchmark reproducibly on a documented 8-core/32-GiB class Windows machine plus optional workstation. Record adapter/driver, Windows/runtime/SDK, seed, route, generator version, CPU/GPU memory, generation/meshing latency distributions, waits, queue peaks, p50/p95/p99 frame times, draw calls and sample count. Hard performance acceptance thresholds are set from baseline evidence in the architecture review prior to sign-off; no invented FPS claim.
-- Keep 60-Hz fixed simulation deterministic; timing measurements never alter canonical world output.
+- Keep 60-Hz fixed simulation deterministic under the same player input and authoritative admission journal. Timing measurements are not semantic inputs.
 
 ## WP11-C00 architecture clarifications — review candidate (2026-11-08)
 
@@ -121,75 +121,86 @@ Workers may calculate immutable candidates and derived meshes in parallel. C00-1
 
 ### C00-1C — One authoritative terrain publication boundary (L3A-01 resolution candidate)
 
-**Single authoritative commit.** An accepted brush is an intent. The
-world-scoped Terrain Publication Coordinator alone owns typed density-vertex,
-material-cell, brick and dependency scopes, reservations and the pending edit
-order. Workers may prepare immutable results in parallel. Renderer readiness
-is evidence for validation at the barrier. It cannot install a terrain root.
+**Single authoritative commit and tick.** The world-scoped Terrain Publication
+Coordinator owns typed terrain conflict scopes and the sealed edit queue. Workers
+produce immutable candidates only. The Core authority gate finalizes
+`CommitResults(T)` as the single swap of an immutable `WorldPublication`.
+It contains the authoritative finalized tick T, world/planet identity, ECS and
+player state, density/material overlays, terrain revision and collision/mesh
+identity. Token validation, affected pose validation, ECS dispositions, edit
+receipt and publication are one outcome. Validate source terrain revision and
+dependency versions against the current root. Unrelated ECS updates do not
+invalidate a candidate. Shared readers pin one publication under a bounded lease.
 
-**Core integration.** Extend Core's `CommitResults` finalization to publish one
-immutable `WorldPublication` under the same authority gate as the ECS root and
-batch dispositions. It carries the world/planet identity, published tick,
-ECS/player state, immutable TerrainState (descriptor, density and material
-overlays), terrain revision, admitted mesh/collision identity and origin
-stamp. This is a required WP11 integration change. Calling the existing
-terrain acknowledgement and ECS finalization separately is insufficient.
-Validate the candidate, expected source terrain revision, terrain dependency stamps,
-renderer epoch/origin, safety generation and budgets before the one swap.
-Serialize epoch invalidation and token consumption under the same authority
-gate. Renderer callbacks enqueue evidence and never wait under that gate.
-Combine the validated terrain candidate with the ECS state prepared for
-this barrier. An unrelated ECS update since staging does not by itself
-invalidate a candidate. Revalidate the affected player and world state.
-Abort before the swap leaves N authoritative. Validate the retained player
-pose against the new collision before committing. Reject penetration or
-unknown coverage. If the edit removes support without penetration, clear the
-contact and mark the pose ungrounded in the same publication. Keep affected
-motion held until render admission opens. Unrelated systems can keep ticking.
+The scheduler consumes the fixed-step debt and advances its authoritative
+finalized tick exactly once for a successful finalization. A finalized stamp
+survives Stop or observer failure. `TryPublishState` is a downstream observer
+delivery with a separate delivered tick. Delivery failure or Stop may suppress
+delivery and report T−1 as the last observer tick. Neither can uncommit T,
+refund its time or run T twice. A pre-swap Stop leaves T−1 and the old root.
+Save/restore and replay use the authoritative finalized tick, never observer
+delivery. On restart begin at the next tick of the restored durable checkpoint
+with a new wall-clock origin and no old pending step debt.
 
-**Checkpoint cut.** A save request captures one `WorldPublication` at
-`CommitResults`, after the barrier's outcome is fixed, under a bounded
-checkpoint lease. No separate reads of pose, edits or collision identity
-are allowed. The asynchronous I/O worker consumes only the immutable
-bundle and releases its lease after settlement. If the lease budget is
-exhausted, reject or defer capture without mixing revisions or blocking
-the barrier. A capture before an edit commits contains N. A capture
-afterwards contains N+1, even if its first visible frame is pending.
-The durable checkpoint binds the same descriptor, world tick, player
-state and terrain revision/overlay and validates reconstructed collision
-on reload. Slot generation and save retry ID remain distinct from terrain
-revision and edit ID. Edit acknowledgement means the Core swap succeeded.
-Durability requires a separate successful save acknowledgement. An
-interrupted write follows the slot protocol and restores the last
-complete durable checkpoint or the newly published one.
+**Dependent ECS effects.** A brush declares every jointly promised gameplay
+effect, including inventory and contact effects, with brush ID and source
+revision. Stage these effects privately, outside the generic ECS dispositions.
+The same finalization commits all or none. If any effect cannot be applied at
+this cut, including a structural command requiring BeginTick deferral, reject
+the whole brush before the swap. Never enqueue its effects in the generic
+deferred batch. Standalone unrelated ECS batches retain their usual phase
+semantics. A committed receipt is derived from the swap, not a second mutation.
 
-**Conflict order.** At the published input tick, seal a bounded intent
-order by (published tick, canonical brush ID) before dispatch. Intake
-uses a bounded per-tick envelope. On overflow reject the entire edit
-set for that tick before dispatch, independent of arrival order. Reject
-duplicate IDs with different payloads. Identical retries return the
-pending or recorded disposition while retained. Only the first
-unresolved intent may advance to renderer staging or commit. Later
-workers may prepare CPU artifacts within reserved budget, but cannot
-consume the head's reserved capacity or overtake it. Only one view
-cutover can be in flight. Following edits cannot start another cutover
-until the matching frame is accepted or the affected epoch settles. The head resolves
-as Committed, Rejected (including Stale or Backpressure), or Cancelled.
-Revalidate each successor against the new committed revision, even for
-disjoint edits. There is no automatic rebase. A user resubmission after
-Stale uses a new ID and the new expected revision. An evicted duplicate
-is rejected by the closed input-tick watermark. Replay records any
-explicit cancellation or fault outcome separately from readiness waits.
-A readiness watchdog faults or cancels the entire affected pending epoch
-with no later success in that epoch. Worker speed alone cannot select an
-edit winner. Independent simulation continues.
+**Save cut.** Capture one finalized `WorldPublication` after the outcome of
+`CommitResults(T)` under a pre-reserved bounded checkpoint lease. Allocate or
+reject capture before the swap, then bind the lease to that finalized root
+without a fallible extension callback. Save worker I/O is outside the barrier.
+A pre-edit capture is N; a post-edit capture is N+1 even under the view hold.
+Each slot admits one writer with a bounded FIFO of captures, in (finalized tick,
+capture ordinal) order. A capture older than the last admitted cut cannot
+overwrite it. Bind its expected slot base at admission to the writer, retain
+the identical retry identity and payload until settlement, and never repackage
+a stale capture with a fresh base. Slot generation, edit ID and terrain
+revision are distinct. A coherent ungrounded pose is saveable; restore rebuilds
+collision and starts a fresh hold/coverage admission before movement, retaining
+the saved pose and velocity. An edit receipt proves the Core commit. Only the
+separate durable slot receipt proves persistence.
 
-**Required adversarial fixtures:** reverse completion of overlapping and
-disjoint edits while the head remains pending, cancel or fault the head
-without overtaking, retry identical and conflicting IDs, cancel after
-partial mesh preparation, and capture saves on both sides of finalization
-and after a display fault. Assert exact disposition order, coherent
-terrain/pose/collision stamps, and bounded settlement of all leases.
+**Order and semantic replay.** At input tick seal the bounded per-world order
+by (tick, canonical brush ID) before dispatch. Overflow rejects that tick's
+edit set as a whole. Identical retries return the retained outcome; conflicting
+IDs and requests below the closed tick watermark reject. Only the first
+unresolved intent may enter renderer staging or commit. Speculative successor
+work is advisory, cannot consume protected capacity, and cannot determine a
+terminal disposition. After a commit revalidate each successor, including
+disjoint intents, against the new revision and reject Stale rather than rebase.
+An explicit resubmission uses a new ID. The next edit cutover starts only after
+the prior view has opened or the affected epoch has settled.
+
+Live execution may produce different effective ticks with different readiness.
+The semantic replay input is the recorded player input **and** an ordered
+journal of authoritative admissions. At each BeginTick and CommitResults
+ingress cutoff, the Core authority assigns applicable events (tick, phase,
+ordinal), recording full identities and outcome: intent admission/reject,
+hold close/open, Ready eligibility, commit/reject, rebase, stop/epoch fault,
+watchdog and save capture or denial with its selected cut. Events arriving
+after a cutoff take effect at the next eligible barrier. Revocation can fence
+a current attempt immediately at the authority gate; the ordered journal
+records which swap it preceded or followed. If watchdog expiry wins the gate
+before the swap, cancel the affected pending epoch without any later commit in
+that epoch; if the swap wins, preserve the committed root and fault its view.
+Compare semantic state under equal recorded events, not equal raw input alone.
+Replay waits outside simulated time for required matching artifacts at the
+recorded cut (bounded by a test timeout); missing or mismatching evidence fails
+replay. Unrecorded early artifacts cannot advance the effective tick. Live
+unrelated systems do not wait on this replay-only rule.
+
+**Required fixtures:** reverse completion, Ready/watchdog in both orders,
+stale and duplicate IDs, cancelled head, ECS effects on reject and deferral,
+Stop between finalization and observer delivery, save before/after swap and
+after display fault, reverse I/O completion and ungrounded restore. Assert
+journal identity, consistent finalized tick, root, collision and exact saved
+payload, plus bounded settlement.
 
 ### C00-1 — Canonical volume addressing across faces and LOD (R01, R03, A01/A03)
 
@@ -209,69 +220,78 @@ Never key generation or ordering on worker scheduling, clock time, platform thre
 
 ### C00-3 — Simulation-authoritative coverage versus GPU presentation (R04–R06, C01–C03)
 
-**Admission and renderer handoff:**
+**Core and renderer admission.** The Core authority gate is the linearization
+point for hold state, Ready consumption, root swap, view revocation,
+visible-submit registration and acknowledgement acceptance. The renderer may
+make a short gate operation to record a submit or revoke a view. No driver call,
+GPU wait or callback executes under the gate. A terminal loss observed by
+software revokes at this gate as the first fault action, before queuing
+diagnostics or recovery. Concurrent loss/rebase/Stop and swap are ordered
+there. A physically earlier but unobservable loss cannot revoke retrospectively.
+Tokens and receipts bind world, candidate, source/target terrain revision,
+committed terrain/collision identity as applicable, renderer epoch, monotone
+view generation, origin and frame identity. Use a new view generation even
+when reusing the same committed terrain and origin.
 
-1. `Requested` → reserve bounded immutable input and work for the head
-   of the sealed order. Hold only actions that require unavailable coverage.
-2. `Prepared` → complete matching immutable mesh and collision artifacts,
-   including descriptor, source revision and origin/camera stamps.
-3. `ReadyToCommit` → the renderer owns a fenced, drawable-ready upload
-   and returns a token for (world, candidate, source revision, target
-   revision, renderer epoch, origin revision). Staged geometry may be
-   rendered offscreen. It is ineligible for the visible swap chain.
-   Before issuing the token, gate presentation of the affected view
-   behind a neutral loading mask. Complete or fence earlier submissions
-   and confirm that the provider has accepted the mask frame. If masking
-   or preparation fails, do not issue a token or commit. The mask remains
-   latched until a matching committed frame can replace it.
-4. `Committed` → the named Core `CommitResults` barrier validates the
-   token and performs the single `WorldPublication` swap in C00-1C.
-   Only a matching commit permit from that swap makes a frame eligible
-   for visible presentation. The coordinator publishes the edit
-   disposition and permit from the same committed outcome. A rebase,
-   cancellation or terminal stop before the swap invalidates the token.
-   With no commit, restore the last committed view if safe or keep the
-   mask and stop the affected path. Discard late readiness and never
-   submit the candidate to the visible swap chain.
-5. `VisibleAccepted` → the provider accepts a frame with the matching
-   commit permit, renderer epoch, mesh and origin. This releases the
-   mask and opens contact-sensitive actions against that same committed
-   revision. A delayed or failed first Present after commit keeps the
-   affected view masked and its actions held. N+1 stays committed and
-   saveable. Recovery may resubmit only that committed content with a
-   valid current permit. Serialize view-permit invalidation with frame
-   admission at the renderer owner. A previously admitted in-flight frame
-   may settle but its stale acknowledgement cannot reopen input. If the
-   origin changes after commit, invalidate
-   the old view permit, rebuild or reproject the same committed revision
-   with the new origin, and revalidate before unmasking. Never roll back
-   N+1 or expose old geometry as current. Terminal failure closes the
-   affected presentation path through Core ownership and fault policy.
-6. `Retired` → release old and rejected CPU/GPU versions only after the
-   relevant readers, workers, submissions and native fences settle.
-   Signal failure, device loss and stop keep ownership in custody until
-   safe release is established.
+1. `Held`: before requesting the mask or changing view authority, Core closes
+   the affected action gate at BeginTick. Derive the affected scope from the
+   conservative sweep/contact dependency envelope including gravity and stopping
+   distance. Re-evaluate the scope for subsequent actions and fail closed for
+   unknown coverage. Hold the entire affected movement transaction, including
+   pose, velocity integration, gravity, jump edge, contact changes and dependent
+   gameplay effects. Explicitly discard held jump edges and movement deltas.
+   Retain only current continuous input. Unrelated actors/systems continue at
+   their normal fixed rate.
+2. `ReadyToCommit`: build matching mesh/collision under the reserved budget.
+   GPU uploads are fenced. An accepted neutral mask frame for the current view
+   and settlement or fencing of preceding submissions are required. Staged
+   terrain may render offscreen. It cannot enter the visible swap chain.
+3. `Committed`: the Core barrier consumes one matching Ready token and swaps
+   the root as in C00-1C. Validate the retained pose and contact dependencies
+   against the new collision. Reject unknown coverage or penetration. If
+   support disappears, clear the contact and set ungrounded in that same swap,
+   retaining pose and velocity until an eligible movement tick. The commit
+   emits a visible permit. A rejected or cancelled pre-swap attempt leaves N
+   authoritative. Invalidate its token and restore N through the same held
+   view re-admission path, or terminate the affected path.
+4. `Registered`: before the visible driver submission, the renderer registers
+   a frame using the permit at the authority gate. If revoked first, registration
+   fails. Registration first means already in flight, with ownership retained
+   until safe settlement even if revocation follows. Do not use that frame to
+   reopen a revoked view. Rebase revokes the old view and closes its hold
+   before a new view can be requested. On terminal stop close admission
+   immediately and retain custody. Unrelated fixed ticks are not gated by
+   renderer settlement.
+5. `VisibleAccepted`: successful provider Present for the registered content
+   frame plus successful submission/retirement Signal yields evidence, not
+   action release. Busy, test-only Present, occlusion and failed Signal do not
+   qualify. Core consumes evidence at BeginTick, revalidates the current
+   root terrain/collision, epoch, view, origin, registration and hold under
+   the gate and opens only that view's hold. The committed frame replaces
+   the neutral mask. If revoked after opening, close the gate at once and
+   fence any affected in-progress action at its next commit check. The first
+   allowed movement is one normal tick with current input, including gravity
+   if ungrounded. No backlog. Physical scanout and fence completion remain
+   distinct from provider acceptance. Previously submitted pixels may linger.
+6. `Recovery/Retired`: failed or delayed first Present after commit retains
+   N+1 and its saveability. Keep the view masked/closed until re-admitted.
+   At BeginTick the authority may issue a replacement permit for the same
+   committed terrain/collision root without an edit swap, using a fresh view
+   generation, matching rebuilt/reprojected mesh, mask acceptance and new
+   epoch/origin. This also re-admits N after an aborted precommit attempt.
+   Never reopen on a stale ACK. A terminal fault can close the affected view
+   or stop the host. Release old, cancelled and in-flight resources only at
+   proven reader/worker/native settlement. Failed Signal or a removal sentinel
+   is insufficient. On deadline expiry report incomplete cleanup and retain
+   the owner and credits in custody until safe evidence exists.
 
-This contract governs which frames the provider is allowed to submit and
-accept. Present acceptance gives no guarantee about physical scanout or
-compositor timing. Old already displayed pixels may persist until the
-mask is presented. During cutover, the mask and affected-action hold
-prevent an interactive mixed-generation view. Only the first matching
-frame of a new committed view is required. Later fixed ticks do not
-require a fresh Present for unchanged coverage. Holds never build an
-input backlog, and independent systems continue. Apply bounded deadlines
-and quotas to readiness, mask/Present and recovery. On expiry, settle
-or stop the affected path without bypassing the edit order. Report
-readiness waits separately from semantic replay and record any explicit
-fault or cancellation outcomes in the replay fixture.
-
-**Required evidence:** no candidate presentation before commit, including
-abort between readiness and finalization. Exercise successful mask
-followed by cancellation, stale/duplicate token, precommit and postcommit
-rebase, failed or delayed first visible Present, stop after commit before
-permit consumption, save during each phase and fresh-process restoration.
-Verify the displayed admission state, committed root, collision hold,
-save cut and custody at each step.
+**Required fixtures:** mask success then pre-swap cancel, revoke before and
+after registration, both observed device-loss/swap orders, post-swap failed
+Present, rebase before/after ACK queueing, replacement permit without new
+terrain revision, stale ACK, Stop before/after observer delivery, loss of
+support while standing, running/jumping while digging, unknown swept coverage,
+and first eligible gravity tick. Assert each gate, pose/contact, tick,
+checkpoint cut, in-flight ownership and final release.
 
 ### C00-4 — Meshing and performance-budget decision gate (R04/R05/R09, B01/Q01)
 
@@ -279,15 +299,83 @@ The **owner-approved first reference candidate** is Marching Cubes with validate
 
 Provisional ceilings from R05 — 4 generating jobs, 2 meshing jobs, 1 staged generation, 512 MiB CPU terrain and 256 MiB GPU geometry — are **planning limits only**. Before C00 acceptance, choose documented reference hardware and scene seeds, benchmark both candidates or a defensible reduced prototype, publish actual high-water allocation and p50/p95/p99 times, and freeze explicit acceptance ceilings with justification. Count CPU active, pending, leased, obsolete and retiring buffers and GPU upload, active, candidate and retirement buffers; keep the workload bounded and reject reservations before allocation. A measurement not run must be marked `NOT MEASURED` and is a remaining C00 gate, not estimated proof. Geometry and memory budget tuning may change the 32-cell/1 m reference after measurements without a backward compatibility obligation.
 
+**Protected progress credits.** The world coordinator admits a complete
+resource vector before dispatch. It atomically reserves job/queue and lease
+slots, CPU peak including retained results, upload bytes, resident old and
+new GPU geometry, retirement slots/bytes, and temporary space for the
+mask and recovery. Any unavailable credit denies the entire reservation
+with explicit Backpressure before allocation. This outcome is journaled.
+No actor waits or retries in a resource or authority critical section.
+
+Partition the bounded total into disjoint protected envelopes for the
+first unresolved edit, required movement coverage, and view recovery,
+plus a speculative remainder. Their sum and active/retained baseline
+must fit the measured ceilings. Later intents and streaming speculation
+cannot borrow protected credits, including when the corresponding path
+is idle. Recovery has its own capacity even if the edit still holds old
+and new geometry. If a valid worst-case envelope cannot be reserved,
+reject before cutover, or keep the affected action held on the existing
+coherent root. Budget sizing and an admissible reference route must be
+demonstrated before C00 approval. Higher priority never bypasses the
+sealed edit order.
+
+Account for every allocation exactly once throughout prepare, upload,
+publication, cancellation and retirement. A transfer is acknowledged
+before the prior owner releases its charge. A worker-slot release does
+not free its result, lease or GPU charge. Cancelled speculative work
+retains its credits until real settlement. Resume on confirmed credit
+release or a recorded bounded disposition, never a polling retry loop.
+At deadline, report incomplete cleanup and keep unsettled credits
+charged. An exhausted protected recovery path stays masked/held or
+stops safely. Q01/Q02 must test full speculative load, head and recovery
+progress with old geometry retained, and per-transition balances at
+each limit and ±1 byte/slot. The provisional numeric values are not
+measurements.
+
 **Required evidence:** enclosed cavity, overhang, thin bridge, multiple intersecting LOD transition edges, face corners and deliberately saturated streaming; repeatable machine+build+seed and allocation logs. Approval of a preferred candidate is contingent on these artifacts.
 
 ### C00-5 — Explicit new-save namespace and incompatibility safety (R07, D02/W03)
 
 WP11 uses a **new world lineage and checkpoint schema**. The proposed Windows root is `%LOCALAPPDATA%\\WorldsYetUnseen\\Worlds\\v2\\<opaque-world-id>\\`, separated from existing alpha WP06/07/09/10 slots. Treat the root and `v2` segment as a *namespace identifier*, not an assertion that every earlier format was version 1. Choose/validate opaque world IDs and canonical path containment; prohibit path traversal, symlink escapes, ambiguous case or slot collisions. A newly created world reserves a unique empty slot before first write; an existing slot cannot be silently reused by "New World" even if parsing its header fails.
 
-The checkpoint header binds a world ID and planet descriptor, generator algorithm/version, parameter digest, material catalog and storage schema. On Continue, inspect occupied committed slots before creation/publication. If a file is from a legacy or unsupported version, a different seed/lineage, has an ambiguous header, or cannot be safely classified, return explicit `Incompatible` / `Unsupported` / `Corrupt` / `AccessError` (as appropriate), **leave every byte intact and do not write**. Offer a **separate unique new-world slot**; migration is out of scope. Never interpret old data using the new generator or manufacture an empty world over it.
+**Slot classification precedes recovery.** Under one exclusive slot
+lease, classify both committed names on every Load and Save before
+selecting the winner or granting write authority. A valid sibling does
+not short-circuit the scan, regardless of generation. Classify each as
+Missing, ValidCompatible, DamagedCompatible, Protected or AccessError.
+DamagedCompatible requires positive evidence from a complete,
+independently integrity-checked identity header that binds the supported
+format, world/lineage, descriptor and slot identity. A damaged payload
+alone may then allow fallback to a valid compatible sibling. Legacy or
+unsupported format, incompatible lineage, unknown magic, short or
+unverifiable identity, unsafe path or size, and other ambiguous evidence
+are Protected. Classify independently of any header generation advertised
+by an untrusted file. On access failure or any Protected member block
+Continue and all writes to the slot, return a specific reason, and
+preserve every byte even when the other member is newer and valid.
+Offer a separate new world slot. This precedence supersedes the generic
+WP06 malformed-member fallback where it would allow replacement of
+protected data.
 
-Revalidate slot identity on save as well as load; preserve the existing or stronger NTFS lease, idempotent retry ID, stale-base detection, atomic alternating committed files, flush/verify and recovery discipline. A failed/uncertain scan blocks publication rather than falling back to reset. Test occupied unsupported slots, two writers, corrupt/partial headers, access denial, loss of acknowledgment, interruption around atomic publication and correct recovery without unintended overwrites.
+Recover from DamagedCompatible only with a valid compatible sibling.
+With no valid member and any damaged member, block Continue and writes.
+With both members Missing, only an explicitly reserved new world may
+start at Empty. Check target identity again at publication under the
+lease, including reparse protection. Stage to an exclusively created
+operation-scoped private temporary file. Never select it as a committed
+generation or overwrite an unclassified pre-existing file. Flush and
+verify, then atomically publish to the allowed alternating target,
+verify and acknowledge. A process interruption before publication leaves
+the prior durable cut. After publication, rescan under the lease to
+prove the result or return Indeterminate. An identical retry uses the
+same payload, base and retry ID. Same-ID different bytes reject.
+
+Test every compatible/damaged/protected/access A/B pairing in both
+generation orders, especially valid newer plus older unsupported and
+valid plus foreign magic, short header or oversize. Assert both file
+hashes unchanged when protected, then exercise capture order, stale
+base, partial write, flush, rename, lost receipt, retry, process restart
+and restoration of a coherent ungrounded checkpoint.
 
 ## Independent-review and execution gate for these clarifications
 

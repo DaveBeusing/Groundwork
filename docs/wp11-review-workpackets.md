@@ -80,8 +80,8 @@ Inspect and challenge:
 
 Inspect and challenge:
 - Authoritative doubles, planet radius 6,400 km, local render rebasing, object/terrain velocities, max update range, precision under orbit + return.
-- Define exact point at which staged terrain and collision become *simulation-authoritative*; distinguish first-time presentation acknowledgment from continuous rendered frame pacing. A slow renderer must not nondeterministically change the fixed-step input trace.
-- How collision holds while streaming occur without falsely advancing world ticks, replay, inventory or motion. Swept-volume collision must admit ceiling/overhang/cavity contacts and gravity transitions.
+- Define exact point at which staged terrain and collision become *simulation-authoritative*; distinguish first-time presentation acknowledgment from continuous rendered frame pacing. Verify that renderer latency cannot change the recorded player input and that the effective hold, commit and release ticks are recorded as authoritative replay admissions.
+- How collision holds freeze the entire affected transaction while independent world ticks continue. Verify authoritative finalization separately from observer delivery. Swept-volume collision must admit ceiling/overhang/cavity contacts and gravity transitions.
 - Edit+save consistency at a named published tick barrier, origin and recipe identity, and revisits after flight.
 - Ensure deterministic trace semantics across different job completion order even where render readiness varies; identify what is allowed to differ (wait counts, elapsed time).
 
