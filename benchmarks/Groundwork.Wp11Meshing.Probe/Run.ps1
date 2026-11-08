@@ -6,7 +6,9 @@ param(
     [switch]$GeometryOnly,
     [switch]$CollisionComparison,
     [switch]$CollisionBoundaries,
-    [switch]$CollisionPerformance
+    [switch]$CollisionPerformance,
+    [switch]$RayLatency,
+    [ValidateRange(100, 100000)][int]$RaySamples = 10000
 )
 $ErrorActionPreference = 'Stop'
 $expected = '83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4'
@@ -63,7 +65,16 @@ try {
         @{ fixture = 'junction'; layout = 'corner' },
         @{ fixture = 'seam'; layout = 'pressure' }
     )
-    if ($CollisionPerformance) {
+    if ($RayLatency) {
+        for ($run = 1; $run -le 3; $run++) {
+            $row = dotnet $dll $Tables mc bridge face ray-latency $RaySamples
+            if ($LASTEXITCODE) { throw "Ray latency and edit validation failed in process $run." }
+            $result = $row | ConvertFrom-Json
+            $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run
+            $rows += $result
+            Write-Host "Ray latency and edit validation completed in process $run."
+        }
+    } elseif ($CollisionPerformance) {
         $performanceCases = @(
             @{ fixture = 'bridge'; layout = 'face'; mode = 'tangential-baseline' },
             @{ fixture = 'bridge'; layout = 'face'; mode = 'tangential-full' },
@@ -210,6 +221,7 @@ try {
         collisionComparison = [bool]$CollisionComparison
         collisionBoundaries = [bool]$CollisionBoundaries
         collisionPerformance = [bool]$CollisionPerformance
+        rayLatency = [bool]$RayLatency
         sdk = (dotnet --version)
         runtime = (dotnet --list-runtimes | Where-Object { $_ -like 'Microsoft.NETCore.App 10.*' } | Select-Object -Last 1)
         sourceBase = '1d6f439c17abf2ebdb40fe7970a3e995cf5c286f'

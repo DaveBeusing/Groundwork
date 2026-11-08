@@ -119,8 +119,8 @@ static class GeometryProbe
             var direction = I3.Axis(axis).Position;
             var expected = DensityHits(grid, origin, direction);
             var meshHits = MeshHits(mesh, origin, direction);
-            var (actual, exhausted) = meshHits.Count == 0 && fallback is not null
-                ? fallback.Trace(origin, direction) : (meshHits, false);
+            var (actual, exhausted, _) = meshHits.Count == 0 && fallback is not null
+                ? fallback.Trace(origin, direction) : (meshHits, false, 0);
             if (meshHits.Count == 0 && actual.Count > 0)
                 fallbackTraces.Add(new CollisionExample(group, axis, origin, expected, meshHits) { Resolved = actual });
             Compare(group);
@@ -198,7 +198,7 @@ static class GeometryProbe
         public float MaxPairedError { get; set; }
     }
 
-    private static List<float> DensityHits(Grid grid, Vector3 origin, Vector3 direction)
+    internal static List<float> DensityHits(Grid grid, Vector3 origin, Vector3 direction)
     {
         var hits = new List<float>();
         const float step = 1f / 32;
@@ -226,7 +226,7 @@ static class GeometryProbe
     internal static bool IsInside(Mesh mesh, Vector3 point) =>
         (MeshHits(mesh, point, Vector3.Normalize(new(1, .371f, .193f))).Count & 1) != 0;
 
-    private static List<float> MeshHits(Mesh mesh, Vector3 origin, Vector3 direction)
+    internal static List<float> MeshHits(Mesh mesh, Vector3 origin, Vector3 direction)
     {
         var hits = new List<float>();
         foreach (var t in mesh)

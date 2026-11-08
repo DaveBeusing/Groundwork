@@ -1,0 +1,1378 @@
+{
+  "timestampUtc": "2026-11-08T22:47:45.7659306Z",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "physicalMemoryBytes": 68137205760,
+  "installedMemoryBytes": 68719476736.0,
+  "referenceHardwareRequired": false,
+  "geometryOnly": false,
+  "collisionComparison": false,
+  "collisionBoundaries": false,
+  "collisionPerformance": false,
+  "rayLatency": true,
+  "sdk": "10.0.403",
+  "runtime": "Microsoft.NETCore.App 10.0.14 [C:\\Program Files\\dotnet\\shared\\Microsoft.NETCore.App]",
+  "sourceBase": "1d6f439c17abf2ebdb40fe7970a3e995cf5c286f",
+  "tablesCommit": "51a494f03c5b024cd153b596bcc7152eb3cc93a6",
+  "tablesSha256": "83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4",
+  "tieredCompilation": false,
+  "results": [
+    {
+      "samplesPerCase": 10000,
+      "stopwatchFrequencyHz": 10000000,
+      "latency": [
+        {
+          "name": "original-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 10.4,
+          "p95us": 14.3,
+          "p99us": 18.8,
+          "maxUs": 162.5,
+          "p50DensitySamples": 477,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "original-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0.1,
+          "p95us": 0.2,
+          "p99us": 0.2,
+          "maxUs": 11.6,
+          "p50DensitySamples": 4,
+          "maxDensitySamples": 4
+        },
+        {
+          "name": "edited-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 15.7,
+          "p95us": 21.6,
+          "p99us": 29.1,
+          "maxUs": 250,
+          "p50DensitySamples": 519,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "edited-added-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 0.9,
+          "p95us": 1,
+          "p99us": 1.4,
+          "maxUs": 31.2,
+          "p50DensitySamples": 32,
+          "maxDensitySamples": 32
+        },
+        {
+          "name": "edited-removed-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 2.3,
+          "p95us": 3.3,
+          "p99us": 4,
+          "maxUs": 209.4,
+          "p50DensitySamples": 80,
+          "maxDensitySamples": 80
+        },
+        {
+          "name": "edited-seam-excluded",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0,
+          "p95us": 0.1,
+          "p99us": 0.1,
+          "maxUs": 0.5,
+          "p50DensitySamples": 0,
+          "maxDensitySamples": 0
+        }
+      ],
+      "originalChecksum": "6B6314081CF1203C",
+      "editedChecksum": "0F45DD177D8B01E0",
+      "edits": [
+        {
+          "Center": {
+            "X": 23.17,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Radius": 0.4,
+          "Add": false
+        },
+        {
+          "Center": {
+            "X": 24.3,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        }
+      ],
+      "originalCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            22.98159,
+            23.35841
+          ],
+          "meshHits": [],
+          "actual": [
+            22.981586,
+            23.358414
+          ],
+          "queried": true,
+          "samples": 407,
+          "error": 3.8146973E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "queried": true,
+          "samples": 477,
+          "error": 7.6293945E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "queried": true,
+          "samples": 519,
+          "error": 2.3841858E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "queried": true,
+          "samples": 674,
+          "error": 2.5749207E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "seam-excluded",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 0,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        }
+      ],
+      "editedCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 80,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "queried": true,
+          "samples": 477,
+          "error": 7.6293945E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "queried": true,
+          "samples": 519,
+          "error": 2.3841858E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "queried": true,
+          "samples": 674,
+          "error": 2.5749207E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            24.2,
+            24.399998
+          ],
+          "meshHits": [],
+          "actual": [
+            24.199999,
+            24.4
+          ],
+          "queried": true,
+          "samples": 32,
+          "error": 1.9073486E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "seam-excluded",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.073002,
+            24.272999
+          ],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 0,
+          "error": null,
+          "seamExcluded": true
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        }
+      ],
+      "budgetControl": {
+        "Exhausted": true,
+        "Samples": 4096
+      },
+      "processRun": 1
+    },
+    {
+      "samplesPerCase": 10000,
+      "stopwatchFrequencyHz": 10000000,
+      "latency": [
+        {
+          "name": "original-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 14.1,
+          "p95us": 18.7,
+          "p99us": 19.4,
+          "maxUs": 43.3,
+          "p50DensitySamples": 477,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "original-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0.1,
+          "p95us": 0.2,
+          "p99us": 0.2,
+          "maxUs": 1,
+          "p50DensitySamples": 4,
+          "maxDensitySamples": 4
+        },
+        {
+          "name": "edited-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 17.3,
+          "p95us": 24.5,
+          "p99us": 27.5,
+          "maxUs": 64,
+          "p50DensitySamples": 519,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "edited-added-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 0.9,
+          "p95us": 1,
+          "p99us": 1,
+          "maxUs": 8.1,
+          "p50DensitySamples": 32,
+          "maxDensitySamples": 32
+        },
+        {
+          "name": "edited-removed-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 2.2,
+          "p95us": 2.3,
+          "p99us": 2.3,
+          "maxUs": 11.1,
+          "p50DensitySamples": 80,
+          "maxDensitySamples": 80
+        },
+        {
+          "name": "edited-seam-excluded",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0,
+          "p95us": 0.1,
+          "p99us": 0.1,
+          "maxUs": 0.5,
+          "p50DensitySamples": 0,
+          "maxDensitySamples": 0
+        }
+      ],
+      "originalChecksum": "6B6314081CF1203C",
+      "editedChecksum": "0F45DD177D8B01E0",
+      "edits": [
+        {
+          "Center": {
+            "X": 23.17,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Radius": 0.4,
+          "Add": false
+        },
+        {
+          "Center": {
+            "X": 24.3,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        }
+      ],
+      "originalCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            22.98159,
+            23.35841
+          ],
+          "meshHits": [],
+          "actual": [
+            22.981586,
+            23.358414
+          ],
+          "queried": true,
+          "samples": 407,
+          "error": 3.8146973E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "queried": true,
+          "samples": 477,
+          "error": 7.6293945E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "queried": true,
+          "samples": 519,
+          "error": 2.3841858E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "queried": true,
+          "samples": 674,
+          "error": 2.5749207E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "seam-excluded",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 0,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        }
+      ],
+      "editedCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 80,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "queried": true,
+          "samples": 477,
+          "error": 7.6293945E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "queried": true,
+          "samples": 519,
+          "error": 2.3841858E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "queried": true,
+          "samples": 674,
+          "error": 2.5749207E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            24.2,
+            24.399998
+          ],
+          "meshHits": [],
+          "actual": [
+            24.199999,
+            24.4
+          ],
+          "queried": true,
+          "samples": 32,
+          "error": 1.9073486E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "seam-excluded",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.073002,
+            24.272999
+          ],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 0,
+          "error": null,
+          "seamExcluded": true
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        }
+      ],
+      "budgetControl": {
+        "Exhausted": true,
+        "Samples": 4096
+      },
+      "processRun": 2
+    },
+    {
+      "samplesPerCase": 10000,
+      "stopwatchFrequencyHz": 10000000,
+      "latency": [
+        {
+          "name": "original-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 12.6,
+          "p95us": 25.7,
+          "p99us": 35.4,
+          "maxUs": 576,
+          "p50DensitySamples": 477,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "original-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0.2,
+          "p95us": 0.3,
+          "p99us": 0.3,
+          "maxUs": 12,
+          "p50DensitySamples": 4,
+          "maxDensitySamples": 4
+        },
+        {
+          "name": "edited-grazing-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 28.8,
+          "p95us": 53.1,
+          "p99us": 63,
+          "maxUs": 345.5,
+          "p50DensitySamples": 519,
+          "maxDensitySamples": 674
+        },
+        {
+          "name": "edited-added-hit",
+          "samples": 10000,
+          "hitQueries": 10000,
+          "exhaustedQueries": 0,
+          "p50us": 1.4,
+          "p95us": 1.4,
+          "p99us": 1.6,
+          "maxUs": 11.1,
+          "p50DensitySamples": 32,
+          "maxDensitySamples": 32
+        },
+        {
+          "name": "edited-removed-clear",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 3.1,
+          "p95us": 3.3,
+          "p99us": 3.6,
+          "maxUs": 13.1,
+          "p50DensitySamples": 80,
+          "maxDensitySamples": 80
+        },
+        {
+          "name": "edited-seam-excluded",
+          "samples": 10000,
+          "hitQueries": 0,
+          "exhaustedQueries": 0,
+          "p50us": 0,
+          "p95us": 0.1,
+          "p99us": 0.1,
+          "maxUs": 0.5,
+          "p50DensitySamples": 0,
+          "maxDensitySamples": 0
+        }
+      ],
+      "originalChecksum": "6B6314081CF1203C",
+      "editedChecksum": "0F45DD177D8B01E0",
+      "edits": [
+        {
+          "Center": {
+            "X": 23.17,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Radius": 0.4,
+          "Add": false
+        },
+        {
+          "Center": {
+            "X": 24.3,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        },
+        {
+          "Center": {
+            "X": 16.3,
+            "Y": 24.173,
+            "Z": 24.319
+          },
+          "Radius": 0.1,
+          "Add": true
+        }
+      ],
+      "originalCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            22.98159,
+            23.35841
+          ],
+          "meshHits": [],
+          "actual": [
+            22.981586,
+            23.358414
+          ],
+          "queried": true,
+          "samples": 407,
+          "error": 3.8146973E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "queried": true,
+          "samples": 477,
+          "error": 7.6293945E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "queried": true,
+          "samples": 519,
+          "error": 2.3841858E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "queried": true,
+          "samples": 674,
+          "error": 2.5749207E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "seam-excluded",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 0,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        }
+      ],
+      "editedCases": [
+        {
+          "Name": "original-cap-x",
+          "Origin": {
+            "X": 0,
+            "Y": 20.173,
+            "Z": 16.819
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 80,
+          "error": 0,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-y",
+          "Origin": {
+            "X": 19.319,
+            "Y": 0,
+            "Z": 13.673
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            16.003849,
+            16.25615
+          ],
+          "meshHits": [],
+          "actual": [
+            16.003841,
+            16.256153
+          ],
+          "queried": true,
+          "samples": 477,
+          "error": 7.6293945E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-a",
+          "Origin": {
+            "X": 8.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.430261,
+            15.629739
+          ],
+          "meshHits": [],
+          "actual": [
+            15.430237,
+            15.629751
+          ],
+          "queried": true,
+          "samples": 519,
+          "error": 2.3841858E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "original-cap-z-b",
+          "Origin": {
+            "X": 9.173,
+            "Y": 20.319,
+            "Z": 0
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 0,
+            "Z": 1
+          },
+          "expected": [
+            15.467172,
+            15.592828
+          ],
+          "meshHits": [],
+          "actual": [
+            15.467146,
+            15.592843
+          ],
+          "queried": true,
+          "samples": 674,
+          "error": 2.5749207E-05,
+          "seamExcluded": false
+        },
+        {
+          "Name": "added-off-seam",
+          "Origin": {
+            "X": 0,
+            "Y": 23.173,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [
+            24.2,
+            24.399998
+          ],
+          "meshHits": [],
+          "actual": [
+            24.199999,
+            24.4
+          ],
+          "queried": true,
+          "samples": 32,
+          "error": 1.9073486E-06,
+          "seamExcluded": false
+        },
+        {
+          "Name": "seam-excluded",
+          "Origin": {
+            "X": 16.3,
+            "Y": 0,
+            "Z": 24.319
+          },
+          "Direction": {
+            "X": 0,
+            "Y": 1,
+            "Z": 0
+          },
+          "expected": [
+            24.073002,
+            24.272999
+          ],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 0,
+          "error": null,
+          "seamExcluded": true
+        },
+        {
+          "Name": "clear",
+          "Origin": {
+            "X": 0,
+            "Y": 1.173,
+            "Z": 1.319
+          },
+          "Direction": {
+            "X": 1,
+            "Y": 0,
+            "Z": 0
+          },
+          "expected": [],
+          "meshHits": [],
+          "actual": [],
+          "queried": true,
+          "samples": 4,
+          "error": 0,
+          "seamExcluded": false
+        }
+      ],
+      "budgetControl": {
+        "Exhausted": true,
+        "Samples": 4096
+      },
+      "processRun": 3
+    }
+  ]
+}

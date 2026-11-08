@@ -4,9 +4,17 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length is not (5 or 6))
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision|tangential-baseline|tangential-full> [benchmark-repetitions]");
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision|tangential-baseline|tangential-full|ray-latency> [benchmark-samples]");
 
 const int n = 32;
+if (args[4] == "ray-latency" && args.Length == 6)
+{
+    var rayTables = new Tables(File.ReadAllText(args[0]));
+    var samples = int.Parse(args[5], System.Globalization.CultureInfo.InvariantCulture);
+    Console.WriteLine(JsonSerializer.Serialize(RayLatencyProbe.Run(rayTables, samples),
+        new JsonSerializerOptions { IncludeFields = true }));
+    return;
+}
 var algorithm = args[1];
 var fixture = args[2];
 var layout = args[3];
@@ -133,6 +141,7 @@ sealed class Grid
 {
     private readonly float[] _density;
     private readonly string _fixture;
+    private readonly DensityEdit[] _edits;
     private readonly string _layout;
     internal int N { get; }
     internal int Mid => N / 2;
@@ -161,9 +170,10 @@ sealed class Grid
         return position;
     }
 
-    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull)
+    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull, IReadOnlyList<DensityEdit>? edits = null)
     {
         _fixture = fixture;
+        _edits = edits is null ? [] : edits.ToArray();
         var localRefinement = tangentialCollision && !tangentialBaseline && !tangentialFull;
         var thinSolid = refineCollision || tangentialCollision && !tangentialBaseline
             ? FindThinSolid(n, localRefinement) : null;
@@ -265,10 +275,22 @@ sealed class Grid
         if (!LocalFineMin.HasValue)
             return null;
         var fixture = _fixture;
-        return new GrazingRayFallback(p => EvaluateField(fixture, p), Extent);
+        var edits = _edits;
+        return new GrazingRayFallback(p => EvaluateEditedField(fixture, edits, p), Extent);
     }
 
-    internal float Field(Vector3 p) => EvaluateField(_fixture, p);
+    internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p);
+
+    private static float EvaluateEditedField(string fixture, DensityEdit[] edits, Vector3 p)
+    {
+        var value = EvaluateField(fixture, p);
+        foreach (var edit in edits)
+        {
+            var brush = Vector3.Distance(p, edit.Center) - edit.Radius;
+            value = edit.Add ? MathF.Min(value, brush) : MathF.Max(value, -brush);
+        }
+        return value;
+    }
 
     private static float EvaluateField(string fixture, Vector3 p)
     {
@@ -318,6 +340,8 @@ sealed class Grid
         return Vector3.Max(q, Vector3.Zero).Length() + MathF.Min(MathF.Max(q.X, MathF.Max(q.Y, q.Z)), 0);
     }
 }
+
+readonly record struct DensityEdit(Vector3 Center, float Radius, bool Add);
 
 readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C);
 

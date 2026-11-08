@@ -205,3 +205,29 @@ with the stated Lipschitz bound. The build benchmark includes fallback
 construction and excludes per-ray query cost.
 
 [Off-seam ray results](results-windows-mc-grazing-rays.json) · [Build performance with fallback](results-windows-mc-grazing-performance.json)
+
+## Fallback query latency and edited density
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-ray-latency.json -RayLatency
+```
+
+The runner uses three fresh Release processes. Each case warms up with
+512 calls and records 10,000 individually timed fallback invocations
+by default. The timer includes the fallback result allocations and
+excludes mesh traversal, snapshot construction, validation and forced
+collection. Timestamps are not overhead-corrected. The output records
+per-process latency percentiles and density evaluation counts.
+
+The edited fixture uses immutable spherical CSG brushes with minimum
+for addition and maximum of the negated brush for subtraction. The
+mesh and the fallback share the same copied edit snapshot. The checks
+cover removing an existing grazing hit, recovering an off-seam
+sub-grid addition, retaining other grazing hits, keeping the old
+snapshot stable, excluding a sub-grid addition in the protected seam,
+and failing closed on budget exhaustion. The sub-grid seam addition
+requires a direct mesh hit under the current policy and is an explicit
+coverage limit. The fixture does not exercise persisted edits or
+concurrent publication.
+
+[Edited density and query latency results](results-windows-mc-edited-ray-latency.json)

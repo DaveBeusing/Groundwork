@@ -8,7 +8,7 @@ sealed class GrazingRayFallback(Func<Vector3, float> field, float extent)
 
     // The caller supplies a unit direction and an empty mesh hit list.
     // Only complete entry/exit pairs outside the protected seam are eligible.
-    internal (List<float> Hits, bool Exhausted) Trace(Vector3 origin, Vector3 direction)
+    internal (List<float> Hits, bool Exhausted, int Samples) Trace(Vector3 origin, Vector3 direction)
     {
         var hits = new List<float>();
         var remaining = SampleBudget;
@@ -26,7 +26,7 @@ sealed class GrazingRayFallback(Func<Vector3, float> field, float extent)
             Search(0, Math.Min(extent, Math.Min(a, b)));
             Search(Math.Max(0, Math.Max(a, b)), extent);
         }
-        return exhausted ? ([], true) : (hits, false);
+        return exhausted ? ([], true, SampleBudget - remaining) : (hits, false, SampleBudget - remaining);
 
         void Search(float start, float end)
         {
