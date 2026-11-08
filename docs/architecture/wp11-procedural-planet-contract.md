@@ -23,7 +23,7 @@ A player can start a new world from an exact seed and generator version, walk th
 - Authoritative planet-centred positions and movement are double precision. Integer canonical sample/brick addresses use checked 64-bit coordinates; never use floating-point render coordinates as save or edit keys. Use a local rebased float render frame only after double-precision subtraction.
 - Canonical face/edge/corner mapping must be unique across cube-sphere charts and LOD; define tie-breaking, overflow checks, pole and antimeridian behaviour if exposed, and deterministic enumeration/order. Local 3D brick addresses must not be ambiguous at face seams.
 - Qualify at 6,400,000 m planet radius; 64 m fixture may be deleted. Any supported radius must be explicitly validated against numeric and address-domain limits.
-- Stable identity of a sample depends on descriptor + canonical address + LOD, not worker timing or camera location.
+- The authoritative identity of a volumetric sample depends on planet descriptor and canonical 3D lattice address, **not LOD**, worker timing or camera location. A derived mesh/LOD artifact additionally includes its LOD, revision and render-origin identity, but those are not save/edit keys.
 
 ### R02 – Deterministic generation
 
