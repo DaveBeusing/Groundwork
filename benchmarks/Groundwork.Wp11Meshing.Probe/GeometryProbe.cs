@@ -152,6 +152,7 @@ static class GeometryProbe
                 if (expected.Count > 0 && meshHits.Count == 0) stats.MeshMissedHitRays++;
                 if (result.UsedFallback) stats.FallbackHitRays++;
                 if (result.PrimitiveCrossings > 0) stats.PrimitiveHitRays++;
+                if (result.RepairedIntervals > 0) stats.RepairedHitRays++;
                 if (result.Exhausted) stats.FallbackBudgetExhaustedRays++;
                 if (expected.Count > 0 && actual.Count == 0) stats.MissedHitRays++;
                 if (expected.Count == 0 && actual.Count > 0) stats.UnexpectedHitRays++;
@@ -190,6 +191,7 @@ static class GeometryProbe
         public int MeshMissedHitRays { get; set; }
         public int FallbackHitRays { get; set; }
         public int PrimitiveHitRays { get; set; }
+        public int RepairedHitRays { get; set; }
         public int FallbackBudgetExhaustedRays { get; set; }
         public int MissedHitRays { get; set; }
         public int UnexpectedHitRays { get; set; }

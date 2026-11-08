@@ -252,3 +252,23 @@ prevents separation into a primitive. Brushes attached to terrain or
 overlapping other edits remain in the sampled CSG path.
 
 [Edited seam ray and sphere results](results-windows-mc-edited-seam.json)
+
+## Ray intervals affected by off-seam subtraction
+
+A ray with mesh hits can recheck a local interval around a subtractive
+sphere that lies wholly outside the protected seam. The ray must
+intersect the brush. The probe pads the resulting interval by half a
+cell, clips it outside the seam and merges overlaps. It replaces
+crossings only when mesh parity and density agree at both endpoints.
+The bounded signed-distance search then finds sign changes in the final
+edited snapshot, including a short empty interval inside a solid. A
+ray has at most 4,096 density evaluations for this repair. Budget
+exhaustion keeps the original mesh hits.
+
+The edited run checks the known cut in both directions. It also reruns
+the ray grid and edited sphere sweeps. The interval repair applies to
+rays only. Moving sphere queries continue to use the existing mesh and
+analytic collision spheres. This prototype uses static snapshots and
+rays originating outside the solid.
+
+[Subtractive ray and edited sphere results](results-windows-mc-subtractive-rays.json)

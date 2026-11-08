@@ -32,27 +32,32 @@ readonly record struct CollisionSphere(Vector3 Center, float Radius)
 sealed class CollisionRayQuery(Grid grid, Mesh mesh)
 {
     private readonly GrazingRayFallback? _fallback = grid.CreateGrazingFallback();
+    private readonly SubtractiveRayRepair? _repair = grid.CreateSubtractiveRayRepair();
 
     internal Result Trace(Vector3 origin, Vector3 direction)
     {
         var meshHits = GeometryProbe.MeshHits(mesh, origin, direction);
         var (baseHits, exhausted, samples) = meshHits.Count == 0 && _fallback is not null
             ? _fallback.Trace(origin, direction) : (meshHits, false, 0);
+        var usedFallback = meshHits.Count == 0 && baseHits.Count > 0;
+        var repairedIntervals = 0;
+        if (meshHits.Count > 0 && _repair is not null)
+        {
+            (baseHits, repairedIntervals, var repairExhausted) = _repair.Trace(origin, direction, meshHits);
+            exhausted |= repairExhausted;
+        }
         if (grid.CollisionSpheres.IsEmpty)
-            return new(meshHits, baseHits, 0, exhausted, samples);
+            return new(meshHits, baseHits, 0, exhausted, samples, usedFallback, repairedIntervals);
         var primitiveHits = new List<float>();
         foreach (var sphere in grid.CollisionSpheres)
             sphere.AppendCrossings(primitiveHits, origin, direction, grid.Extent);
         if (primitiveHits.Count == 0)
-            return new(meshHits, baseHits, 0, exhausted, samples);
+            return new(meshHits, baseHits, 0, exhausted, samples, usedFallback, repairedIntervals);
         primitiveHits.AddRange(baseHits);
         primitiveHits.Sort();
-        return new(meshHits, primitiveHits, primitiveHits.Count - baseHits.Count, exhausted, samples);
+        return new(meshHits, primitiveHits, primitiveHits.Count - baseHits.Count, exhausted, samples, usedFallback, repairedIntervals);
     }
 
     internal readonly record struct Result(List<float> MeshHits, List<float> Hits, int PrimitiveCrossings,
-        bool Exhausted, int Samples)
-    {
-        internal bool UsedFallback => MeshHits.Count == 0 && Hits.Count > PrimitiveCrossings;
-    }
+        bool Exhausted, int Samples, bool UsedFallback, int RepairedIntervals);
 }

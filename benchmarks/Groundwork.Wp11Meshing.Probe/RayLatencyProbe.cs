@@ -63,6 +63,12 @@ static class RayLatencyProbe
         var rays = Grazing.Concat([Added, Seam, Straddling, Cancelled, Clear]).ToArray();
         var originalCases = rays.Select(ray => Check(original, originalQuery, ray, false)).ToArray();
         var editedCases = rays.Select(ray => Check(edited, editedQuery, ray, ray == Seam || ray == Straddling)).ToArray();
+        var cutRays = new[]
+        {
+            new Ray("subtractive-cut-forward", new(23.173f, 19.819f, 0), Vector3.UnitZ),
+            new Ray("subtractive-cut-reverse", new(23.173f, 19.819f, 32), -Vector3.UnitZ)
+        };
+        var cutCases = cutRays.Select(ray => CheckCut(originalQuery, edited, editedQuery, ray)).ToArray();
         var sphereCases = CheckEditedSweeps(original, originalMesh, edited, editedMesh);
         var editedGeometry = GeometryProbe.Check(editedMesh, edited, "bridge", "face");
         var added = after.Trace(Added.Origin, Added.Direction);
@@ -81,7 +87,7 @@ static class RayLatencyProbe
         return new
         {
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
-            latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, sphereCases, editedGeometry,
+            latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
@@ -103,6 +109,21 @@ static class RayLatencyProbe
             throw new InvalidOperationException($"Edited ray check failed for {ray.Name}.");
         return new { ray.Name, ray.Origin, ray.Direction, expected, meshHits = result.MeshHits, actual,
             result.Samples, result.PrimitiveCrossings, result.UsedFallback, error };
+    }
+
+    private static object CheckCut(CollisionRayQuery original, Grid edited, CollisionRayQuery query, Ray ray)
+    {
+        var before = original.Trace(ray.Origin, ray.Direction);
+        var actual = query.Trace(ray.Origin, ray.Direction);
+        var expected = GeometryProbe.DensityHits(edited, ray.Origin, ray.Direction);
+        if (before.Hits.Count != 2 || before.RepairedIntervals != 0 || actual.MeshHits.Count != 2 ||
+            actual.Hits.Count != 4 || actual.RepairedIntervals != 1 || actual.Exhausted ||
+            actual.UsedFallback || actual.PrimitiveCrossings != 0 || expected.Count != 4 ||
+            MathF.Abs(expected[1] - actual.Hits[1]) > .001f ||
+            MathF.Abs(expected[2] - actual.Hits[2]) > .001f)
+            throw new InvalidOperationException($"Subtractive interval regression for {ray.Name}.");
+        return new { ray.Name, ray.Origin, ray.Direction, expected, originalHits = before.Hits,
+            meshHits = actual.MeshHits, actual = actual.Hits, actual.RepairedIntervals };
     }
 
     private static object[] CheckEditedSweeps(Grid original, Mesh originalMesh, Grid edited, Mesh editedMesh)

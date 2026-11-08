@@ -10,24 +10,40 @@ sealed class GrazingRayFallback(Func<Vector3, float> field, float extent)
     // Only complete entry/exit pairs outside the protected seam are eligible.
     internal (List<float> Hits, bool Exhausted, int Samples) Trace(Vector3 origin, Vector3 direction)
     {
-        var hits = new List<float>();
-        var remaining = SampleBudget;
-        var exhausted = false;
+        Span<(float Start, float End)> ranges = stackalloc (float, float)[2];
+        var count = 0;
         var mid = extent / 2;
         if (direction.X == 0)
         {
             if (MathF.Abs(origin.X - mid) > SeamHalfWidth)
-                Search(0, extent);
+                ranges[count++] = (0, extent);
         }
         else
         {
             var a = (mid - SeamHalfWidth - origin.X) / direction.X;
             var b = (mid + SeamHalfWidth - origin.X) / direction.X;
-            Search(0, Math.Min(extent, Math.Min(a, b)));
-            Search(Math.Max(0, Math.Max(a, b)), extent);
+            ranges[count++] = (0, Math.Min(extent, Math.Min(a, b)));
+            ranges[count++] = (Math.Max(0, Math.Max(a, b)), extent);
         }
-        return exhausted ? ([], true, SampleBudget - remaining) : (hits, false, SampleBudget - remaining);
+        return SearchRanges(origin, direction, ranges[..count], true, SampleBudget);
+    }
 
+    internal (List<float> Hits, bool Exhausted, int Samples) TraceInterval(
+        Vector3 origin, Vector3 direction, float start, float end, int budget)
+    {
+        ReadOnlySpan<(float, float)> range = [(start, end)];
+        return SearchRanges(origin, direction, range, false, budget);
+    }
+
+    private (List<float> Hits, bool Exhausted, int Samples) SearchRanges(Vector3 origin, Vector3 direction,
+        ReadOnlySpan<(float Start, float End)> ranges, bool requireOutside, int budget)
+    {
+        var hits = new List<float>();
+        var remaining = budget;
+        var exhausted = false;
+        foreach (var range in ranges)
+            Search(range.Start, range.End);
+        return exhausted ? ([], true, budget - remaining) : (hits, false, budget - remaining);
         void Search(float start, float end)
         {
             if (start >= end || exhausted)
@@ -39,7 +55,7 @@ sealed class GrazingRayFallback(Func<Vector3, float> field, float extent)
             }
             var a = Sample(start);
             var b = Sample(end);
-            if (a >= 0 && b >= 0)
+            if (!requireOutside || a >= 0 && b >= 0)
                 Visit(start, a, end, b);
         }
 

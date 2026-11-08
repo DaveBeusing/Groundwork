@@ -305,6 +305,16 @@ sealed class Grid
     internal float At(I3 p) => _density[DensityIndex(p)];
     internal bool ContainsCell(I3 p) => (uint)p.X < _cellCounts.X && (uint)p.Y < _cellCounts.Y && (uint)p.Z < _cellCounts.Z;
 
+    internal SubtractiveRayRepair? CreateSubtractiveRayRepair()
+    {
+        if (!LocalFineMin.HasValue)
+            return null;
+        var brushes = _meshEdits.Where(edit => !edit.Add && edit.Radius > 0 &&
+            MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius > GrazingRayFallback.SeamHalfWidth)
+            .Select(edit => new CollisionSphere(edit.Center, edit.Radius)).ToArray();
+        return brushes.Length == 0 ? null : new SubtractiveRayRepair(MeshField, brushes, Extent);
+    }
+
     internal GrazingRayFallback? CreateGrazingFallback()
     {
         if (!LocalFineMin.HasValue)

@@ -73,9 +73,10 @@ try {
             $band = $result.editedGeometry.collision.'lod-band'
             $grid = $result.editedGeometry.collision.grid
             $sweeps = $result.editedGeometry.movingBodies.summary
-            if ($result.collisionSpheres.Count -ne 2 -or $result.sphereCases.Count -ne 17 -or
+            if ($result.collisionSpheres.Count -ne 2 -or $result.sphereCases.Count -ne 17 -or $result.cutCases.Count -ne 2 -or
                 $band.PrimitiveHitRays -ne 2 -or $band.CrossingCountMismatches -or
                 $band.MissedHitRays -or $band.UnexpectedHitRays -or
+                $band.RepairedHitRays -or -not $grid.RepairedHitRays -or $grid.CrossingCountMismatches -or
                 $grid.MissedHitRays -or $grid.UnexpectedHitRays -or $grid.FallbackBudgetExhaustedRays -or
                 ($sweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
                 ($sweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
