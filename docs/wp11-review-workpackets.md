@@ -20,6 +20,15 @@ Focused checks:
 
 The **review freeze is the exact live PR head recorded in issue #78 after these documentation changes**, not the previous `bb635383...` candidate. Treat earlier freeze comments as superseded. No reviewers have run as part of preparation.
 
+## P1 owner decisions to scrutinize — single geometry authority and atomic edits
+
+The owner approved the following contract additions on 2026-11-08 in the WP11 proposal. They remain **unverified** and must be challenged independently:
+
+- **C00-1A:** Signed, versioned density is the sole geometric solid/empty source. Material at a unique cell is metadata and cannot independently override the density field. Unknown/unavailable density is not empty. Validate zero-sign/tie semantics, deterministic isosurface/material assignment and explicit rejection of contradictory legacy occupancy representations.
+- **C00-1B:** One edit spanning many bricks is a world-scoped, canonical, revision-checked **atomic transaction**. Derived mesh/collision/LOD effects and save snapshot are coherent; no partial publication, no worker-dependent conflict winner, and no bypass of Core publication/lease ownership.
+- **L3A-ECS leading P1 questions:** What exact terrain read/write set and conflict owner applies to shared density vertices (which are not ECS entities)? How do Core barrier, presentation acknowledgement, retained readers and terrain revision form one consistent atomically published generation? What is the unambiguous material-on-empty/zero-density policy? Construct failure traces for overlapping concurrent edits and stale save/mesh results.
+- **All specialists:** Do not infer that author consent closes P1 correctness concerns or meets ADR-0007 independent review requirement. Report potential contradictions by severity and request corrections before implementation.
+
 ## Independence and evidence protocol
 
 Assign each packet to a *separately invoked reviewer context/agent*. A reviewer receives only the packet for their role plus source documents listed below; it must not read or inherit other reviewers' work, findings, comments, or output until its independent report is sealed. Do not fabricate reviewer accounts or GitHub approvals. Maximum four concurrent specialist review/implementation agents.
