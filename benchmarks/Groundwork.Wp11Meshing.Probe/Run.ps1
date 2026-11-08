@@ -93,6 +93,20 @@ try {
                 ($overlapSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
                 throw "Overlapping cut regression in process $run."
             }
+            if ($result.mixedEdits.Count -ne 2) { throw "Mixed edit orders missing in process $run." }
+            foreach ($mixed in $result.mixedEdits) {
+                $mixedRays = $mixed.geometry.collision.grid
+                $mixedBand = $mixed.geometry.collision.'lod-band'
+                $mixedSweeps = $mixed.geometry.movingBodies.summary
+                if ($mixed.sweeps.Count -ne 7 -or $mixedRays.Rays -ne 12288 -or
+                    $mixedRays.CrossingCountMismatches -or $mixedRays.MissedHitRays -or
+                    $mixedRays.UnexpectedHitRays -or $mixedRays.FallbackBudgetExhaustedRays -or
+                    $mixedBand.CrossingCountMismatches -or
+                    ($mixedSweeps | Measure-Object sweeps -Sum).Sum -ne 76 -or
+                    ($mixedSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                    throw "Mixed edit collision regression in process $run."
+                }
+            }
             $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run
             $rows += $result
             Write-Host "Ray latency and edit validation completed in process $run."

@@ -321,8 +321,8 @@ or an intersection circle must satisfy all remaining solid/void
 constraints. Three-surface intersection points provide the endpoints
 when an otherwise nearest point lies on a clipped portion of a circle.
 The swept-volume bound must still exclude other terrain and edit
-supports. Mixed or larger edit groups and longer paths remain outside
-this local model.
+supports. Larger edit groups and longer paths remain outside this
+local model.
 
 The edited matrix adds a symmetric pair of cuts. Its midplane provides
 independent controls for four clear passes at two radii and two rim
@@ -331,3 +331,23 @@ mesh gap where a ray passes just outside both cuts. The same run checks
 the broad ray grid and the 76 existing bridge sweeps in that snapshot.
 
 [Overlapping-cut and collision regression results](results-windows-mc-overlapping-cuts.json)
+
+## Ordered overlapping addition and subtraction
+
+The same local opening solver can evaluate one overlapping additive
+and subtractive brush in snapshot order. The retained faces,
+intersection circles and endpoints must belong to the final solid.
+A later union may restore material removed by an earlier subtraction.
+The swept-volume bound still limits the query to a single spherical
+terrain lobe and at most two local spherical edits outside the seam.
+
+The edited suite checks both orders with seven targeted sphere paths
+each. These include axial entry and exit contacts at two radii, clear
+off-axis paths in both directions and a contact at the brush
+intersection circle that becomes an initial overlap when the
+addition is applied last. The suite compares the contacts with
+independent axial and planar calculations. It repeats the broad ray
+grid and the existing bridge sweeps for both orders. The targeted
+axial ray also verifies the thin positive cap that the mesh misses.
+
+[Mixed edit and collision regression results](results-windows-mc-mixed-edits.json)

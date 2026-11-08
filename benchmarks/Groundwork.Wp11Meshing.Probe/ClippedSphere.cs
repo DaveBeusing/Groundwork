@@ -4,12 +4,14 @@ sealed class ClippedSphere
 {
     private const float SurfaceTolerance = .00001f;
     private readonly CollisionSphere[] _surfaces;
+    private readonly DensityEdit[] _edits;
     private readonly Edge[] _edges;
     private readonly Vector3[] _corners;
 
-    private ClippedSphere(CollisionSphere solid, CollisionSphere[] cuts)
+    private ClippedSphere(CollisionSphere solid, DensityEdit[] edits)
     {
-        _surfaces = [solid, .. cuts];
+        _edits = edits;
+        _surfaces = [solid, .. edits.Select(edit => new CollisionSphere(edit.Center, edit.Radius))];
         var edges = new List<Edge>();
         var corners = new List<Vector3>();
         for (var i = 0; i < _surfaces.Length; i++)
@@ -25,9 +27,10 @@ sealed class ClippedSphere
         _corners = corners.ToArray();
     }
 
-    internal static ClippedSphere? Create(CollisionSphere solid, CollisionSphere[] cuts) =>
-        cuts.Length is 1 or 2 && cuts.All(cut => Intersect(solid, cut, 0, 1).HasValue)
-            ? new ClippedSphere(solid, cuts) : null;
+    internal static ClippedSphere? Create(CollisionSphere solid, DensityEdit[] edits) =>
+        edits.Length is 1 or 2 && edits.Any(edit => !edit.Add &&
+            Intersect(solid, new CollisionSphere(edit.Center, edit.Radius), 0, 1).HasValue)
+            ? new ClippedSphere(solid, edits) : null;
 
     internal float Distance(Vector3 point)
     {
@@ -65,18 +68,19 @@ sealed class ClippedSphere
 
     private bool Valid(Vector3 point, int skipA, int skipB, float tolerance)
     {
+        var inside = false;
         for (var i = 0; i < _surfaces.Length; i++)
         {
-            if (i == skipA || i == skipB)
-                continue;
             var surface = _surfaces[i];
-            var distance = Vector3.Distance(point, surface.Center);
-            if (i == 0 ? distance > surface.Radius + tolerance : distance < surface.Radius - tolerance)
-                return false;
+            var signed = i == skipA || i == skipB ? 0 : Vector3.Distance(point, surface.Center) - surface.Radius;
+            // Keep the edit order. A later union may restore a point in an
+            // earlier subtraction. Boundary points belong to the closure.
+            inside = i == 0 || _edits[i - 1].Add
+                ? inside || signed <= tolerance
+                : inside && signed >= -tolerance;
         }
-        return true;
+        return inside;
     }
-
     private static Edge? Intersect(CollisionSphere a, CollisionSphere b, int first, int second)
     {
         var delta = b.Center - a.Center;

@@ -359,18 +359,17 @@ sealed class Grid
             Box(cut.Center, BridgeStemCenter, BridgeStemExtent) <= reach)
             return null;
 
-        var localCuts = new List<CollisionSphere> { cut };
+        var localEdits = new List<DensityEdit>();
         foreach (var edit in _edits)
         {
-            if (!edit.Add && edit.Center == cut.Center && edit.Radius == cut.Radius)
+            var separation = Vector3.Distance(edit.Center, cut.Center);
+            if (separation - edit.Radius > reach)
                 continue;
-            if (Vector3.Distance(edit.Center, cut.Center) - edit.Radius > reach)
-                continue;
-            var other = new CollisionSphere(edit.Center, edit.Radius);
-            if (edit.Add || !_openingCuts.Contains(other) || localCuts.Count == 2 ||
-                Vector3.Distance(cut.Center, other.Center) >= cut.Radius + other.Radius)
+            if (!float.IsFinite(edit.Radius) || edit.Radius <= 0 ||
+                MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius <= GrazingRayFallback.SeamHalfWidth ||
+                localEdits.Count == 2 || separation >= cut.Radius + edit.Radius)
                 return null;
-            localCuts.Add(other);
+            localEdits.Add(edit);
         }
         // The convex bound encloses the whole swept ball, so components
         // that cannot enter it cannot provide an earlier contact.
@@ -378,7 +377,7 @@ sealed class Grid
         var touchesRight = Vector3.Distance(BridgeRight.Center, cut.Center) - BridgeRight.Radius <= reach;
         if (touchesLeft == touchesRight)
             return null;
-        return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, localCuts.ToArray());
+        return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, localEdits.ToArray());
     }
     private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
 

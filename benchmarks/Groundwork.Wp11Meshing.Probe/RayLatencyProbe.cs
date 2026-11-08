@@ -89,6 +89,7 @@ static class RayLatencyProbe
         var overlapRay = CheckOverlapRay(overlapping, overlapQuery);
         var overlapNearMiss = CheckOverlapNearMiss(overlapping, overlapQuery);
         var overlapGeometry = GeometryProbe.Check(overlapMesh, overlapping, "bridge", "face");
+        var mixedEdits = CheckMixedEdits(tables, edits);
         var added = after.Trace(Added.Origin, Added.Direction);
         if (added.Hits.Count != 2 || MathF.Abs(added.Hits[0] - 24.2f) > .0001f ||
             MathF.Abs(added.Hits[1] - 24.4f) > .0001f ||
@@ -107,7 +108,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
-            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh),
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits,
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -282,6 +283,76 @@ static class RayLatencyProbe
             actual.RepairedIntervals != 1 || actual.Exhausted)
             throw new InvalidOperationException("Overlapping subtraction produced a spurious gap.");
         return new { origin, expected, actual = actual.Hits, actual.MeshHits, actual.RepairedIntervals };
+    }
+
+    private static object[] CheckMixedEdits(Tables tables, DensityEdit[] edits)
+    {
+        var cut = edits[0];
+        var terrain = Grid.BridgeRight;
+        var separation = Vector3.Distance(cut.Center, terrain.Center);
+        var outward = (cut.Center - terrain.Center) / separation;
+        var addition = new DensityEdit(cut.Center + .16f * outward, .30f, true);
+        return new[] { false, true }.Select(addLast =>
+        {
+            DensityEdit[] ordered = addLast ? [cut, addition, .. edits[1..]] : [addition, cut, .. edits[1..]];
+            var grid = Create(ordered);
+            var mesh = Marching.Extract(grid, tables, trackSources: true);
+            if (grid.OpeningCuts.Length != 1 || !grid.CollisionCuts.IsEmpty)
+                throw new InvalidOperationException("Mixed edit must bypass the isolated-cut shortcut.");
+
+            var cases = new List<(SphereSweep.SweepCase Path, float? Distance)>();
+            foreach (var radius in new[] { .04f, .08f })
+            {
+                cases.Add((new("mixed-axis-enter", Point(.62f, 0), Point(-.30f, 0), radius), .62f - .46f - radius));
+                var firstSolid = addLast ? -.14f : cut.Radius;
+                cases.Add((new("mixed-axis-exit", Point(-.30f, 0), Point(.62f, 0), radius), firstSolid + .30f - radius));
+            }
+            const float side = .34f;
+            const float smallRadius = .025f;
+            var freeAxial = MathF.Sqrt(MathF.Pow(cut.Radius - smallRadius, 2) - side * side);
+            if (side <= addition.Radius + smallRadius || freeAxial <= .10f ||
+                freeAxial <= MathF.Sqrt(MathF.Pow(terrain.Radius + smallRadius, 2) - side * side) - separation)
+                throw new InvalidOperationException("Mixed bypass cannot be certified.");
+            cases.Add((new("mixed-bypass-enter", Point(.62f, side), Point(-.10f, side), smallRadius), null));
+            cases.Add((new("mixed-bypass-exit", Point(-.10f, side), Point(.62f, side), smallRadius), null));
+
+            const float rimAxialPath = .23f;
+            const float rimStartSide = .10f;
+            const float rimBody = .085f;
+            const float brushSeparation = .16f;
+            var rimAxial = (cut.Radius * cut.Radius - addition.Radius * addition.Radius +
+                brushSeparation * brushSeparation) / (2 * brushSeparation);
+            var rimSide = MathF.Sqrt(cut.Radius * cut.Radius - rimAxial * rimAxial);
+            var rimDistance = rimSide - MathF.Sqrt(rimBody * rimBody - MathF.Pow(rimAxial - rimAxialPath, 2)) - rimStartSide;
+            cases.Add((new("mixed-intersection-rim", Point(rimAxialPath, rimStartSide),
+                Point(rimAxialPath, .4f), rimBody), addLast ? 0 : rimDistance));
+
+            var sweeps = cases.Select(test =>
+            {
+                var actual = SphereSweep.TraceCollision(grid, mesh, test.Path);
+                var expectedState = test.Distance switch { null => "clear", 0 => "initial-overlap", _ => "hit" };
+                if (actual.State != expectedState || test.Distance is { } distance &&
+                    (actual.Distance is not { } hit || MathF.Abs(hit - distance) > .001f))
+                    throw new InvalidOperationException($"Mixed edit {addLast}, {test.Path.Group}: {actual}, expected {test.Distance}.");
+                return new { test.Path, expectedState, expectedDistance = test.Distance, actual,
+                    meshOnly = SphereSweep.TraceMesh(mesh, test.Path), rawField = SphereSweep.TraceDensity(grid, test.Path) };
+            }).ToArray();
+
+            var origin = Point(-12, 0);
+            var query = new CollisionRayQuery(grid, mesh);
+            var ray = query.Trace(origin, outward);
+            var expected = GeometryProbe.DensityHits(grid, origin, outward);
+            if (expected.Count != 4 || ray.Hits.Count != 4 || ray.Exhausted ||
+                MathF.Abs(expected[1] - ray.Hits[1]) > .001f ||
+                MathF.Abs(expected[2] - ray.Hits[2]) > .001f ||
+                MathF.Abs(expected[3] - ray.Hits[3]) > .001f)
+                throw new InvalidOperationException($"Mixed edit ray failed for order {addLast}.");
+            return (object)new { addLast, edits = ordered, sweeps,
+                ray = new { origin, direction = outward, expected, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
+                checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, "bridge", "face") };
+        }).ToArray();
+
+        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
     }
 
     private static object Measure(string name, GrazingRayFallback query, Ray[] rays, int samples)
