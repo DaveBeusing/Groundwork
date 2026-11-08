@@ -105,7 +105,9 @@ static class SphereSweep
         var delta = sweep.End - sweep.Start;
         var length = delta.Length();
         var direction = length > 0 ? delta / length : Vector3.Zero;
-        var first = TraceSubtractiveCut(grid, sweep, direction, length) ?? TraceMesh(mesh, sweep);
+        var cutContact = TraceSubtractiveCut(grid, sweep, direction, length);
+        var first = cutContact is { State: not "indeterminate" } known
+            ? known : TraceCutOpening(grid, sweep) ?? cutContact ?? TraceMesh(mesh, sweep);
         foreach (var sphere in grid.CollisionSpheres)
         {
             var radius = sphere.Radius + sweep.Radius;
@@ -144,6 +146,14 @@ static class SphereSweep
                 ? new Contact("hit", roots.Exit)
                 : new Contact("indeterminate", null);
         }
+        return null;
+    }
+
+    private static Contact? TraceCutOpening(Grid grid, SweepCase sweep)
+    {
+        foreach (var cut in grid.CollisionCuts)
+            if (grid.GetLocalOpening(cut, sweep.Start, sweep.End, sweep.Radius) is { } opening)
+                return Sweep(sweep, opening.Distance);
         return null;
     }
 

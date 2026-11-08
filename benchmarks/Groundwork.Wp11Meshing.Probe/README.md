@@ -280,9 +280,10 @@ starts wholly in the cut uses the cut eroded by the moving radius.
 Convexity proves the path clear when the end also lies inside. For a
 path leaving that volume, the probe computes the first exit and
 verifies that its radial contact point lies in the original terrain.
-If the contact cannot be certified, for example at a cut opening, the
-query returns indeterminate. Intersecting edits and paths that start
-outside the eroded cut are outside this analytic correction.
+If the contact cannot be certified, the narrow-cut solver returns
+indeterminate and allows the opening solver below to handle eligible
+cases. Intersecting edits and paths starting outside the eroded cut
+are outside the narrow-cut shortcut.
 
 The edited suite checks six paths whose mesh-only query reports an
 initial overlap. Two short paths stay free. Four paths hit the cut wall
@@ -292,3 +293,21 @@ density sweep. The existing edited and unedited ray and sphere cases
 remain regression checks.
 
 [Narrow-cut ray and sphere results](results-windows-mc-subtractive-sweeps.json)
+
+## Moving spheres through a cut opening
+
+For a local opening between a spherical terrain lobe and a spherical
+cut, the probe sweeps against the remaining clipped solid. The
+distance considers valid projections onto either spherical face and
+the circular edge where they meet. The solver is eligible only when
+a convex bound around the entire swept sphere excludes the other
+terrain components and edit supports. Other terrain shapes, overlapping
+edits and longer paths are outside the opening solver's coverage.
+
+The edited suite checks four free passages through the opening
+at two radii and in both directions, plus an entry and exit that hit
+the rim. The clear paths have a geometric certificate. Rim contacts
+are checked against an independent planar intersection. A raw CSG
+field sweep and the mesh-only sweep are recorded as comparisons.
+
+[Opening and collision regression results](results-windows-mc-cut-opening.json)

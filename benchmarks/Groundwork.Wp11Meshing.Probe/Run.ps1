@@ -73,7 +73,7 @@ try {
             $band = $result.editedGeometry.collision.'lod-band'
             $grid = $result.editedGeometry.collision.grid
             $sweeps = $result.editedGeometry.movingBodies.summary
-            if ($result.collisionSpheres.Count -ne 2 -or $result.sphereCases.Count -ne 23 -or $result.cutCases.Count -ne 2 -or
+            if ($result.collisionSpheres.Count -ne 2 -or $result.sphereCases.Count -ne 23 -or $result.openingCases.Count -ne 6 -or $result.cutCases.Count -ne 2 -or
                 $band.PrimitiveHitRays -ne 2 -or $band.CrossingCountMismatches -or
                 $band.MissedHitRays -or $band.UnexpectedHitRays -or
                 $band.RepairedHitRays -or -not $grid.RepairedHitRays -or $grid.CrossingCountMismatches -or

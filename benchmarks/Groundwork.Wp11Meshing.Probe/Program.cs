@@ -139,6 +139,10 @@ readonly record struct I3(int X, int Y, int Z)
 
 sealed class Grid
 {
+    internal static readonly CollisionSphere BridgeLeft = new(new(8.67f, 16.19f, 15.53f), 4.16f);
+    internal static readonly CollisionSphere BridgeRight = new(new(23.17f, 16.13f, 15.49f), 4.26f);
+    private static readonly Vector3 BridgeStemCenter = new(15.84f, 16.15f, 15.51f);
+    private static readonly Vector3 BridgeStemExtent = new(7.22f, .77f, .78f);
     private readonly float[] _density;
     private readonly string _fixture;
     private readonly DensityEdit[] _edits;
@@ -339,6 +343,30 @@ sealed class Grid
 
     internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p);
     internal float BaseField(Vector3 p) => EvaluateField(_fixture, p);
+
+    internal ClippedSphere? GetLocalOpening(CollisionSphere cut, Vector3 start, Vector3 end, float radius)
+    {
+        var reach = Math.Max(Vector3.Distance(start, cut.Center), Vector3.Distance(end, cut.Center)) + radius + .0001f;
+        if (_fixture != "bridge" || reach > cut.Radius + .5f ||
+            Box(cut.Center, BridgeStemCenter, BridgeStemExtent) <= reach)
+            return null;
+
+        foreach (var edit in _edits)
+        {
+            if (!edit.Add && edit.Center == cut.Center && edit.Radius == cut.Radius)
+                continue;
+            if (Vector3.Distance(edit.Center, cut.Center) - edit.Radius <= reach)
+                return null;
+        }
+
+        // The convex bound encloses the whole swept ball, so components
+        // that cannot enter it cannot provide an earlier contact.
+        var touchesLeft = Vector3.Distance(BridgeLeft.Center, cut.Center) - BridgeLeft.Radius <= reach;
+        var touchesRight = Vector3.Distance(BridgeRight.Center, cut.Center) - BridgeRight.Radius <= reach;
+        if (touchesLeft == touchesRight)
+            return null;
+        return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, cut);
+    }
     private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
 
     private static float EvaluateEditedField(string fixture, DensityEdit[] edits, Vector3 p)
@@ -360,9 +388,9 @@ sealed class Grid
             "cavity" => MathF.Max(Sphere(p, center, 11.2f), -Sphere(p, center + new Vector3(.22f, .11f, -.35f), 5.42f)),
             "overhang" => MathF.Min(Box(p, new(15.37f, 11.47f, 15.33f), new(2.65f, 6.82f, 2.71f)),
                 Box(p, new(16.23f, 18.17f, 15.91f), new(8.29f, 2.26f, 5.63f))),
-            "bridge" => MathF.Min(MathF.Min(Sphere(p, new(8.67f, 16.19f, 15.53f), 4.16f),
-                Sphere(p, new(23.17f, 16.13f, 15.49f), 4.26f)),
-                Box(p, new(15.84f, 16.15f, 15.51f), new(7.22f, .77f, .78f))),
+            "bridge" => MathF.Min(MathF.Min(Sphere(p, BridgeLeft.Center, BridgeLeft.Radius),
+                Sphere(p, BridgeRight.Center, BridgeRight.Radius)),
+                Box(p, BridgeStemCenter, BridgeStemExtent)),
             "seam" => Sphere(p, center + new Vector3(-2.1f, 2.3f, 1.4f), 9.38f),
             "junction" => Sphere(p, new(11.37f, 10.8f, 11.8f), 8.15f),
             _ => throw new ArgumentOutOfRangeException(nameof(fixture)),

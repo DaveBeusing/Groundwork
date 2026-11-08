@@ -70,6 +70,7 @@ static class RayLatencyProbe
         };
         var cutCases = cutRays.Select(ray => CheckCut(originalQuery, edited, editedQuery, ray)).ToArray();
         var sphereCases = CheckEditedSweeps(original, originalMesh, edited, editedMesh);
+        var openingCases = CheckOpeningSweeps(edited, editedMesh);
         var editedGeometry = GeometryProbe.Check(editedMesh, edited, "bridge", "face");
         var added = after.Trace(Added.Origin, Added.Direction);
         if (added.Hits.Count != 2 || MathF.Abs(added.Hits[0] - 24.2f) > .0001f ||
@@ -87,7 +88,7 @@ static class RayLatencyProbe
         return new
         {
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
-            latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, editedGeometry,
+            latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
@@ -177,6 +178,63 @@ static class RayLatencyProbe
             return (object)new { path, reference, actual, meshOnly, old, oldReference, test.ExpectedDistance };
         }).ToArray();
     }
+    private static object[] CheckOpeningSweeps(Grid grid, Mesh mesh)
+    {
+        var cut = grid.CollisionCuts[0];
+        var terrain = Grid.BridgeRight;
+        var separation = Vector3.Distance(cut.Center, terrain.Center);
+        var outward = (cut.Center - terrain.Center) / separation;
+        var rimAxial = ((terrain.Radius - separation) * (terrain.Radius + separation) - cut.Radius * cut.Radius) /
+            (2 * separation);
+        var rimSide = MathF.Sqrt(cut.Radius * cut.Radius - rimAxial * rimAxial);
+        var rim = new Vector2(rimAxial, rimSide);
+        var cases = new List<(SphereSweep.SweepCase Sweep, float? ExpectedDistance)>();
+        foreach (var radius in new[] { .08f, .16f })
+        {
+            var outside = Point(.62f, 0);
+            var inside = Point(-.16f, 0);
+            // Along the symmetry axis the eroded cut and the exterior of the
+            // expanded terrain sphere overlap, proving a free passage.
+            if (terrain.Radius + radius - separation >= cut.Radius - radius ||
+                .16f >= cut.Radius - radius)
+                throw new InvalidOperationException("Opening clear path is not certified.");
+            cases.Add((new("opening-enter-clear", outside, inside, radius), null));
+            cases.Add((new("opening-exit-clear", inside, outside, radius), null));
+        }
+        AddRim("opening-enter-rim", new(.52f, .34f), new(-.16f, .34f), .1f);
+        AddRim("opening-exit-rim", new(-.05f, .20f), new(.27f, .72f), .1f);
+
+        return cases.Select(test =>
+        {
+            var actual = SphereSweep.TraceCollision(grid, mesh, test.Sweep);
+            var meshOnly = SphereSweep.TraceMesh(mesh, test.Sweep);
+            var rawField = SphereSweep.TraceDensity(grid, test.Sweep);
+            var expectedState = test.ExpectedDistance is null ? "clear" : "hit";
+            if (actual.State != expectedState ||
+                (test.ExpectedDistance is { } distance &&
+                    (actual.Distance is not { } contact || MathF.Abs(contact - distance) > .001f)))
+                throw new InvalidOperationException($"Opening sweep failed for {test.Sweep.Group}: {actual}, expected {test.ExpectedDistance}.");
+            return (object)new { path = test.Sweep, expectedState, test.ExpectedDistance, actual, meshOnly, rawField };
+        }).ToArray();
+
+        Vector3 Point(float axial, float side) => cut.Center + axial * outward + side * Vector3.UnitX;
+
+        void AddRim(string label, Vector2 start, Vector2 end, float radius)
+        {
+            // In this meridian the nearest rim point is fixed. Solve for
+            // first intersection of the center line with its radius circle.
+            var delta = end - start;
+            var direction = Vector2.Normalize(delta);
+            var offset = rim - start;
+            var projected = Vector2.Dot(offset, direction);
+            var perpendicular = (offset - projected * direction).LengthSquared();
+            var distance = projected - MathF.Sqrt(radius * radius - perpendicular);
+            if (!float.IsFinite(distance) || distance <= 0 || distance >= delta.Length())
+                throw new InvalidOperationException("Opening rim control has no contact.");
+            cases.Add((new(label, Point(start.X, start.Y), Point(end.X, end.Y), radius), distance));
+        }
+    }
+
     private static object Measure(string name, GrazingRayFallback query, Ray[] rays, int samples)
     {
         for (var i = 0; i < 512; i++)
