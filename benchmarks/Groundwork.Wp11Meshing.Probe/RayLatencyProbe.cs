@@ -141,6 +141,19 @@ static class RayLatencyProbe
             cases.Add((new("seam-addition-clear", left + clearOffset, right + clearOffset, radius), "clear", null));
             cases.Add((new("seam-addition-overlap", sphere.Center, right, radius), "initial-overlap", 0));
         }
+        var cutCenter = new Vector3(23.17f, 20.173f, 16.819f);
+        var centerLine = new Vector3(23.173f, 19.819f, cutCenter.Z);
+        var radialSquared = Vector3.DistanceSquared(cutCenter, centerLine);
+        foreach (var radius in new[] { .015f, .03f })
+        {
+            var eroded = .4f - radius;
+            var axial = MathF.Sqrt(eroded * eroded - radialSquared);
+            var travel = Vector3.UnitZ * .25f;
+            cases.Add((new("narrow-cut-forward", centerLine, centerLine + travel, radius), "hit", axial));
+            cases.Add((new("narrow-cut-reverse", centerLine, centerLine - travel, radius), "hit", axial));
+            var shortTravel = Vector3.UnitZ * .04f;
+            cases.Add((new("narrow-cut-clear", centerLine - shortTravel, centerLine + shortTravel, radius), "clear", null));
+        }
         cases.Add((new("removed-cap-clear", new(23.03f, 20.173f, 16.819f),
             new(23.31f, 20.173f, 16.819f), .1f), "clear", null));
         return cases.Select(test =>
@@ -156,6 +169,8 @@ static class RayLatencyProbe
                     (actual.Distance is not { } contact || MathF.Abs(contact - distance) > .001f ||
                      reference.Distance is not { } expected || MathF.Abs(expected - distance) > .001f)) ||
                 (path.Group == "removed-cap-clear" && (old.State != "initial-overlap" || oldReference.State != old.State)) ||
+                (path.Group.StartsWith("narrow-cut", StringComparison.Ordinal) &&
+                    (meshOnly.State != "initial-overlap" || old.State != "initial-overlap")) ||
                 (path.Group.StartsWith("seam-addition", StringComparison.Ordinal) &&
                     (meshOnly.State != "clear" || old.State != "clear")))
                 throw new InvalidOperationException($"Edited sphere check failed for {path.Group}: {actual}, {reference}, old {old}.");

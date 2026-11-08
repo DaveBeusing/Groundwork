@@ -105,7 +105,7 @@ static class SphereSweep
         var delta = sweep.End - sweep.Start;
         var length = delta.Length();
         var direction = length > 0 ? delta / length : Vector3.Zero;
-        var first = TraceMesh(mesh, sweep);
+        var first = TraceSubtractiveCut(grid, sweep, direction, length) ?? TraceMesh(mesh, sweep);
         foreach (var sphere in grid.CollisionSpheres)
         {
             var radius = sphere.Radius + sweep.Radius;
@@ -118,6 +118,33 @@ static class SphereSweep
                 first = new Contact("hit", roots.Enter);
         }
         return first;
+    }
+
+    private static Contact? TraceSubtractiveCut(Grid grid, SweepCase sweep, Vector3 direction, float length)
+    {
+        foreach (var cut in grid.CollisionCuts)
+        {
+            var freeRadius = cut.Radius - sweep.Radius;
+            if (freeRadius <= 0 || Vector3.DistanceSquared(sweep.Start, cut.Center) >= freeRadius * freeRadius)
+                continue;
+
+            // Every ball centered inside the eroded brush fits wholly in the
+            // removed volume. Convexity proves a clear sweep between such points.
+            if (Vector3.DistanceSquared(sweep.End, cut.Center) < freeRadius * freeRadius)
+                return new Contact("clear", null);
+            if (length == 0 || cut.Roots(sweep.Start, direction, -sweep.Radius) is not { } roots ||
+                roots.Exit < 0 || roots.Exit > length)
+                return new Contact("indeterminate", null);
+
+            // At the first exit, only the radial witness touches the cut wall.
+            // Verify solid terrain immediately outside it before claiming contact.
+            var center = sweep.Start + direction * roots.Exit;
+            var witness = cut.Center + Vector3.Normalize(center - cut.Center) * cut.Radius;
+            return grid.BaseField(witness) < -ContactTolerance
+                ? new Contact("hit", roots.Exit)
+                : new Contact("indeterminate", null);
+        }
+        return null;
     }
 
     private static Contact Sweep(SweepCase sweep, Func<Vector3, float> distanceToSurface)

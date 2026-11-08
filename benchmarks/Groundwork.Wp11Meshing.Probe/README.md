@@ -267,8 +267,28 @@ exhaustion keeps the original mesh hits.
 
 The edited run checks the known cut in both directions. It also reruns
 the ray grid and edited sphere sweeps. The interval repair applies to
-rays only. Moving sphere queries continue to use the existing mesh and
-analytic collision spheres. This prototype uses static snapshots and
+rays only. The narrow-cut sphere query below is a separate path.
+This prototype uses static snapshots and
 rays originating outside the solid.
 
 [Subtractive ray and edited sphere results](results-windows-mc-subtractive-rays.json)
+
+## Moving spheres in a narrow subtractive cut
+
+For an isolated spherical cut outside the seam, a moving sphere that
+starts wholly in the cut uses the cut eroded by the moving radius.
+Convexity proves the path clear when the end also lies inside. For a
+path leaving that volume, the probe computes the first exit and
+verifies that its radial contact point lies in the original terrain.
+If the contact cannot be certified, for example at a cut opening, the
+query returns indeterminate. Intersecting edits and paths that start
+outside the eroded cut are outside this analytic correction.
+
+The edited suite checks six paths whose mesh-only query reports an
+initial overlap. Two short paths stay free. Four paths hit the cut wall
+in either direction with radii 0.015 and 0.03 cells. It compares first
+contact with both a closed-form value and the independent conservative
+density sweep. The existing edited and unedited ray and sphere cases
+remain regression checks.
+
+[Narrow-cut ray and sphere results](results-windows-mc-subtractive-sweeps.json)

@@ -144,6 +144,8 @@ sealed class Grid
     private readonly DensityEdit[] _edits;
     private readonly DensityEdit[] _meshEdits;
     private readonly CollisionSphere[] _collisionSpheres;
+    private readonly CollisionSphere[] _collisionCuts;
+    internal ReadOnlySpan<CollisionSphere> CollisionCuts => _collisionCuts;
     internal ReadOnlySpan<CollisionSphere> CollisionSpheres => _collisionSpheres;
     private readonly string _layout;
     internal int N { get; }
@@ -178,6 +180,7 @@ sealed class Grid
         _fixture = fixture;
         _edits = edits is null ? [] : edits.ToArray();
         var spheres = new List<CollisionSphere>();
+        var cuts = new List<CollisionSphere>();
         var meshEdits = new List<DensityEdit>();
         for (var index = 0; index < _edits.Length; index++)
         {
@@ -186,8 +189,13 @@ sealed class Grid
                 spheres.Add(new CollisionSphere(edit.Center, edit.Radius));
             else
                 meshEdits.Add(edit);
+            if (tangentialCollision && !edit.Add && float.IsFinite(edit.Radius) && edit.Radius > 0 &&
+                MathF.Abs(edit.Center.X - n / 2f) - edit.Radius > GrazingRayFallback.SeamHalfWidth &&
+                HasDisjointEditSupport(edit, index))
+                cuts.Add(new CollisionSphere(edit.Center, edit.Radius));
         }
         _collisionSpheres = spheres.ToArray();
+        _collisionCuts = cuts.ToArray();
         _meshEdits = meshEdits.ToArray();
 
         bool IsIsolatedSeamAddition(DensityEdit edit, int index)
@@ -199,6 +207,11 @@ sealed class Grid
                 MathF.Abs(edit.Center.X - n / 2f) + edit.Radius >= GrazingRayFallback.SeamHalfWidth ||
                 EvaluateField(fixture, edit.Center) <= edit.Radius)
                 return false;
+            return HasDisjointEditSupport(edit, index);
+        }
+
+        bool HasDisjointEditSupport(DensityEdit edit, int index)
+        {
             for (var otherIndex = 0; otherIndex < _edits.Length; otherIndex++)
             {
                 if (otherIndex == index)
@@ -325,6 +338,7 @@ sealed class Grid
     }
 
     internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p);
+    internal float BaseField(Vector3 p) => EvaluateField(_fixture, p);
     private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
 
     private static float EvaluateEditedField(string fixture, DensityEdit[] edits, Vector3 p)
