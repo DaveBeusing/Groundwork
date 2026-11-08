@@ -4,17 +4,30 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length != 5)
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions>");
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry>");
 
 const int n = 32;
 var algorithm = args[1];
 var fixture = args[2];
 var layout = args[3];
-var repetitions = int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
+var geometry = args[4] == "geometry";
+var repetitions = geometry ? 1 : int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
 if (repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
     throw new ArgumentOutOfRangeException(nameof(args));
 var tables = new Tables(File.ReadAllText(args[0]));
 var grid = new Grid(n, fixture, layout);
+if (geometry)
+{
+    if (algorithm != "mc" || layout == "pressure")
+        throw new ArgumentException("Geometry audit requires MC and one region.");
+    var mesh = Marching.Extract(grid, tables, trackSources: true);
+    Console.WriteLine(JsonSerializer.Serialize(new
+    {
+        fixture, layout, triangles = mesh.Count, checksum = Audit.Digest(mesh),
+        topology = Audit.Check(mesh, grid), geometry = GeometryProbe.Check(mesh, grid, fixture, layout)
+    }, new JsonSerializerOptions { IncludeFields = true }));
+    return;
+}
 var regions = layout == "pressure" ? 8 : 1;
 var process = Process.GetCurrentProcess();
 var times = new double[repetitions];
@@ -159,6 +172,7 @@ readonly record struct Triangle(Vector3 A, Vector3 B, Vector3 C);
 
 sealed class Mesh : List<Triangle>
 {
+    internal List<string>? Sources { get; init; }
     internal int Missing { get; set; }
     internal int TransitionTriangles { get; set; }
     internal void Emit(Vector3 a, Vector3 b, Vector3 c, bool reverse) =>
@@ -220,9 +234,9 @@ sealed class Tables
 static class Marching
 {
     private static readonly int[] FaceBits = [0, 1, 2, 5, 8, 7, 6, 3, 4];
-    internal static Mesh Extract(Grid grid, Tables tables)
+    internal static Mesh Extract(Grid grid, Tables tables, bool trackSources = false)
     {
-        var output = new Mesh();
+        var output = new Mesh { Sources = trackSources ? [] : null };
         var mid = grid.Mid;
         Span<float> d = stackalloc float[13];
         Span<Vector3> p = stackalloc Vector3[13];
@@ -250,6 +264,7 @@ static class Marching
                     p[c] = step == 1 ? grid.FinePosition(q, brick) : q.Position;
                 }
                 Emit(output, tables.RegularCells[tables.RegularClass[code]], tables.RegularVertices[code], d, p, false);
+                RecordSource(step == 1 ? "regular-fine" : "regular-coarse");
             }
 
             if (step != 1)
@@ -291,10 +306,18 @@ static class Marching
                     Emit(output, tables.TransitionCells[transitionClass & 127],
                         tables.TransitionVertices[code], d, p, reverse);
                     output.TransitionTriangles += output.Count - before;
+                    RecordSource("transition");
                 }
             }
         }
         return output;
+
+        void RecordSource(string source)
+        {
+            if (output.Sources is { } sources)
+                while (sources.Count < output.Count)
+                    sources.Add(source);
+        }
     }
 
     private static void Emit(Mesh output, int[] cell, int[] edges, ReadOnlySpan<float> d, ReadOnlySpan<Vector3> p, bool reverse)

@@ -57,3 +57,37 @@ runner checks for eight physical cores and 32 GiB of installed RAM before
 building or measuring. The switch does not set CPU affinity or cap memory.
 
 [Initial workstation results](results-windows.json) · [Workstation results after the bridge fix](results-windows-bridge-fix.json)
+
+## Workstation reference and collision diagnostics
+
+Run the standard matrix on the workstation without the hardware guard.
+The approved workstation profile and all timings are in
+[the reference data](results-windows-workstation-reference.json).
+
+Run the additional Marching Cubes/Transvoxel diagnostics separately so
+they do not affect the timing or memory figures:
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-mc-geometry.json -GeometryOnly
+```
+
+The diagnostic labels regular fine, regular coarse and transition faces
+and compares their oriented normals with the local analytic density
+gradient at triangle centroids. It checks each overlapping triangle
+bounding-box pair for an intersection segment or coplanar area using
+double-precision predicates with a 1e-9 cell-unit distance tolerance.
+Ordinary shared edges and isolated point contacts are excluded. Built-in
+controls exercise known crossings, coplanar overlap and legal adjacency.
+
+Two-sided raycasts against the triangle mesh are compared with sign
+crossings of the continuous analytic fixture field, sampled at 1/32
+cell and refined by bisection. The matrix includes a three-axis ray
+grid and targeted axial and transverse rays through the bridge.
+The LOD band includes rays with a mesh or density crossing within one
+cell of a relevant transition plane. Bridge core samples are classified
+by the parity of mesh ray crossings from outside the region. The
+0.75-cell distance cutoff is a diagnostic threshold. It is not a
+production collision budget. The diagnostic does not exercise swept
+bodies, contact resolution or the production collision publisher.
+
+[Raw diagnostic results](results-windows-mc-geometry.json)
