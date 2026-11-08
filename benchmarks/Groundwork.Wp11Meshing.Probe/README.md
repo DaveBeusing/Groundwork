@@ -148,9 +148,14 @@ between independently scheduled owners.
 The runner also repeats the missed grazing ray at X = 15.319, Z = 4.673
 along +Y and records both crossings. For tangentially mismatched regions
 the usual spacing is 0.25 cells on the fine side and 0.5 on the coarse
-side in all three axes. A thin-solid witness selects 0.125 and 0.25
-instead, keeping a true 2:1 transition while protecting the coarse
-contour. The fine owner contributes the Transvoxel transition
+side in all three axes. For thin solids, the probe pads and aligns the
+detected witness bounds around the seam. Within the resulting axis
+bands the spacing is 0.125 and 0.25. Each axis returns to its usual
+spacing outside its band. Fully refined cells are restricted to the
+intersection of the bands. The projected bands still produce
+anisotropic cells outside that intersection. Each coarse transition
+face continues to pair with two complete fine intervals along each
+tangential axis. The fine owner contributes the Transvoxel transition
 strip, and its coarse-plane contour is checked against the coarse
 region's contour with exact, oppositely oriented edges. Both meshes are
 queried together. The runner requires both crossings of the grazing ray
@@ -176,7 +181,7 @@ triangle output. Checksums, forced GC and table loading are outside
 the timed sections. The benchmark excludes query time, geometry audit
 and publication. Peak working set is the maximum for the entire child
 process, including runtime and warm-up. Managed allocations are the
-median per build. The previous bridge spacing is a separate process
-case with the previous policy.
+median per build. The run compares the local policy with the earlier whole-pair fine
+lattice and the original coarse bridge. Each runs in a separate process.
 
-[Bridge edge and 2:1 diagnostics](results-windows-mc-bridge-edge.json) · [Workstation performance data](results-windows-mc-collision-performance.json)
+[Local 2:1 boundary diagnostics](results-windows-mc-local-boundaries.json) · [Local and whole-pair performance](results-windows-mc-local-performance.json) · [Previous full-refinement diagnostics](results-windows-mc-bridge-edge.json)

@@ -16,6 +16,7 @@ static class CollisionBenchmark
         var triangles = warmup.Mesh.Count;
         var transitionTriangles = warmup.Mesh.TransitionTriangles;
         var cellSize = warmup.CellSize;
+        var sampleCount = warmup.SampleCount;
         warmup = default;
 
         for (var i = 0; i < repetitions; i++)
@@ -35,18 +36,18 @@ static class CollisionBenchmark
         process.Refresh();
         return new
         {
-            fixture, mode, repetitions, triangles, transitionTriangles, cellSize, checksum,
+            fixture, mode, repetitions, triangles, transitionTriangles, cellSize, sampleCount, checksum,
             sampling = Distribution(samplingMs), extraction = Distribution(extractionMs), total = Distribution(totalMs),
             medianAllocatedBytes = Percentile(allocated, .5), startingWorkingSetBytes,
             peakWorkingSetBytes = process.PeakWorkingSet64
         };
 
-        (Mesh Mesh, long Sampled, long Finished, float CellSize) Extract()
+        (Mesh Mesh, long Sampled, long Finished, float CellSize, int SampleCount) Extract()
         {
             var grid = createGrid();
             var sampled = Stopwatch.GetTimestamp();
             var mesh = Marching.Extract(grid, tables);
-            return (mesh, sampled, Stopwatch.GetTimestamp(), grid.CellSize);
+            return (mesh, sampled, Stopwatch.GetTimestamp(), grid.CellSize, grid.SampleCount);
         }
     }
 

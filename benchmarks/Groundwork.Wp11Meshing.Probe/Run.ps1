@@ -66,6 +66,7 @@ try {
     if ($CollisionPerformance) {
         $performanceCases = @(
             @{ fixture = 'bridge'; layout = 'face'; mode = 'tangential-baseline' },
+            @{ fixture = 'bridge'; layout = 'face'; mode = 'tangential-full' },
             @{ fixture = 'bridge'; layout = 'face'; mode = 'tangential-collision' },
             @{ fixture = 'seam'; layout = 'face'; mode = 'tangential-collision' },
             @{ fixture = 'junction'; layout = 'corner'; mode = 'junction-collision' }
@@ -137,7 +138,8 @@ try {
                         throw "Tangential LOD boundary regression for $($fixed.fixture)."
                     }
                     if ($fixed.fixture -eq 'bridge' -and
-                        ($fixed.geometry.bridgeEdgeTrace.Density.Count -ne 2 -or
+                        (-not $fixed.LocalFineMin -or -not $fixed.LocalFineMax -or
+                         $fixed.geometry.bridgeEdgeTrace.Density.Count -ne 2 -or
                          $fixed.geometry.bridgeEdgeTrace.Mesh.Count -ne 2 -or
                          $fixed.geometry.collision.'bridge-edge-regression'.MaxPairedError -gt 0.1)) {
                         throw "Bridge edge ray regression."

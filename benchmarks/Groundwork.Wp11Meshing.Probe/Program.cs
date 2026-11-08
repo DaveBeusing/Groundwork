@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length is not (5 or 6))
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision|tangential-baseline> [benchmark-repetitions]");
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision|tangential-baseline|tangential-full> [benchmark-repetitions]");
 
 const int n = 32;
 var algorithm = args[1];
@@ -14,7 +14,8 @@ var refineCollision = args[4] == "collision-refined";
 var junctionCollision = args[4] == "junction-collision";
 var mixedCollision = args[4] == "mixed-collision";
 var tangentialBaseline = args[4] == "tangential-baseline";
-var tangentialCollision = args[4] == "tangential-collision" || tangentialBaseline;
+var tangentialFull = args[4] == "tangential-full";
+var tangentialCollision = args[4] == "tangential-collision" || tangentialBaseline || tangentialFull;
 var benchmarkCollision = args.Length == 6;
 var geometry = args[4] == "geometry" || refineCollision || junctionCollision || mixedCollision || tangentialCollision;
 var repetitions = geometry && !benchmarkCollision ? 1 :
@@ -22,7 +23,7 @@ var repetitions = geometry && !benchmarkCollision ? 1 :
 if (benchmarkCollision && !(tangentialCollision || junctionCollision) || repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
     throw new ArgumentOutOfRangeException(nameof(args));
 var tables = new Tables(File.ReadAllText(args[0]));
-Grid CreateGrid() => new(n, fixture, layout, refineCollision, junctionCollision, mixedCollision, tangentialCollision, tangentialBaseline);
+Grid CreateGrid() => new(n, fixture, layout, refineCollision, junctionCollision, mixedCollision, tangentialCollision, tangentialBaseline, tangentialFull);
 if (geometry && (algorithm != "mc" || layout == "pressure" || junctionCollision && layout != "corner" ||
     (mixedCollision || tangentialCollision) && layout != "face"))
     throw new ArgumentException("Use MC with uniform, face or corner geometry, corner junction collision, or face mixed collision.");
@@ -64,7 +65,8 @@ if (geometry)
     Console.WriteLine(JsonSerializer.Serialize(new
     {
         fixture, layout, mode = args[4], refinementEnabled = refineCollision, grid.ThinFeatureWitness, sharedBoundary,
-        grid.CellSize, grid.EffectiveLayout, triangles = mesh.Count, checksum = Audit.Digest(mesh),
+        grid.CellSize, grid.EffectiveLayout, grid.LocalFineMin, grid.LocalFineMax, grid.SampleCount,
+        triangles = mesh.Count, checksum = Audit.Digest(mesh),
         topology = Audit.Check(mesh, grid), geometry = GeometryProbe.Check(mesh, grid, fixture, layout)
     }, new JsonSerializerOptions { IncludeFields = true }));
     return;
@@ -134,28 +136,38 @@ sealed class Grid
     private readonly string _layout;
     internal int N { get; }
     internal int Mid => N / 2;
-    internal int Samples => N + 1;
+    internal I3 BrickSize { get; }
+    internal int SampleCount => _density.Length;
     internal float CellSize { get; }
     internal float Extent => N * CellSize;
     internal string EffectiveLayout => _layout;
     internal Vector3? ThinFeatureWitness { get; }
     internal int XCells { get; }
     private readonly bool _mixedCollision;
+    private readonly float[][]? _axes;
+    private readonly I3 _cellCounts;
+    internal Vector3? LocalFineMin { get; }
+    internal Vector3? LocalFineMax { get; }
 
     // Both regions share the half-cell Y/Z face grid. The right region
     // changes only X spacing, so the plane contour is identical on both sides.
     internal Vector3 Position(I3 p)
     {
+        if (_axes is { } axes)
+            return new Vector3(axes[0][p.X], axes[1][p.Y], axes[2][p.Z]);
         var position = p.Position * CellSize;
         if (_mixedCollision && p.X > Mid)
             position.X = Extent / 2 + (p.X - Mid);
         return position;
     }
 
-    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline)
+    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull)
     {
         _fixture = fixture;
-        ThinFeatureWitness = refineCollision || tangentialCollision && !tangentialBaseline ? FindThinSolid(n) : null;
+        var localRefinement = tangentialCollision && !tangentialBaseline && !tangentialFull;
+        var thinSolid = refineCollision || tangentialCollision && !tangentialBaseline
+            ? FindThinSolid(n, localRefinement) : null;
+        ThinFeatureWitness = thinSolid?.Witness;
         // This probe publishes one collision region. Promote it as a unit so
         // collision never crosses a coarse seam inside the protected feature.
         _mixedCollision = mixedCollision;
@@ -165,20 +177,51 @@ sealed class Grid
         CellSize = tangentialCollision && ThinFeatureWitness.HasValue ? 0.125f :
             junctionCollision || tangentialCollision ? 0.25f : useFineGrid ? 0.5f : 1f;
         N = (int)(n / CellSize);
-        XCells = mixedCollision ? Mid + n / 2 : N;
         _layout = useFineGrid || junctionCollision ? "uniform" : layout;
-        _density = new float[Samples * Samples * Samples];
-        for (var z = 0; z <= N; z++)
-        for (var y = 0; y <= N; y++)
-        for (var x = 0; x <= XCells; x++)
+        if (localRefinement && thinSolid is { } feature)
+        {
+            var center = new Vector3(n / 2f);
+            var radius = Vector3.Max(center - feature.Min, feature.Max - center) + new Vector3(1.5f);
+            // Half-unit alignment keeps each band boundary on an even index,
+            // so each coarse face always pairs with two complete fine cells.
+            radius = new Vector3(Aligned(radius.X), Aligned(radius.Y), Aligned(radius.Z));
+            var min = Vector3.Max(Vector3.Zero, center - radius);
+            var max = Vector3.Min(new Vector3(n), center + radius);
+            LocalFineMin = min;
+            LocalFineMax = max;
+            _axes = [Axis(min.X, max.X), Axis(min.Y, max.Y), Axis(min.Z, max.Z)];
+        }
+
+        _cellCounts = _axes is { } axes
+            ? new I3(axes[0].Length - 1, axes[1].Length - 1, axes[2].Length - 1)
+            : new I3(mixedCollision ? Mid + n / 2 : N, N, N);
+        XCells = _cellCounts.X;
+        BrickSize = _axes is null ? new I3(Mid, Mid, Mid) :
+            new I3(_cellCounts.X / 2, _cellCounts.Y / 2, _cellCounts.Z / 2);
+        _density = new float[(_cellCounts.X + 1) * (_cellCounts.Y + 1) * (_cellCounts.Z + 1)];
+        for (var z = 0; z <= _cellCounts.Z; z++)
+        for (var y = 0; y <= _cellCounts.Y; y++)
+        for (var x = 0; x <= _cellCounts.X; x++)
         {
             var p = new I3(x, y, z);
-            _density[Index(p, Samples)] = Field(Position(p));
+            _density[DensityIndex(p)] = Field(Position(p));
+        }
+
+        static float Aligned(float radius) => MathF.Ceiling(radius * 2) * 0.5f;
+
+        float[] Axis(float min, float max)
+        {
+            var positions = new List<float>();
+            for (var p = 0f; p < n; p += p >= min && p < max ? CellSize : 0.25f)
+                positions.Add(p);
+            positions.Add(n);
+            return positions.ToArray();
         }
     }
 
-    private Vector3? FindThinSolid(int extent)
+    private (Vector3 Witness, Vector3 Min, Vector3 Max)? FindThinSolid(int extent, bool collectBounds)
     {
+        (Vector3 Witness, Vector3 Min, Vector3 Max)? feature = null;
         // A solid core with air on opposite sides a unit away witnesses a
         // feature too narrow for the normal two-unit coarse sampling.
         for (var z = 0.25f; z < extent; z += 0.5f)
@@ -192,22 +235,30 @@ sealed class Grid
             {
                 var offset = I3.Axis(axis).Position;
                 if (Field(p - offset) > 0 && Field(p + offset) > 0)
-                    return p;
+                {
+                    if (!collectBounds)
+                        return (p, p, p);
+                    feature = feature is { } prior
+                        ? (prior.Witness, Vector3.Min(prior.Min, p), Vector3.Max(prior.Max, p))
+                        : (p, p, p);
+                    break;
+                }
             }
         }
-        return null;
+        return feature;
     }
 
     internal int Step(I3 p) => _layout switch
     {
         "uniform" => 1,
-        "corner" => p.X < Mid && p.Y < Mid && p.Z < Mid ? 1 : 2,
-        _ => p.X < Mid ? 1 : 2,
+        "corner" => p.X < BrickSize.X && p.Y < BrickSize.Y && p.Z < BrickSize.Z ? 1 : 2,
+        _ => p.X < BrickSize.X ? 1 : 2,
     };
 
     internal int Index(I3 p, int width) => (p.Z * width + p.Y) * width + p.X;
-    internal float At(I3 p) => _density[Index(p, Samples)];
-    internal bool ContainsCell(I3 p) => (uint)p.X < N && (uint)p.Y < N && (uint)p.Z < N;
+    private int DensityIndex(I3 p) => (p.Z * (_cellCounts.Y + 1) + p.Y) * (_cellCounts.X + 1) + p.X;
+    internal float At(I3 p) => _density[DensityIndex(p)];
+    internal bool ContainsCell(I3 p) => (uint)p.X < _cellCounts.X && (uint)p.Y < _cellCounts.Y && (uint)p.Z < _cellCounts.Z;
 
     internal float Field(Vector3 p)
     {
@@ -240,10 +291,10 @@ sealed class Grid
         var shifted = Position(p);
         for (var axis = 0; axis < 3; axis++)
         {
-            if (p[axis] != Mid)
+            if (p[axis] != BrickSize[axis])
                 continue;
             var dir = brick[axis] == 0 ? 1 : -1;
-            var next = brick + I3.Axis(axis) * (Mid * dir);
+            var next = brick + I3.Axis(axis) * (BrickSize[axis] * dir);
             if (ContainsCell(next) && Step(next) == 2)
                 shifted -= I3.Axis(axis).Position * (.5f * dir * CellSize);
         }
@@ -327,15 +378,17 @@ static class Marching
     internal static Mesh Extract(Grid grid, Tables tables, bool trackSources = false)
     {
         var output = new Mesh { Sources = trackSources ? [] : null };
-        var mid = grid.Mid;
+        var mid = grid.BrickSize;
         Span<float> d = stackalloc float[13];
         Span<Vector3> p = stackalloc Vector3[13];
-        foreach (var brick in Leaves.Bricks(mid))
+        for (var brickIndex = 0; brickIndex < 8; brickIndex++)
         {
+            var corner = I3.Corner(brickIndex);
+            var brick = new I3(corner.X * mid.X, corner.Y * mid.Y, corner.Z * mid.Z);
             var step = grid.Step(brick);
-            for (var z = 0; z < mid; z += step)
-            for (var y = 0; y < mid; y += step)
-            for (var x = 0; x < mid; x += step)
+            for (var z = 0; z < mid.Z; z += step)
+            for (var y = 0; y < mid.Y; y += step)
+            for (var x = 0; x < mid.X; x += step)
             {
                 var origin = brick + new I3(x, y, z);
                 EmitRegular(grid, tables, output, origin, step, brick, d, p);
@@ -348,14 +401,14 @@ static class Marching
             for (var direction = -1; direction <= 1; direction += 2)
             {
                 var normal = I3.Axis(axis);
-                var neighbor = brick + normal * (direction * mid);
+                var neighbor = brick + normal * (direction * mid[axis]);
                 if (!grid.ContainsCell(neighbor) || grid.Step(neighbor) != 2)
                     continue;
                 var u = I3.Axis((axis + 1) % 3);
                 var v = I3.Axis((axis + 2) % 3);
-                var basePoint = brick + normal * (direction > 0 ? mid : 0);
-                for (var y = 0; y < mid; y += 2)
-                for (var x = 0; x < mid; x += 2)
+                var basePoint = brick + normal * (direction > 0 ? mid[axis] : 0);
+                for (var y = 0; y < mid[(axis + 2) % 3]; y += 2)
+                for (var x = 0; x < mid[(axis + 1) % 3]; x += 2)
                 {
                     var origin = basePoint + u * x + v * y;
                     for (var c = 0; c < 9; c++)
