@@ -83,4 +83,4 @@ The [installer](https://github.com/DaveBeusing/wyu/pull/22),
 [first-run experience](https://github.com/DaveBeusing/wyu/pull/23),
 [mission](https://github.com/DaveBeusing/wyu/pull/24) and
 [diagnostics](https://github.com/DaveBeusing/wyu/pull/25) are on WYU
-`master`. Final acceptance remains pending on the clean-system evidence.
+`master`.
