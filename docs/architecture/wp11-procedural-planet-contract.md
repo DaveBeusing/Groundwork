@@ -44,7 +44,7 @@ A player can start a new world from an exact seed and generator version, walk th
 
 - Extract a manifold/consistently oriented zero-isosurface from bricks; select and document an algorithm with a proven multi-resolution transition scheme during architecture review. Algorithm selection must include comparative deterministic fixtures, not a late ad-hoc seam patch.
 - Shared vertices, tangents/normals, materials, LOD transitions and chart edges must agree; no cracks, T-junction visibility, degenerate triangles or inverted faces. Cavity/overhang fixtures must be visible and have matching collision.
-- Generate immutable meshes outside render and simulation critical sections. Publish mesh + matching collision + origin + camera generation atomically through explicit leases/fences. Do not expose partial generations.
+- Generate immutable meshes outside render and simulation critical sections. Publish matching mesh, collision and origin identity at Core finalization. Admit the visible frame separately through the commit permit in C00-3.
 - Verify topological seams in pure tests; WARP color/depth readback and NVIDIA hardware with Debug Layer/DRED on changes to provider paths.
 
 ### R05 – Streaming and bounded scheduling
@@ -58,11 +58,11 @@ A player can start a new world from an exact seed and generator version, walk th
 
 - Collision queries consume the same committed volumetric generation and edits as the visible geometry, with independent finite shape sweeps (not solely radial support). Unknown coverage is explicit and blocks unsupported movement.
 - Support grounded walking and existing radial gravity without assuming a single ground point on each ray. The synthetic cavity, steep slope, overhang, seam, rebase and unloading route must pass.
-- No player pose or contact state may be committed ahead of a matching presented/acknowledged collision generation. Same frame revisions and generator content identifiers must match through host submission.
+- Movement requiring new coverage holds until the collision generation is committed and its first matching visible frame is accepted by the provider. The frame, generator and collision identities must match through host submission.
 
 ### R07 – Editing and persistence
 
-- Single-player edits are ordered by published tick and canonical cell/brush identity. Implement add/remove operation(s) and deterministic conflict/revision checks; reject stale edits atomically. Edit impact includes neighbouring bricks, meshes, collision and persisted overlay.
+- Single-player edits follow the sealed intent order in C00-1C. Implement add/remove operations and deterministic conflict/revision checks. Reject stale edits as whole transactions. Edit impact includes neighbouring bricks, meshes, collision and the persisted overlay.
 - New save schema and planet lineage may replace prior formats completely. No mandatory migration. Encode descriptor, generator version/parameter identity, terrain edit overlay, player/world checkpoint and checksums with bounded canonical ordering.
 - Reuse or replace verified NTFS atomic publication, slot lease, retry-idempotency, stale-base rejection and corrupt/interrupted-write recovery; do not weaken these guarantees. Failed or unsupported saves remain intact and are reported as incompatible; they are not loaded with an incorrect generator.
 - Save during pending generation/edit, unload/reload, exit/restart, incompatible data, partial/corrupt writes and lost acknowledgement must be covered by deterministic tests.
@@ -95,7 +95,7 @@ The owner confirmed three **WP11-C00 architecture directions** for independent r
 
 For canonical edits, assign **material identifiers to uniquely owned cells** and **geometry-defining signed density to globally identified lattice vertices**. Any occupancy/solid-empty query is derived from the authoritative density field; independent cell occupancy cannot contradict it. A brush is a deterministic ordered transaction with a canonical bounding set, matching material changes and one expected world revision. Recompute/invalidate every neighbouring brick that samples changed density, including edges/corners and LOD dependents. Never save a duplicate authoritative edit under a cube-face or render-LOD key.
 
-For collision admission, complete immutable geometry and matching collision with identical descriptor/edit revision; do not make new coverage simulation-authoritative merely because it was requested or uploaded. Apply the existing Requested → Prepared → Submitted → PresentedConfirmed → Committed → Retired publication sequence at the permitted simulation barrier. Once committed, no additional Present is required for each subsequent fixed tick. Current player intent may be held while blocked, but **never** converted into a backlog of accumulated unvalidated position changes. Avoid stalling unrelated systems or advancing the blocked player's pose. All failure/stop paths remain fail-closed.
+For collision admission, stage matching immutable geometry and collision. Commit at the Core barrier, then use the commit permit for the first visible frame and release affected movement only on matching provider acceptance. Follow C00-1C and C00-3. A readiness hold never accumulates movement deltas or pauses unrelated systems.
 
 Reviewers must independently attempt to falsify these assumptions; any P0/P1 findings reopen the relevant decision. No specialist review, Windows execution, meshing prototype, hardware benchmark or final merge approval is implied by this record.
 
@@ -113,11 +113,7 @@ The generator base, density-edit overlay and material overlay together form one 
 
 **Owner-approved architectural rule (2026-11-08):** Each add/remove/sculpt edit is a **single deterministic world-scoped transaction**, with `WorldId/PlanetId`, canonical edit identifier and tick, expected committed terrain revision, ordered global density-vertex and material-cell writes, and a complete dependency/invalidation footprint (brick faces/edges/corners, normal stencils, LOD transitions, collision and save overlay). Global sample identity is unique even when multiple workers mesh neighbouring bricks.
 
-Workers may calculate immutable edit candidates and derived meshes in parallel but **never mutate authoritative world terrain or persist partial results**. The owning coordinator validates the expected revision, full canonical read/write set, domain/quotas, conflicts and output generation. Conflicting or stale transactions are deterministically rejected *as whole transactions*; no "first worker finished" winner or partial application. Accepted non-conflicting transactions have a stable, declared ordering at the named Core simulation publication barrier, independent of worker completion order. A transaction's whole affected density/material overlay and its matching mesh, collision and presentation/origin lineage become authoritative **together only after coherent generation admission** (including any required matching presentation acknowledgement). Intermediate computed or uploaded pieces are not visible to readers, collision, or save checkpoints.
-
-A publication either atomically swaps the full consistent TerrainState and associated admissible derived coverage under a monotonic revision, or leaves the previous committed state unchanged. Reject stale source revisions and invalidated candidate generations; never expose mixed old/new bricks. If render admission is delayed, the old collision/visible coverage remains authoritative, and affected movement/interactions hold or reject without blocking unrelated simulation. The previous state stays leased until all readers/GPU uses are settled. Persistence captures **only a single fully committed revision** with its exact generator descriptor, density/material edits, and player/world checkpoint; in-flight work never changes the checkpoint.
-
-No voxel-per-ECS-entity design is permitted. Volume transactional conflicts must have a defined range/key-space authority that composes with existing `EcsBatchWriter`/Core publication rules rather than assuming ECS entity/component write scopes cover vertices or bricks. A cancelled, failed, over-budget or losing candidate releases owned reservations safely and has **no authoritative world effect**. Exact conflict ordering for same-tick overlapping edits must be specified and test-vectored before coding.
+Workers may calculate immutable candidates and derived meshes in parallel. C00-1C defines deterministic eligibility, terrain conflict authority and the shared publication and save cut. C00-3 defines renderer readiness and the visible path. An edit or its derived data cannot partially change authoritative readers, collision or saves.
 
 **Required negative fixtures:** two overlapping edit jobs arriving in reverse order, a stale expected revision, disjoint concurrent edits, one edit crossing eight finest-level brick corners, a shared boundary vertex and mixed LOD seam, cancellation after some meshes finish, a failed Present, a save during staging, and unload/restart after an acknowledged commit. In every case, the committed state and persisted overlay must be whole, deterministic and crash-safe, or unchanged.
 
@@ -125,11 +121,75 @@ No voxel-per-ECS-entity design is permitted. Volume transactional conflicts must
 
 ### C00-1C — One authoritative terrain publication boundary (L3A-01 resolution candidate)
 
-**Single commit point:** An accepted brush command is an *intent*, not a committed edit. Candidate density/material overlay, meshes, collision and render-origin stamps are immutable staged artifacts. All authoritative readers (including saves and gameplay queries) continue to observe revision N until the required matching presentation acknowledgement and Core barrier commit the entire coherent revision N+1. A candidate may be computed, uploaded or displayed in a non-authoritative staging path, but it cannot change authoritative collision, material, density, edit acknowledgement or persisted checkpoints early. If a renderer fails to present, the candidate remains uncommitted and is discarded/retried; revision N remains the only authoritative saveable state. The edit acknowledgement is issued only after N+1 commits. No separate early logical commit is permitted.
+**Single authoritative commit.** An accepted brush is an intent. The
+world-scoped Terrain Publication Coordinator alone owns typed density-vertex,
+material-cell, brick and dependency scopes, reservations and the pending edit
+order. Workers may prepare immutable results in parallel. Renderer readiness
+is evidence for validation at the barrier. It cannot install a terrain root.
 
-**Conflict and resource rule:** At the barrier, validate canonical read/write/dependency footprints and the expected source revision. Overlapping edits use stable tick/brush ordering. Disjoint edits from the same revision may be conservatively serialized and rejected/retried deterministically; an optimization for independent rebase requires its own proven conflict-range policy before implementation. All readers/leases/GPU retirement retain revision N as long as needed. An interrupted save captures N or N+1, never staged or mixed data.
+**Core integration.** Extend Core's `CommitResults` finalization to publish one
+immutable `WorldPublication` under the same authority gate as the ECS root and
+batch dispositions. It carries the world/planet identity, published tick,
+ECS/player state, immutable TerrainState (descriptor, density and material
+overlays), terrain revision, admitted mesh/collision identity and origin
+stamp. This is a required WP11 integration change. Calling the existing
+terrain acknowledgement and ECS finalization separately is insufficient.
+Validate the candidate, expected source terrain revision, terrain dependency stamps,
+renderer epoch/origin, safety generation and budgets before the one swap.
+Serialize epoch invalidation and token consumption under the same authority
+gate. Renderer callbacks enqueue evidence and never wait under that gate.
+Combine the validated terrain candidate with the ECS state prepared for
+this barrier. An unrelated ECS update since staging does not by itself
+invalidate a candidate. Revalidate the affected player and world state.
+Abort before the swap leaves N authoritative. Validate the retained player
+pose against the new collision before committing. Reject penetration or
+unknown coverage. If the edit removes support without penetration, clear the
+contact and mark the pose ungrounded in the same publication. Keep affected
+motion held until render admission opens. Unrelated systems can keep ticking.
 
-**Required adversarial fixtures:** (1) brush prepared, Present fails, save/restart yields N; (2) brush prepared, Present delayed, gameplay collision and save still N; (3) successful Present then Core barrier yields matching N+1 across density/material/mesh/collision/save; (4) cancellation or stale source leaves N intact; (5) two overlapping and two disjoint same-source edits produce deterministic ordering and acknowledgements. This amendment is a review candidate, not a verified implementation.
+**Checkpoint cut.** A save request captures one `WorldPublication` at
+`CommitResults`, after the barrier's outcome is fixed, under a bounded
+checkpoint lease. No separate reads of pose, edits or collision identity
+are allowed. The asynchronous I/O worker consumes only the immutable
+bundle and releases its lease after settlement. If the lease budget is
+exhausted, reject or defer capture without mixing revisions or blocking
+the barrier. A capture before an edit commits contains N. A capture
+afterwards contains N+1, even if its first visible frame is pending.
+The durable checkpoint binds the same descriptor, world tick, player
+state and terrain revision/overlay and validates reconstructed collision
+on reload. Slot generation and save retry ID remain distinct from terrain
+revision and edit ID. Edit acknowledgement means the Core swap succeeded.
+Durability requires a separate successful save acknowledgement. An
+interrupted write follows the slot protocol and restores the last
+complete durable checkpoint or the newly published one.
+
+**Conflict order.** At the published input tick, seal a bounded intent
+order by (published tick, canonical brush ID) before dispatch. Intake
+uses a bounded per-tick envelope. On overflow reject the entire edit
+set for that tick before dispatch, independent of arrival order. Reject
+duplicate IDs with different payloads. Identical retries return the
+pending or recorded disposition while retained. Only the first
+unresolved intent may advance to renderer staging or commit. Later
+workers may prepare CPU artifacts within reserved budget, but cannot
+consume the head's reserved capacity or overtake it. Only one view
+cutover can be in flight. Following edits cannot start another cutover
+until the matching frame is accepted or the affected epoch settles. The head resolves
+as Committed, Rejected (including Stale or Backpressure), or Cancelled.
+Revalidate each successor against the new committed revision, even for
+disjoint edits. There is no automatic rebase. A user resubmission after
+Stale uses a new ID and the new expected revision. An evicted duplicate
+is rejected by the closed input-tick watermark. Replay records any
+explicit cancellation or fault outcome separately from readiness waits.
+A readiness watchdog faults or cancels the entire affected pending epoch
+with no later success in that epoch. Worker speed alone cannot select an
+edit winner. Independent simulation continues.
+
+**Required adversarial fixtures:** reverse completion of overlapping and
+disjoint edits while the head remains pending, cancel or fault the head
+without overtaking, retry identical and conflicting IDs, cancel after
+partial mesh preparation, and capture saves on both sides of finalization
+and after a display fault. Assert exact disposition order, coherent
+terrain/pose/collision stamps, and bounded settlement of all leases.
 
 ### C00-1 — Canonical volume addressing across faces and LOD (R01, R03, A01/A03)
 
@@ -137,7 +197,7 @@ No voxel-per-ECS-entity design is permitted. Volume transactional conflicts must
 
 The existing six cube-sphere charts are **non-authoritative view/LOD addresses**, not identities for volumetric samples or persisted edits. Far spherical patches query the same versioned volume field through a documented canonical sampling transform. A face edge or corner cannot own a different edited value because edits are keyed solely by the planet identity and 3D integer lattice address. Rendering may use local-origin rebasing and floats, but render positions must never be fed back into canonical world keys.
 
-Material edits address uniquely owned *cells*; solid/empty shape editing and density sculpting address globally identified *lattice vertices*. A cell's material cannot independently override the solidity inferred from density. Brushes enumerate both effects in a deterministic, versioned, atomically admitted transaction; forbid ambiguous half-cell coordinates. At a brick boundary, exactly one canonical cell owner changes material/occupancy, while every mesh neighbour dependent on shared density samples is invalidated. Distinguish generation identity from rendering LOD and local-origin revision. For every conversion require explicit ties-to-even rounding or another approved deterministic tie rule; define overflow and nonfinite-input rejection **before** any cast or allocation. Use checked Int64 arithmetic for coordinate/brick construction and validated domain limits for radius/resolution. Exceeding the supported domain must fail closed, not wrap.
+Material edits address uniquely owned *cells*; solid/empty shape editing and density sculpting address globally identified *lattice vertices*. A cell's material cannot independently override the solidity inferred from density. Brushes enumerate both effects in a deterministic, versioned, atomically admitted transaction; forbid ambiguous half-cell coordinates. At a brick boundary, exactly one canonical cell owner changes material metadata, while every mesh neighbour dependent on shared density samples is invalidated. Distinguish generation identity from rendering LOD and local-origin revision. For every conversion require explicit ties-to-even rounding or another approved deterministic tie rule; define overflow and nonfinite-input rejection **before** any cast or allocation. Use checked Int64 arithmetic for coordinate/brick construction and validated domain limits for radius/resolution. Exceeding the supported domain must fail closed, not wrap.
 
 **Required evidence:** planar negative-coordinate tests; 3D brick faces/edges/corners (including triple-neighbour samples); cube-chart 12 edges/8 corners; level transitions; local-origin rebases; 6,400,000 m radius stress; duplicate-free canonical edit keys; roundtrip persistence of edits near seams. The mapping is a design decision subject to the independent review, not a proven implementation.
 
@@ -149,20 +209,69 @@ Never key generation or ordering on worker scheduling, clock time, platform thre
 
 ### C00-3 — Simulation-authoritative coverage versus GPU presentation (R04–R06, C01–C03)
 
-**Proposed admission state machine:**
+**Admission and renderer handoff:**
 
-1. `Requested` → reserve bounded immutable generated bricks and matching edit revision.
-2. `Prepared` → complete required mesh topology, collision data and camera/local-origin stamp; candidate remains non-authoritative.
-3. `Submitted` → renderer accepts matching candidate revision/descriptor; a submission alone is **not** presentation.
-4. `PresentedConfirmed` → renderer acknowledges an actual matching mesh/camera presentation, with valid native ownership/fence evidence.
-5. `Committed` → at the next permitted simulation/Core publication barrier, atomically replace active mesh/collision/origin coverage and install the matching generation.
-6. `Retired` → old CPU/GPU versions release only after all readers, jobs, draws and Present operations have settled per Core/GPU custody contracts.
+1. `Requested` → reserve bounded immutable input and work for the head
+   of the sealed order. Hold only actions that require unavailable coverage.
+2. `Prepared` → complete matching immutable mesh and collision artifacts,
+   including descriptor, source revision and origin/camera stamps.
+3. `ReadyToCommit` → the renderer owns a fenced, drawable-ready upload
+   and returns a token for (world, candidate, source revision, target
+   revision, renderer epoch, origin revision). Staged geometry may be
+   rendered offscreen. It is ineligible for the visible swap chain.
+   Before issuing the token, gate presentation of the affected view
+   behind a neutral loading mask. Complete or fence earlier submissions
+   and confirm that the provider has accepted the mask frame. If masking
+   or preparation fails, do not issue a token or commit. The mask remains
+   latched until a matching committed frame can replace it.
+4. `Committed` → the named Core `CommitResults` barrier validates the
+   token and performs the single `WorldPublication` swap in C00-1C.
+   Only a matching commit permit from that swap makes a frame eligible
+   for visible presentation. The coordinator publishes the edit
+   disposition and permit from the same committed outcome. A rebase,
+   cancellation or terminal stop before the swap invalidates the token.
+   With no commit, restore the last committed view if safe or keep the
+   mask and stop the affected path. Discard late readiness and never
+   submit the candidate to the visible swap chain.
+5. `VisibleAccepted` → the provider accepts a frame with the matching
+   commit permit, renderer epoch, mesh and origin. This releases the
+   mask and opens contact-sensitive actions against that same committed
+   revision. A delayed or failed first Present after commit keeps the
+   affected view masked and its actions held. N+1 stays committed and
+   saveable. Recovery may resubmit only that committed content with a
+   valid current permit. Serialize view-permit invalidation with frame
+   admission at the renderer owner. A previously admitted in-flight frame
+   may settle but its stale acknowledgement cannot reopen input. If the
+   origin changes after commit, invalidate
+   the old view permit, rebuild or reproject the same committed revision
+   with the new origin, and revalidate before unmasking. Never roll back
+   N+1 or expose old geometry as current. Terminal failure closes the
+   affected presentation path through Core ownership and fault policy.
+6. `Retired` → release old and rejected CPU/GPU versions only after the
+   relevant readers, workers, submissions and native fences settle.
+   Signal failure, device loss and stop keep ownership in custody until
+   safe release is established.
 
-An admitted `Committed` generation can support many subsequent deterministic 60 Hz simulation ticks. **A new GPU Present must not be required before each simulation tick**. The first admission of *new* coverage waits for confirmed matching presentation, and any movement requiring not-yet-admitted coverage holds the last valid pose. A delayed, canceled or failed presentation cannot authorize the new collision generation. The simulator must distinguish a stream-readiness hold from ordinary zero-input movement and record it in the trace.
+This contract governs which frames the provider is allowed to submit and
+accept. Present acceptance gives no guarantee about physical scanout or
+compositor timing. Old already displayed pixels may persist until the
+mask is presented. During cutover, the mask and affected-action hold
+prevent an interactive mixed-generation view. Only the first matching
+frame of a new committed view is required. Later fixed ticks do not
+require a fresh Present for unchanged coverage. Holds never build an
+input backlog, and independent systems continue. Apply bounded deadlines
+and quotas to readiness, mask/Present and recovery. On expiry, settle
+or stop the affected path without bypassing the edit order. Report
+readiness waits separately from semantic replay and record any explicit
+fault or cancellation outcomes in the replay fixture.
 
-Deterministic tests must replay a fixed *accepted input/action sequence and semantic world checkpoints* under controlled readiness schedules. Wall-clock readiness delays and numbers of hold ticks may vary and should be reported separately; never claim raw tick-by-tick equivalence across uncontrolled GPU/worker timing. An edit accepted for preparation is **not** an authoritative terrain mutation. Its canonical density/material writes remain staged and invisible to authoritative readers and checkpoints until the matching derived geometry, collision, render-origin lineage and required presentation acknowledgement are ready. At one named Core publication barrier, atomically commit the complete new TerrainState and its admitted coverage under one monotonically increasing revision. A failed, delayed or cancelled Present leaves the old committed TerrainState, visible coverage, collision and persisted checkpoint authoritative; staged writes cannot be saved. The transaction may be retried deterministically from the same valid source revision or rejected as stale. This rule supersedes any interpretation of early logical terrain commits elsewhere in this contract. Block/reject the affected contact-sensitive interaction until admitted; retain continuous intent only as current input, never accumulate a movement or edit backlog that replays as a burst. Other independent fixed-step systems continue. Stop, failed Signal and removal sentinel retain ownership until safe settlement evidence.
-
-**Required evidence:** randomized worker ordering, delayed Present, stopped renderer, rapid rebase, edit during streaming, interrupted frame, stale candidate rejection and a full walk→flight→landing route with matching generation stamps.
+**Required evidence:** no candidate presentation before commit, including
+abort between readiness and finalization. Exercise successful mask
+followed by cancellation, stale/duplicate token, precommit and postcommit
+rebase, failed or delayed first visible Present, stop after commit before
+permit consumption, save during each phase and fresh-process restoration.
+Verify the displayed admission state, committed root, collision hold,
+save cut and custody at each step.
 
 ### C00-4 — Meshing and performance-budget decision gate (R04/R05/R09, B01/Q01)
 
@@ -226,7 +335,7 @@ These are **mandatory acceptance requirements**, not claims that tests have alre
 
 1. **Canonical address fixtures:** Implement automated, table-driven Euclidean floor-division and remainder tests at brick edge 32 for coordinates -65, -64, -33, -32, -1, 0, 31, 32, 63 and 64, including Cartesian 3D face/edge/corner combinations. Assert local index in [0,32), canonical sample identity, checked Int64 boundary/overflow behavior, rejection of nonfinite inputs, deterministic rounding and cross-run identity. Cover all 12 cube-chart edges, eight chart corners, mixed LOD and rebased render origins without duplicate authoritative keys.
 2. **Eight-brick shared vertex:** Build eight bricks meeting at one canonical vertex. Commit a density edit at that vertex and assert exactly one authoritative address/value, dependency invalidation for all affected bricks, coherent admitted geometry/collision revision, no seams and identical save/restart reconstruction. Include shared faces, edges and mixed LOD transitions.
-3. **Atomic edit fault matrix:** Execute overlapping same-tick edits with reversed worker completion, disjoint edits, stale base revision, cancellation after partial derived work, failed/delayed presentation, save while staging and restart after acknowledged commit. Assert no partial authoritative publication, no mixed collision/visible revision, deterministic conflict ordering, bounded/released leases and reservations. Explicitly assess whether global revision checks unnecessarily reject disjoint edits and specify safe conflict-scope handling.
+3. **Atomic edit fault matrix:** Execute overlapping same-tick edits with reversed worker completion, disjoint edits, stale base revision, cancellation after partial derived work, failed/delayed presentation, save while staging and restart after acknowledged commit. Assert no partial authoritative publication, no uncommitted visible candidate, masked or held contact-sensitive actions until matching provider acceptance, deterministic conflict ordering, and bounded settlement of leases and reservations. Explicitly assess whether global revision checks unnecessarily reject disjoint edits and specify safe conflict-scope handling.
 4. **Reproducible evidence:** For each executed test record exact repository and commit SHA, test name and command, environment/OS/runtime, expected and observed values, pass/fail output/logs, code references and any **NOT RUN** cases. Attach machine-readable CI artifacts where available. An unexecuted or merely proposed fixture cannot be counted as a passing test.
 5. **Review gate:** The independent L3A report must list inspected files, method, reproducible P0–P3 findings, remediation owners, unresolved questions and PASS/PASS_WITH_NOTES/BLOCK. No formal L3A acceptance with unresolved P0/P1. PR #77 remains draft pending required independent specialist and integration reviews and explicit owner acceptance of the final reviewed SHA.
 
