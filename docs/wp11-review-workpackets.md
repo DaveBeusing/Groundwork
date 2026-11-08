@@ -4,6 +4,22 @@
 **Candidate commit:** Use the **latest review freeze** recorded in [C00 issue #78](https://github.com/DaveBeusing/Groundwork/issues/78), issued *after* the five C00 clarifications were incorporated into the contract. Earlier freeze comments are superseded. Each reviewer must verify the live PR head equals that exact SHA before starting; do not review `master` in place or silently accept later commits.
 **Status:** Four specialist packets prepared; **none counts as an executed review**. This document is a dispatch instruction, not a review report.
 
+## Owner-confirmed focal decisions to challenge (2026-11-08)
+
+All four independent reviewers must challenge — rather than assume correctness of — these newly confirmed design baselines in the [WP11 contract](docs/architecture/wp11-procedural-planet-contract.md):
+
+- **Identity and edits:** Unique planet-centred signed Int64 Cartesian coordinates for volume cells and density vertices; material edits target cells, sculpting targets vertices; deterministic multi-brick invalidation and no duplicate authoritative keys at cube-face/LOD joins. The 32-cell / 1 m finest-resolution parameters are tunable.
+- **Collision coverage:** Predictive movement-envelope streaming and fail-closed unknown coverage. Hold/reject only the affected action at the last valid state while independent fixed-step systems continue; do not replay accumulated movement after a coverage hold. Admitted mesh/collision/origin stay coherent via the recorded publication barrier. Review orbit/approach/touchdown collision handoff.
+- **Meshing benchmark:** Marching Cubes + validated Transvoxel-style transition cells is the **first reference**, not final production approval. Compare independently against a constrained Dual Contouring/Surface Nets candidate on the same adversarial fixtures. Document memory, geometry/collision consistency and performance for both; budgets remain provisional and unmeasured.
+
+Focused checks:
+- **L3A-ECS:** negative floor-division, brick boundary ownership, vertex/cell edit distinctions, duplicated seam writes, invalidation including corners and LOD dependencies.
+- **L3B-JOBS:** predictive reservation/backpressure, bounded work ahead of movement, deterministic edit ordering and cancellation, stale candidate rejection and resource accounting.
+- **L2-SIM:** admission barrier vs GPU Present, targeted action hold without advancing pose or replay-burst, fixed-tick independence of unrelated systems and flight-to-surface collision handoff.
+- **L5-FAULTS:** corrupted/unknown coverage fail-closed, save lineage integrity, GPU and job ownership on failed Present/device loss, quota failures, and benchmark proof-vs-assumption.
+
+The **review freeze is the exact live PR head recorded in issue #78 after these documentation changes**, not the previous `bb635383...` candidate. Treat earlier freeze comments as superseded. No reviewers have run as part of preparation.
+
 ## Independence and evidence protocol
 
 Assign each packet to a *separately invoked reviewer context/agent*. A reviewer receives only the packet for their role plus source documents listed below; it must not read or inherit other reviewers' work, findings, comments, or output until its independent report is sealed. Do not fabricate reviewer accounts or GitHub approvals. Maximum four concurrent specialist review/implementation agents.
