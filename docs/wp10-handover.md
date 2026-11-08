@@ -1,6 +1,6 @@
 # WP10 Windows alpha handover
 
-**Status: engineering rehearsal recorded. Release acceptance is open.**
+**Status: WP10 accepted by the owner on the evidence below.**
 
 The [WP10 acceptance contract](architecture/wp10-windows-alpha-contract.md)
 defines the offline Windows alpha. This record captures a local
@@ -59,9 +59,14 @@ network remained connected.
   Shutdown reported 734 warnings, zero errors, corruption or discarded
   messages, and zero live GPU child objects. This covers the rescue
   renderer path. A unified run from an empty installed slot and the
-  final flight renderer qualification remain part of release acceptance.
+  final flight renderer qualification remain open follow-up evidence.
 
-## Remaining release evidence
+## Owner decision and follow-up evidence
+
+The owner approved WP10 on the basis of the tests recorded above. The
+full offline run on a freshly provisioned Windows 11 system remains
+open as a follow-up and is outside the criteria for this approval.
+The results above describe the local rehearsal.
 
 - Confirm the compiler license for the intended release and record
   the final installer digest and durable artifact location.
@@ -72,10 +77,10 @@ network remained connected.
 - Complete the ordinary installed route from a fresh mission, including
   both checkpoint restarts. Capture two deterministic replays, then
   attach WARP and NVIDIA Debug Layer/DRED results with a zero-live-child
-  report to the final acceptance record.
+  report to the follow-up evidence.
 
 The [installer](https://github.com/DaveBeusing/wyu/pull/22),
 [first-run experience](https://github.com/DaveBeusing/wyu/pull/23),
 [mission](https://github.com/DaveBeusing/wyu/pull/24) and
 [diagnostics](https://github.com/DaveBeusing/wyu/pull/25) are on WYU
-`master`. Final acceptance remains pending on the clean-system evidence.
+`master`.
