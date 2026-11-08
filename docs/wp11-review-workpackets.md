@@ -1,7 +1,7 @@
 # WP11-C00 isolated architecture review work packets
 
 **Review target:** [Groundwork PR #77](https://github.com/DaveBeusing/Groundwork/pull/77) against `master`.
-**Candidate commit:** Read the exact head SHA from the [C00 issue kickoff comment](https://github.com/DaveBeusing/Groundwork/issues/78); reviewers must verify the live PR head matches this SHA before review. Do not review `master` in place or silently accept later commits.
+**Candidate commit:** Use the **latest review freeze** recorded in [C00 issue #78](https://github.com/DaveBeusing/Groundwork/issues/78), issued *after* the five C00 clarifications were incorporated into the contract. Earlier freeze comments are superseded. Each reviewer must verify the live PR head equals that exact SHA before starting; do not review `master` in place or silently accept later commits.
 **Status:** Four specialist packets prepared; **none counts as an executed review**. This document is a dispatch instruction, not a review report.
 
 ## Independence and evidence protocol
@@ -14,7 +14,7 @@ Mandatory report header: role, invoked tool/context/session ID, model/reviewer i
 
 ## Shared frozen review sources (read independently)
 
-- `docs/architecture/wp11-procedural-planet-contract.md` — R01–R09, DAG, acceptance.
+- `docs/architecture/wp11-procedural-planet-contract.md` — R01–R09, **C00-1 through C00-5 architecture clarifications**, DAG, acceptance. Reviewers independently challenge these candidate choices; they must not treat them as validated by the author preflight.
 - `docs/wp11-issues.md` and `docs/roadmap.md` — issue tracking and milestone.
 - `docs/adr/ADR-0007-solo-review-governance.md` — isolated review and owner acceptance.
 - `docs/adr/ADR-0006-packaging-release.md`, `docs/adr/ADR-0001-repository-boundaries.md`.
