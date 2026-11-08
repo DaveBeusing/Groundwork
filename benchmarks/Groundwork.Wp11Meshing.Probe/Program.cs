@@ -4,7 +4,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 
 if (args.Length != 5)
-    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision>");
+    throw new ArgumentException("Usage: <tables.cpp> <mc|dc> <fixture> <layout> <repetitions|geometry|collision-refined|junction-collision|mixed-collision|tangential-collision>");
 
 const int n = 32;
 var algorithm = args[1];
@@ -13,15 +13,16 @@ var layout = args[3];
 var refineCollision = args[4] == "collision-refined";
 var junctionCollision = args[4] == "junction-collision";
 var mixedCollision = args[4] == "mixed-collision";
-var geometry = args[4] == "geometry" || refineCollision || junctionCollision || mixedCollision;
+var tangentialCollision = args[4] == "tangential-collision";
+var geometry = args[4] == "geometry" || refineCollision || junctionCollision || mixedCollision || tangentialCollision;
 var repetitions = geometry ? 1 : int.Parse(args[4], System.Globalization.CultureInfo.InvariantCulture);
 if (repetitions < 1 || algorithm is not ("mc" or "dc") || layout is not ("uniform" or "face" or "corner" or "pressure"))
     throw new ArgumentOutOfRangeException(nameof(args));
 var tables = new Tables(File.ReadAllText(args[0]));
-var grid = new Grid(n, fixture, layout, refineCollision, junctionCollision, mixedCollision);
+var grid = new Grid(n, fixture, layout, refineCollision, junctionCollision, mixedCollision, tangentialCollision);
 if (geometry)
 {
-    if (algorithm != "mc" || layout == "pressure" || junctionCollision && layout != "corner" || mixedCollision && layout != "face")
+    if (algorithm != "mc" || layout == "pressure" || junctionCollision && layout != "corner" || (mixedCollision || tangentialCollision) && layout != "face")
         throw new ArgumentException("Use MC with uniform, face or corner geometry, corner junction collision, or face mixed collision.");
     Mesh mesh;
     object? sharedBoundary = null;
@@ -35,7 +36,21 @@ if (geometry)
         mesh = left;
     }
     else
+    {
         mesh = Marching.Extract(grid, tables, trackSources: true);
+        if (tangentialCollision)
+        {
+            var left = new Mesh();
+            var right = new Mesh();
+            for (var i = 0; i < mesh.Count; i++)
+            {
+                // The fine owner publishes the transition strip up to the coarse face.
+                var owner = mesh.Sources![i] == "regular-coarse" ? right : left;
+                owner.Add(mesh[i]);
+            }
+            sharedBoundary = GeometryProbe.CheckSharedBoundary(left, right, grid.Extent / 2);
+        }
+    }
     Console.WriteLine(JsonSerializer.Serialize(new
     {
         fixture, layout, mode = args[4], refinementEnabled = refineCollision, grid.ThinFeatureWitness, sharedBoundary,
@@ -127,18 +142,18 @@ sealed class Grid
         return position;
     }
 
-    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision)
+    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision)
     {
         _fixture = fixture;
         ThinFeatureWitness = refineCollision ? FindThinSolid(n) : null;
         // This probe publishes one collision region. Promote it as a unit so
         // collision never crosses a coarse seam inside the protected feature.
         _mixedCollision = mixedCollision;
-        var useFineGrid = ThinFeatureWitness.HasValue || junctionCollision || mixedCollision;
-        CellSize = useFineGrid ? 0.5f : 1f;
+        var useFineGrid = ThinFeatureWitness.HasValue || mixedCollision;
+        CellSize = junctionCollision || tangentialCollision ? 0.25f : useFineGrid ? 0.5f : 1f;
         N = (int)(n / CellSize);
         XCells = mixedCollision ? Mid + n / 2 : N;
-        _layout = useFineGrid ? "uniform" : layout;
+        _layout = useFineGrid || junctionCollision ? "uniform" : layout;
         _density = new float[Samples * Samples * Samples];
         for (var z = 0; z <= N; z++)
         for (var y = 0; y <= N; y++)

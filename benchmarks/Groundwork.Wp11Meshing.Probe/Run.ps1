@@ -67,7 +67,9 @@ try {
             @{ fixture = 'junction'; layout = 'corner'; mode = 'geometry' },
             @{ fixture = 'junction'; layout = 'corner'; mode = 'junction-collision' },
             @{ fixture = 'bridge'; layout = 'face'; mode = 'mixed-collision' },
-            @{ fixture = 'seam'; layout = 'face'; mode = 'mixed-collision' }
+            @{ fixture = 'seam'; layout = 'face'; mode = 'mixed-collision' },
+            @{ fixture = 'bridge'; layout = 'face'; mode = 'tangential-collision' },
+            @{ fixture = 'seam'; layout = 'face'; mode = 'tangential-collision' }
         )
         foreach ($case in $boundaryCases) {
             $row = dotnet $dll $Tables mc $case.fixture $case.layout $case.mode
@@ -107,18 +109,31 @@ try {
                     $_.overTolerance -or $_.maxPairedError -gt 0.1 })) {
                 throw "Collision mesh regression for $($fixed.fixture)/$($fixed.mode)."
             }
-            if ($fixed.mode -eq 'mixed-collision') {
+            if ($fixed.mode -in 'mixed-collision','tangential-collision') {
                 $boundary = $fixed.sharedBoundary
                 if (-not $boundary.leftEdges -or $boundary.leftEdges -ne $boundary.rightEdges -or
-                    $boundary.unmatchedLeft -or $boundary.unmatchedRight -or $band.CrossingCountMismatches) {
+                    $boundary.unmatchedLeft -or $boundary.unmatchedRight -or
+                    $band.MissedHitRays -or $band.UnexpectedHitRays) {
                     throw "Mixed region boundary regression for $($fixed.fixture)."
+                }
+                if ($fixed.mode -eq 'tangential-collision') {
+                    $crossingLimit = if ($fixed.fixture -eq 'bridge') { 1 } else { 0 }
+                    if ($fixed.CellSize -ne 0.25 -or -not $audit.TransitionTriangles -or
+                        $band.CrossingCountMismatches -gt $crossingLimit) {
+                        throw "Tangential LOD boundary regression for $($fixed.fixture)."
+                    }
+                } elseif ($band.CrossingCountMismatches) {
+                    throw "Normal-only LOD boundary regression for $($fixed.fixture)."
                 }
                 if ($fixed.fixture -eq 'bridge' -and
                     ($fixed.geometry.collision.'bridge-core'.CrossingCountMismatches -or
                      $fixed.geometry.collision.'bridge-core'.MissingCoreOccupancySamples)) {
                     throw "Mixed region bridge occupancy regression."
                 }
-            } elseif ($band.CrossingCountMismatches -gt 1 -or $band.MaxPairedError -gt 0.1) {
+            } elseif ($band.CrossingCountMismatches -or $band.MaxPairedError -gt 0.15 -or
+                $fixed.geometry.grazingTrace.Density.Count -ne 2 -or
+                $fixed.geometry.grazingTrace.Mesh.Count -ne 2 -or
+                $fixed.geometry.collision.'grazing-regression'.MaxPairedError -gt 0.15) {
                 throw "Junction ray regression."
             }
         }

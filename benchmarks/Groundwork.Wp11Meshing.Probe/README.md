@@ -127,7 +127,7 @@ the band, so compare both numerator and denominator.
 ./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-boundaries.json -CollisionBoundaries
 ```
 
-The three-plane junction uses a separate, uniform half-cell collision
+The three-plane junction uses a separate, uniform quarter-cell collision
 mesh from the same density field. Its render mesh retains the Transvoxel
 transitions. This avoids using displaced render seam vertices for
 collision queries. The runner compares the previous collision results
@@ -145,4 +145,16 @@ prototype diagnostic. The run covers two static regions across one
 face and does not exercise streaming, collision publication or handoff
 between independently scheduled owners.
 
-[Workstation junction and mixed-region results](results-windows-mc-collision-boundaries.json)
+The runner also repeats the missed grazing ray at X = 15.319, Z = 4.673
+along +Y and records both crossings. For tangentially mismatched regions
+the fine side uses 0.25-cell spacing and the coarse side uses 0.5 in
+all three axes. The fine owner contributes the Transvoxel transition
+strip, and its coarse-plane contour is checked against the coarse
+region's contour with exact, oppositely oriented edges. Both meshes are
+queried together. The runner requires both crossings of the grazing ray
+with at most 0.15 cells of paired error, and preserves the 0.1-cell
+swept-sphere diagnostic. One extra crossing-pair discrepancy is
+recorded in the tangential bridge band. The bridge core and sphere
+contacts remain gated separately.
+
+[Workstation grazing-ray and tangential-boundary results](results-windows-mc-tangential-boundaries.json) · [Previous half-cell junction and normal-only boundary results](results-windows-mc-collision-boundaries.json)

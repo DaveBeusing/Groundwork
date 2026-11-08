@@ -58,9 +58,14 @@ static class GeometryProbe
             Max: Vector3.Max(t.A, Vector3.Max(t.B, t.C)))).ToArray();
         var intersections = new List<object>();
         var testedPairs = 0;
-        for (var i = 0; i < mesh.Count; i++)
-        for (var j = i + 1; j < mesh.Count; j++)
+        var byMinX = Enumerable.Range(0, mesh.Count).OrderBy(i => bounds[i].Min.X).ToArray();
+        for (var a = 0; a < byMinX.Length; a++)
+        for (var b = a + 1; b < byMinX.Length; b++)
         {
+            var i = byMinX[a];
+            var j = byMinX[b];
+            if (bounds[j].Min.X > bounds[i].Max.X + Epsilon)
+                break;
             if (!Overlap(bounds[i], bounds[j]))
                 continue;
             testedPairs++;
@@ -72,6 +77,7 @@ static class GeometryProbe
 
         var groups = new Dictionary<string, CollisionStats>();
         var examples = new List<CollisionExample>();
+        CollisionExample? grazingTrace = null;
         for (var axis = 0; axis < 3; axis++)
         {
             var u = I3.Axis((axis + 1) % 3).Position;
@@ -80,6 +86,9 @@ static class GeometryProbe
             for (var b = 0.319f; b < grid.Extent; b += 0.5f)
                 Trace("grid", axis, u * a + v * b);
         }
+
+        if (fixture == "junction")
+            Trace("grazing-regression", 1, new Vector3(15.319f, 0, 4.673f));
 
         if (fixture == "bridge")
         {
@@ -98,7 +107,7 @@ static class GeometryProbe
         return new
         {
             normalSummary, testedPairs, intersections, collisionTolerance = CollisionTolerance,
-            collision = groups, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
+            collision = groups, grazingTrace, movingBodies = SphereSweep.Check(mesh, grid, fixture, layout), examples
         };
 
         void Trace(string group, int axis, Vector3 origin)
@@ -107,7 +116,9 @@ static class GeometryProbe
             var expected = DensityHits(grid, origin, direction);
             var actual = MeshHits(mesh, origin, direction);
             Compare(group);
-            if (layout != "uniform" && (NearTransition(expected) || NearTransition(actual)))
+            if (group == "grazing-regression")
+                grazingTrace = new CollisionExample(group, axis, origin, expected, actual);
+            else if (layout != "uniform" && (NearTransition(expected) || NearTransition(actual)))
                 Compare("lod-band");
 
             bool NearTransition(List<float> hits) => hits.Any(t =>
