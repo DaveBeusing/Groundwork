@@ -161,12 +161,8 @@ sealed class Mesh : List<Triangle>
 {
     internal int Missing { get; set; }
     internal int TransitionTriangles { get; set; }
-    internal void Emit(Grid grid, Vector3 a, Vector3 b, Vector3 c)
-    {
-        if (Vector3.Dot(Vector3.Cross(b - a, c - a), grid.Gradient((a + b + c) / 3)) < 0)
-            (b, c) = (c, b);
-        Add(new(a, b, c));
-    }
+    internal void Emit(Vector3 a, Vector3 b, Vector3 c, bool reverse) =>
+        Add(reverse ? new(a, c, b) : new(a, b, c));
 }
 
 sealed class Tables
@@ -253,7 +249,7 @@ static class Marching
                     var q = origin + I3.Corner(c) * step;
                     p[c] = step == 1 ? grid.FinePosition(q, brick) : q.Position;
                 }
-                Emit(grid, output, tables.RegularCells[tables.RegularClass[code]], tables.RegularVertices[code], d, p);
+                Emit(output, tables.RegularCells[tables.RegularClass[code]], tables.RegularVertices[code], d, p, false);
             }
 
             if (step != 1)
@@ -288,9 +284,12 @@ static class Marching
                     for (var i = 0; i < FaceBits.Length; i++)
                         if (d[FaceBits[i]] < 0)
                             code |= 1 << i;
+                    // The table inversion bit and face direction determine the transition winding.
+                    var transitionClass = tables.TransitionClass[code];
+                    var reverse = ((transitionClass & 128) != 0) == (direction > 0);
                     var before = output.Count;
-                    Emit(grid, output, tables.TransitionCells[tables.TransitionClass[code] & 127],
-                        tables.TransitionVertices[code], d, p);
+                    Emit(output, tables.TransitionCells[transitionClass & 127],
+                        tables.TransitionVertices[code], d, p, reverse);
                     output.TransitionTriangles += output.Count - before;
                 }
             }
@@ -298,7 +297,7 @@ static class Marching
         return output;
     }
 
-    private static void Emit(Grid grid, Mesh output, int[] cell, int[] edges, ReadOnlySpan<float> d, ReadOnlySpan<Vector3> p)
+    private static void Emit(Mesh output, int[] cell, int[] edges, ReadOnlySpan<float> d, ReadOnlySpan<Vector3> p, bool reverse)
     {
         var count = cell[0] >> 4;
         if (count == 0)
@@ -315,7 +314,7 @@ static class Marching
             vertices[i] = Vector3.Lerp(p[a], p[b], d[a] / (d[a] - d[b]));
         }
         for (var i = 1; i <= (cell[0] & 15) * 3; i += 3)
-            output.Emit(grid, vertices[cell[i]], vertices[cell[i + 1]], vertices[cell[i + 2]]);
+            output.Emit(vertices[cell[i]], vertices[cell[i + 1]], vertices[cell[i + 2]], reverse);
     }
 }
 
@@ -400,8 +399,11 @@ static class Dual
                 ring.Sort();
                 if (!seen.Add((ring[0], ring[1], ring[2], ring[3])))
                     continue;
+                // The owner ring follows the positive edge axis. Orient the entire face
+                // from solid to empty, including both triangles of a nonplanar quad.
+                var reverse = grid.At(p) >= 0;
                 for (var i = 1; i < count - 1; i++)
-                    output.Emit(grid, vertices[polygon[0]], vertices[polygon[i]], vertices[polygon[i + 1]]);
+                    output.Emit(vertices[polygon[0]], vertices[polygon[i]], vertices[polygon[i + 1]], reverse);
             }
         }
         return output;
@@ -476,8 +478,12 @@ static class Audit
             var a = Id(t.A);
             var b = Id(t.B);
             var c = Id(t.C);
-            var normal = Vector3.Cross(t.B - t.A, t.C - t.A);
-            if (a == b || b == c || c == a || normal.LengthSquared() < 1e-12f)
+            var ab = t.B - t.A;
+            var ac = t.C - t.A;
+            var normal = Vector3.Cross(ab, ac);
+            // Compare the squared sine of the corner angle so valid tiny faces survive.
+            var nearlyCollinear = normal.LengthSquared() <= 1e-12f * ab.LengthSquared() * ac.LengthSquared();
+            if (a == b || b == c || c == a || nearlyCollinear)
             {
                 degenerates++;
                 continue;

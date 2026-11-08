@@ -33,7 +33,7 @@ Each algorithm and fixture pair runs in a fresh process, Release with
 tiered compilation disabled. Warm-up, input sampling, table decoding,
 forced collection, checksum and topology audit are outside the timed
 extraction. Measured work includes construction of the triangle output
-and its winding heuristic. Record p50, p95 and p99 with nearest-rank
+and its topology-driven winding. Record p50, p95 and p99 with nearest-rank
 percentiles. The managed allocation counter measures bytes allocated
 on the extracting thread, rather than peak live memory. The heap delta
 is a sampled process-wide managed heap estimate. The peak working set
@@ -42,11 +42,18 @@ same triangle-soup output and topology auditor.
 
 The auditor welds positions on a 1e-4 cell-unit grid. It counts open
 edges, nonmanifold edges, inconsistent winding, degenerate triangles and
-connected components. The result JSON also records field residual,
+connected components. Degeneracy uses the angle between triangle edges so a
+small triangle with distinct vertices can remain valid. The runner rejects
+topology failures and unexpected component counts for these closed fixtures.
+The result JSON also records field residual,
 observed minimum gradient alignment and a deterministic triangle-stream
 checksum. These diagnostics do not establish freedom from geometric
 self-intersection, collision parity, material agreement or analytic
 feature preservation. This run does not cover cube-sphere mapping,
 production streaming queues or GPU/retirement allocation.
 
-[Measured Windows results](results-windows.json)
+For the Windows reference run, pass `-RequireReferenceHardware`. The
+runner checks for eight physical cores and 32 GiB of installed RAM before
+building or measuring. The switch does not set CPU affinity or cap memory.
+
+[Initial workstation results](results-windows.json) · [Workstation results after the bridge fix](results-windows-bridge-fix.json)
