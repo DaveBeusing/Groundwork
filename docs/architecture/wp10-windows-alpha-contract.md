@@ -30,11 +30,10 @@ The deployment and installation models are documented in
   the release record. Follow [ADR-0006](../adr/ADR-0006-packaging-release.md)
   for package provenance and retention.
 - Distribute the reviewed installer and verification material together
-  from durable release storage. Establish a trusted publisher and
-  verify the final installer signature and digest for distribution.
-  Acceptance uses ordinary Windows protections and the standard-user
-  account throughout. Keep any unsigned engineering rehearsal separate
-  from release acceptance.
+  from durable release storage. For this WP10 alpha, the owner accepts
+  an unsigned installer. Verify the final installer digest against the
+  reviewed verification material. Acceptance uses ordinary Windows
+  protections and the standard-user account throughout.
 - Separate installed files from per-user settings, saves and logs under
   local application data. An interrupted or canceled install leaves
   the previous installed build usable, or leaves a first-time user

@@ -3,7 +3,7 @@
 **Status: engineering rehearsal recorded. Release acceptance is open.**
 
 The [WP10 acceptance contract](architecture/wp10-windows-alpha-contract.md)
-defines the signed, offline Windows alpha. This record captures a local
+defines the offline Windows alpha. This record captures a local
 rehearsal from the approved source and separates it from clean-system
 release evidence.
 
@@ -22,9 +22,9 @@ release evidence.
 
 The build used the locally verified archive and the existing pinned
 installer compiler. The local compiler identifies its build as
-non-commercial. Authenticode status was `NotSigned`. The installer and
-verification manifest remain local engineering artifacts. A signed
-artifact will need its own final digest and verification record.
+non-commercial. The owner accepts the unsigned installer for this
+WP10 alpha. The installer and verification manifest remain local
+rehearsal artifacts.
 
 ## Windows rehearsal
 
@@ -63,10 +63,8 @@ network remained connected.
 
 ## Remaining release evidence
 
-- Obtain an approved publisher signing identity and confirm the
-  compiler license for the intended release. Sign and timestamp the release installer, verify its
-  Authenticode chain under normal Windows protections, and record the
-  signed digest and durable artifact location.
+- Confirm the compiler license for the intended release and record
+  the final installer digest and durable artifact location.
 - Provision a fresh offline Windows 11 x64 system with a standard user
   and no SDK, development checkout, prior WYU data or separate runtime.
   Exercise installer cancel and cleanup, ordinary Start menu launch,
@@ -80,5 +78,4 @@ The [installer](https://github.com/DaveBeusing/wyu/pull/22),
 [first-run experience](https://github.com/DaveBeusing/wyu/pull/23),
 [mission](https://github.com/DaveBeusing/wyu/pull/24) and
 [diagnostics](https://github.com/DaveBeusing/wyu/pull/25) are on WYU
-`master`. Owner acceptance remains pending on the signed clean-system
-evidence.
+`master`. Final acceptance remains pending on the clean-system evidence.
