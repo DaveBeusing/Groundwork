@@ -403,3 +403,16 @@ no DxgKrnl events. The raw ETL is kept local because scheduler events
 cover the workstation.
 
 [ETW workstation measurements](results-row-masked-etw-windows-nvidia.json)
+
+## CPU stacks and DxgKrnl follow-up
+
+Use `C00Stacks.wprp!C00Stacks` in place of the lighter profile above.
+The profile adds sampled CPU stacks, image-load events and DxgKrnl
+Present, scheduling and driver events. Record with the same QPC markers.
+Filter samples to the benchmark PID and native render TID inside each
+Present window, then resolve matching OS symbols. Record unresolved
+driver frames as module-relative offsets. Sampled stacks establish
+which code was executing at the sample times. They do not give an exact
+duration for an individual routine. Keep the system-wide ETL local.
+
+[Stack and DxgKrnl workstation measurements](results-row-masked-etw-stacks-windows-nvidia.json)
