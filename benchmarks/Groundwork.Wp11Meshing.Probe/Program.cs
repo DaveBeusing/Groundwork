@@ -152,6 +152,7 @@ sealed class Grid
     private static readonly Vector3 BridgeStemCenter = new(15.84f, 16.15f, 15.51f);
     private static readonly Vector3 BridgeStemExtent = new(7.22f, .77f, .78f);
     private readonly float[] _density;
+    private readonly ulong[]? _signRows;
     private readonly Vector3 _fieldOffset;
     private readonly byte? _fineBrickMask;
     private readonly string _fixture;
@@ -197,7 +198,7 @@ sealed class Grid
     }
 
     internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull, IReadOnlyList<DensityEdit>? edits = null,
-        Vector3 fieldOffset = default, byte? fineBrickMask = null, float[]? densityScratch = null)
+        Vector3 fieldOffset = default, byte? fineBrickMask = null, float[]? densityScratch = null, ulong[]? signRows = null)
     {
         _fixture = fixture;
         _fieldOffset = fieldOffset;
@@ -290,12 +291,38 @@ sealed class Grid
         if (densityScratch is not null && densityScratch.Length != densityCount)
             throw new ArgumentException("Density scratch must match the grid dimensions.", nameof(densityScratch));
         _density = densityScratch ?? new float[densityCount];
+        _signRows = signRows;
+        if (signRows is not null)
+        {
+            if (_cellCounts.X >= 64 || signRows.Length != (_cellCounts.Y + 1) * (_cellCounts.Z + 1))
+                throw new ArgumentException("Sign rows must match the grid dimensions.", nameof(signRows));
+            FillDensityAndSigns(signRows);
+            return;
+        }
         for (var z = 0; z <= _cellCounts.Z; z++)
         for (var y = 0; y <= _cellCounts.Y; y++)
         for (var x = 0; x <= _cellCounts.X; x++)
         {
             var p = new I3(x, y, z);
             _density[DensityIndex(p)] = MeshField(Position(p));
+        }
+
+        void FillDensityAndSigns(ulong[] rows)
+        {
+            var index = 0;
+            for (var z = 0; z <= _cellCounts.Z; z++)
+            for (var y = 0; y <= _cellCounts.Y; y++)
+            {
+                ulong negative = 0;
+                for (var x = 0; x <= _cellCounts.X; x++)
+                {
+                    var value = MeshField(Position(new I3(x, y, z)));
+                    _density[index++] = value;
+                    if (value < 0)
+                        negative |= 1UL << x;
+                }
+                rows[z * (_cellCounts.Y + 1) + y] = negative;
+            }
         }
 
         static float Aligned(float radius) => MathF.Ceiling(radius * 2) * 0.5f;
@@ -350,6 +377,23 @@ sealed class Grid
     };
 
     internal int Index(I3 p, int width) => (p.Z * width + p.Y) * width + p.X;
+    internal bool HasSignRows => _signRows is not null;
+
+    internal ulong CrossingCells(int y, int z, int step)
+    {
+        var rows = _signRows!;
+        var stride = _cellCounts.Y + 1;
+        var row = z * stride + y;
+        var plane = step * stride;
+        var a = rows[row];
+        var b = rows[row + step];
+        var c = rows[row + plane];
+        var d = rows[row + plane + step];
+        var any = a | b | c | d;
+        var all = a & b & c & d;
+        return (any | (any >> step)) & ~(all & (all >> step));
+    }
+
     internal int DensityRowStride => _cellCounts.X + 1;
     internal int DensityPlaneStride => DensityRowStride * (_cellCounts.Y + 1);
     internal int DensityIndex(I3 p) => (p.Z * (_cellCounts.Y + 1) + p.Y) * (_cellCounts.X + 1) + p.X;
@@ -604,16 +648,32 @@ static class Marching
             var corner = I3.Corner(brickIndex);
             var brick = new I3(corner.X * mid.X, corner.Y * mid.Y, corner.Z * mid.Z);
             var step = grid.Step(brick);
+            var source = step == 1 ? "regular-fine" : "regular-coarse";
             for (var z = 0; z < mid.Z; z += step)
             for (var y = 0; y < mid.Y; y += step)
-            for (var x = 0; x < mid.X; x += step)
             {
-                var origin = brick + new I3(x, y, z);
-                if (fast)
-                    EmitRegularFast(grid, tables, output, origin, step, brick, d, p);
-                else
-                    EmitRegular(grid, tables, output, origin, step, brick, d, p);
-                RecordSource(step == 1 ? "regular-fine" : "regular-coarse");
+                if (grid.HasSignRows)
+                {
+                    var allowed = ((1UL << mid.X) - 1) & (step == 1 ? ulong.MaxValue : 0x5555_5555_5555_5555UL);
+                    var crossing = (grid.CrossingCells(brick.Y + y, brick.Z + z, step) >> brick.X) & allowed;
+                    while (crossing != 0)
+                    {
+                        var x = BitOperations.TrailingZeroCount(crossing);
+                        EmitRegularFast(grid, tables, output, brick + new I3(x, y, z), step, brick, d, p);
+                        RecordSource(source);
+                        crossing &= crossing - 1;
+                    }
+                    continue;
+                }
+                for (var x = 0; x < mid.X; x += step)
+                {
+                    var origin = brick + new I3(x, y, z);
+                    if (fast)
+                        EmitRegularFast(grid, tables, output, origin, step, brick, d, p);
+                    else
+                        EmitRegular(grid, tables, output, origin, step, brick, d, p);
+                    RecordSource(source);
+                }
             }
 
             if (step != 1)

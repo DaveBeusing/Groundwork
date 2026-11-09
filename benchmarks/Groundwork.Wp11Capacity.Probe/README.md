@@ -355,3 +355,23 @@ the full frame wall time. The original `tuned-terrain` mode retains
 interval 1 for comparison.
 
 [Sync interval 0 measurements](results-immediate-present-terrain-windows-nvidia.json)
+
+## Row masks for distinct-region extraction
+
+Use `row-masked-terrain` to retain the distinct inputs, tuned scratch,
+reserved worker, packed vertex cap and interval-0 Present path.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE row-masked-terrain $tablePath 150
+```
+
+Sampling records the negative-density bits for each row in worker-local
+scratch. The regular-cell pass combines the four neighboring rows and
+checks only cells with both negative and nonnegative corners at the
+current LOD stride. It visits crossing cells in the original order.
+Transition triangles still use the same extractor. All eight regions
+are sampled and meshed separately in each build, including the initial
+and speculative jobs. Preflight compares each job's packed vertices,
+transition count and collision triangles against the reference path.
+
+[Row-mask workstation measurements](results-row-masked-terrain-windows-nvidia.json)
