@@ -9,15 +9,19 @@ internal sealed class MeshingPool : IDisposable
     private readonly Thread[] _workers;
     private Action<long, long>? _refill;
     private WorkItem? _pending;
+    private WorkItem? _protected;
+    private readonly bool _reserveWorker;
     private int _active;
     private bool _stopping;
 
-    internal MeshingPool()
+    internal MeshingPool(bool reserveWorker)
     {
+        _reserveWorker = reserveWorker;
         _workers = new Thread[WorkerCount];
         for (var i = 0; i < _workers.Length; i++)
         {
-            _workers[i] = new Thread(Work) { IsBackground = true, Name = $"C00 meshing {i + 1}" };
+            var dedicated = reserveWorker && i == 0;
+            _workers[i] = new Thread(() => Work(dedicated)) { IsBackground = true, Name = $"C00 meshing {i + 1}" };
             _workers[i].Start();
         }
     }
@@ -32,7 +36,13 @@ internal sealed class MeshingPool : IDisposable
         });
         lock (_sync)
         {
-            if (_queue.Count < QueueCapacity)
+            if (_reserveWorker)
+            {
+                if (_protected is not null)
+                    throw new InvalidOperationException("The protected meshing slot is full.");
+                _protected = item;
+            }
+            else if (_queue.Count < QueueCapacity)
                 _queue.Enqueue(item);
             else if (_refill is not null && _pending is null)
                 _pending = item;
@@ -47,7 +57,7 @@ internal sealed class MeshingPool : IDisposable
     {
         lock (_sync)
         {
-            if (_refill is not null || _queue.Count != 0 || _active != 0)
+            if (_refill is not null || _queue.Count != 0 || _protected is not null || _active != 0)
                 throw new InvalidOperationException("C00 backlog requires an idle pool.");
             _refill = refill;
             for (var i = 0; i < QueueCapacity; i++)
@@ -67,7 +77,7 @@ internal sealed class MeshingPool : IDisposable
         {
             if (_refill is null)
                 return;
-            if (_pending is not null)
+            if (_pending is not null || _protected is not null)
                 throw new InvalidOperationException("Protected work is still pending.");
             _refill = null;
             _queue.Clear();
@@ -76,7 +86,7 @@ internal sealed class MeshingPool : IDisposable
         }
     }
 
-    private void Work()
+    private void Work(bool dedicated)
     {
         while (true)
         {
@@ -84,16 +94,27 @@ internal sealed class MeshingPool : IDisposable
             long dequeued;
             lock (_sync)
             {
-                while (_queue.Count == 0 && !_stopping)
+                while ((dedicated ? _protected is null : _queue.Count == 0) && !_stopping)
                     Monitor.Wait(_sync);
-                if (_queue.Count == 0)
-                    return;
-                item = _queue.Dequeue();
-                dequeued = Stopwatch.GetTimestamp();
-                if (_refill is { } refill)
+                if (dedicated)
                 {
-                    _queue.Enqueue(_pending ?? new(Stopwatch.GetTimestamp(), refill));
-                    _pending = null;
+                    if (_protected is not { } protectedItem)
+                        return;
+                    item = protectedItem;
+                    _protected = null;
+                    dequeued = Stopwatch.GetTimestamp();
+                }
+                else
+                {
+                    if (_queue.Count == 0)
+                        return;
+                    item = _queue.Dequeue();
+                    dequeued = Stopwatch.GetTimestamp();
+                    if (_refill is { } refill)
+                    {
+                        _queue.Enqueue(_pending ?? new(Stopwatch.GetTimestamp(), refill));
+                        _pending = null;
+                    }
                 }
                 _active++;
             }

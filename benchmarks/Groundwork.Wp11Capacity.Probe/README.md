@@ -196,3 +196,31 @@ private bytes include the rest of the process. GC deltas are process
 wide and can overlap across jobs.
 
 [Sustained backlog measurements](results-backlogged-terrain-windows-nvidia.json)
+
+## Reserved worker and bounded speculative vertices
+
+Use the same saturated route with one of the three workers reserved
+for protected jobs.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE reserved-terrain $tablePath 150
+```
+
+Movement, edit and recovery go directly to the reserved worker through
+a single dedicated slot. The other two workers keep the three-entry
+speculative FIFO full under the same dequeue-and-refill lock. Both
+GPU streaming copies remain gated through recovery.
+
+The packed-vertex budget is 4 MiB. After reserving the known retained
+route payloads, including the staged streaming buffers, the remainder
+is the cap for active speculative builds. Each speculative build acquires
+its known packed size before meshing and returns the credit after its
+output is discarded. If its preferred fixture cannot fit, it builds
+the smaller fixture instead. Queued descriptors do not allocate packed
+arrays. The test checks the byte reservation before every packed array
+allocation in the competing and protected builds and verifies that
+speculative credits return to zero. The cap covers packed vertices.
+Density grids, triangle intermediates and runtime allocations contribute
+to the separately measured process memory.
+
+[Reserved-worker workstation measurements](results-reserved-terrain-windows-nvidia.json)

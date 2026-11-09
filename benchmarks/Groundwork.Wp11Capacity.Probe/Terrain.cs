@@ -7,12 +7,13 @@ using System.Text.Json;
 internal static class Terrain
 {
     private const int Regions = 8;
+    private const ulong PackedVertexBudget = 4 * 1024 * 1024;
     private const int Warmup = 5;
     private const string TableHash = "83A5511346B54C42E4E66DEC916D3971C92F4FBDA1C7878CBAD5901A820DCAB4";
     private static readonly uint[] Roots = [40, 81, 82, 80, 41, 41];
     private static readonly string[] Lanes = ["old", "stream", "stream", "move", "edit", "recover"];
 
-    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged)
+    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker)
     {
         Require(repetitions > 0, "positive repetitions");
         var source = File.ReadAllBytes(tablePath);
@@ -34,16 +35,25 @@ internal static class Terrain
         var capacities = sizes.Select((shape, i) => (Lane: Lanes[i], shape.Charge))
             .GroupBy(x => x.Lane).ToDictionary(x => x.Key, x => x.Select(y => y.Charge).Aggregate((a, b) => a + b));
         var workerCharges = sizes.Skip(1).Take(2).Select(shape => new Charge(shape.Charge.Cpu, 0, 0, 1)).ToArray();
-        if (backlogged)
+        var activeSpeculativeBudget = reserveWorker
+            ? checked(PackedVertexBudget - sizes.Aggregate(0UL, (sum, shape) => sum + shape.Charge.Cpu))
+            : 0;
+        if (reserveWorker)
+        {
+            Require(activeSpeculativeBudget >= 2 * workerCharges.Min(x => x.Cpu) &&
+                activeSpeculativeBudget >= workerCharges.Max(x => x.Cpu), "speculative budget admits two minimum-size builds");
+            workerCharges = [new(activeSpeculativeBudget, 0, 0, MeshingPool.QueueCapacity + MeshingPool.WorkerCount - 1)];
+        }
+        else if (backlogged)
             workerCharges = Enumerable.Repeat(new Charge(workerCharges.Max(x => x.Cpu), 0, 0, 1),
                 MeshingPool.QueueCapacity + MeshingPool.WorkerCount).ToArray();
         if (concurrent)
             capacities["stream"] += workerCharges.Aggregate((a, b) => a + b);
-        using var pool = pooled ? new MeshingPool() : null;
+        using var pool = pooled ? new MeshingPool(reserveWorker) : null;
         var samples = new List<Trial>();
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -68,7 +78,9 @@ internal static class Terrain
         };
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = backlogged ? MeshingPool.WorkerCount : concurrent ? 2 : 0,
+            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = backlogged ? MeshingPool.WorkerCount - (reserveWorker ? 1 : 0) : concurrent ? 2 : 0,
+            reservedWorkers = reserveWorker ? 1 : 0, packedVertexBudgetBytes = PackedVertexBudget,
+            activeSpeculativeBudgetBytes = activeSpeculativeBudget,
             poolWorkers = pool is null ? 0 : MeshingPool.WorkerCount, backlogged, queueCapacity = MeshingPool.QueueCapacity,
             serverGc = System.Runtime.GCSettings.IsServerGC, gcLatencyMode = System.Runtime.GCSettings.LatencyMode.ToString(),
             present = "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
@@ -79,7 +91,7 @@ internal static class Terrain
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
@@ -94,6 +106,7 @@ internal static class Terrain
         var backgroundSequence = 0;
         long packedLive = 0;
         long packedPeak = 0;
+        var speculativeCredits = activeSpeculativeBudget == 0 ? null : new VertexCredits(activeSpeculativeBudget);
         var route = Stopwatch.GetTimestamp();
         try
         {
@@ -168,6 +181,12 @@ internal static class Terrain
                     throw new InvalidOperationException("Background meshing failed.", error);
                 trial.Background = background.ToArray();
                 trial.ConcurrentVertexBytes = (ulong)packedPeak;
+                if (speculativeCredits is not null)
+                {
+                    Require(speculativeCredits.Live == 0 && (ulong)packedPeak <= PackedVertexBudget, "bounded vertex credits settled");
+                    trial.SpeculativeReservedPeakBytes = speculativeCredits.Peak;
+                    trial.SpeculativeFallbacks = speculativeCredits.Fallbacks;
+                }
                 Require(trial.Background.Length >= MeshingPool.WorkerCount, "background workers completed jobs");
             }
             foreach (var charge in workerCharges)
@@ -357,23 +376,36 @@ internal static class Terrain
         void BuildBackground(long queued, long dequeued)
         {
             long payload = 0;
+            ulong reserved = 0;
             try
             {
                 var index = 1 + (Interlocked.Increment(ref backgroundSequence) & 1);
+                if (speculativeCredits is not null)
+                {
+                    var other = 3 - index;
+                    index = speculativeCredits.Reserve(index, sizes[index].Charge.Cpu, other, sizes[other].Charge.Cpu);
+                    reserved = sizes[index].Charge.Cpu;
+                }
                 var begin = Stopwatch.GetTimestamp();
                 var pause = GC.GetTotalPauseDuration();
                 var (vertices, _, _) = Build(tables, index, concurrent, bytes =>
                 {
+                    Require((ulong)bytes <= (speculativeCredits is null ? workerCharges[0].Cpu : reserved),
+                        "speculative allocation fits its acquired credit");
                     payload = bytes;
                     TrackPacked(bytes);
                 });
                 var buildMs = Elapsed(begin);
-                Require((ulong)vertices.Length * 12 <= workerCharges[0].Cpu, "background build fits its credit");
+                Require(vertices.LongLength * 12 == payload, "background packed output matches credit accounting");
                 background.Enqueue(new(Stopwatch.GetElapsedTime(queued, dequeued).TotalMilliseconds, buildMs,
                     (GC.GetTotalPauseDuration() - pause).TotalMilliseconds));
             }
             catch (Exception error) { errors.Enqueue(error); }
-            finally { Interlocked.Add(ref packedLive, -payload); }
+            finally
+            {
+                Interlocked.Add(ref packedLive, -payload);
+                speculativeCredits?.Release(reserved);
+            }
         }
 
         (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) BuildWithBacklog(int index, string lane)
@@ -385,7 +417,11 @@ internal static class Terrain
                 var pause = GC.GetTotalPauseDuration();
                 var allocated = GC.GetAllocatedBytesForCurrentThread();
                 var begin = Stopwatch.GetTimestamp();
-                var mesh = Build(tables, index, concurrent, TrackPacked);
+                var mesh = Build(tables, index, concurrent, bytes =>
+                {
+                    Require((ulong)bytes <= sizes[index].Charge.Cpu, "protected allocation fits its acquired credit");
+                    TrackPacked(bytes);
+                });
                 return (Mesh: mesh, BuildMs: Elapsed(begin),
                     GcMs: (GC.GetTotalPauseDuration() - pause).TotalMilliseconds,
                     Allocated: GC.GetAllocatedBytesForCurrentThread() - allocated);
@@ -398,7 +434,8 @@ internal static class Terrain
             timing[$"{lane}ProtectedAllocatedBytes"] = result.Result.Allocated;
             var livePayload = live.Aggregate((ulong)result.Result.Mesh.Vertices.Length * 12, (sum, job) => sum + job.Charge.Cpu);
             trial.VertexUpperBoundBytes = Math.Max(trial.VertexUpperBoundBytes,
-                livePayload + (ulong)MeshingPool.WorkerCount * workerCharges[0].Cpu);
+                livePayload + (speculativeCredits is null
+                    ? (ulong)MeshingPool.WorkerCount * workerCharges[0].Cpu : activeSpeculativeBudget));
             return result.Result.Mesh;
         }
 
@@ -451,8 +488,9 @@ internal static class Terrain
             meshes[i] = Marching.Extract(grid, tables);
         }
 
-        var packed = new Vector3[meshes.Sum(x => x.Count) * 3];
-        packedAllocated?.Invoke(packed.LongLength * 12);
+        var vertexCount = checked(meshes.Sum(x => x.Count) * 3);
+        packedAllocated?.Invoke((long)vertexCount * 12);
+        var packed = new Vector3[vertexCount];
         var at = 0;
         for (var i = 0; i < meshes.Length; i++)
         {
@@ -486,6 +524,37 @@ internal static class Terrain
             throw new InvalidOperationException($"Terrain capacity assertion failed: {message}.");
     }
 
+    private sealed class VertexCredits(ulong limit)
+    {
+        private readonly object _sync = new();
+        internal ulong Live { get; private set; }
+        internal ulong Peak { get; private set; }
+        internal int Fallbacks { get; private set; }
+
+        internal int Reserve(int preferred, ulong bytes, int alternative, ulong alternativeBytes)
+        {
+            lock (_sync)
+            {
+                if (bytes > limit - Live)
+                {
+                    preferred = alternative;
+                    bytes = alternativeBytes;
+                    Fallbacks++;
+                }
+                Require(bytes <= limit - Live, "speculative vertex admission within cap");
+                Live += bytes;
+                Peak = Math.Max(Peak, Live);
+                return preferred;
+            }
+        }
+
+        internal void Release(ulong bytes)
+        {
+            lock (_sync)
+                Live = checked(Live - bytes);
+        }
+    }
+
     private sealed record BackgroundBuild(double QueueMs, double BuildMs, double GcPauseMs);
 
     private sealed record BuildMeasurement(long Entered, long Begin, long End, double GcPauseMs, long AllocatedBytes,
@@ -508,6 +577,8 @@ internal static class Terrain
         public ulong VertexBytes { get; set; }
         public ulong ConcurrentVertexBytes { get; set; }
         public ulong VertexUpperBoundBytes { get; set; }
+        public ulong SpeculativeReservedPeakBytes { get; set; }
+        public int SpeculativeFallbacks { get; set; }
         public BackgroundBuild[]? Background { get; set; }
         public int RouteSteps { get; set; }
         public float[]? FinalPosition { get; set; }
