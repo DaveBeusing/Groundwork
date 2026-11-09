@@ -7,4 +7,5 @@
     <AnalysisMode>None</AnalysisMode>
     <RestorePackagesWithLockFile>false</RestorePackagesWithLockFile>
   </PropertyGroup>
+  <ItemGroup><InternalsVisibleTo Include="Groundwork.Wp11Capacity.Probe" /></ItemGroup>
 </Project>

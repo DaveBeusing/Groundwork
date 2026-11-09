@@ -11,6 +11,7 @@ unsafe sealed partial class Gpu : IDisposable
     private ID3D12CommandQueue* _streamQueue;
     private ID3D12Fence* _streamFence;
     private ulong _streamNext;
+    private ulong _gateValue;
     private readonly List<(nint Allocator, nint Commands)> _streamCommands = [];
     private ID3D12CommandAllocator* _allocator;
     private ID3D12GraphicsCommandList* _commands;
@@ -97,7 +98,7 @@ unsafe sealed partial class Gpu : IDisposable
         return _device->GetResourceAllocationInfo(0, 1, &description).SizeInBytes;
     }
 
-    internal Buffers Allocate(ulong bytes, uint marker)
+    internal Buffers Allocate(ulong bytes, uint marker, ReadOnlySpan<byte> payload = default)
     {
         var upload = Buffer(bytes, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
@@ -110,8 +111,11 @@ unsafe sealed partial class Gpu : IDisposable
             D3D12_RANGE empty = default;
             Check(upload->Map(0, &empty, &mapped), "map upload");
             new Span<uint>(mapped, checked((int)bytes / sizeof(uint))).Fill(marker);
+            payload.CopyTo(new Span<byte>((byte*)mapped + 4, checked((int)bytes - 8)));
             upload->Unmap(0, null);
-            return new Buffers(geometry, upload, bytes, marker);
+            return new Buffers(geometry, upload, bytes, marker,
+                payload.IsEmpty ? marker : MemoryMarshal.Read<uint>(payload),
+                payload.IsEmpty ? marker : MemoryMarshal.Read<uint>(payload[^4..]));
         }
         catch { Release(geometry); Release(upload); throw; }
     }
@@ -123,14 +127,18 @@ unsafe sealed partial class Gpu : IDisposable
         RecordCopy(_commands, buffers);
         _commands->CopyBufferRegion(_readback, 0, buffers.Geometry, 0, 4);
         _commands->CopyBufferRegion(_readback, 4, buffers.Geometry, buffers.Bytes - 4, 4);
+        _commands->CopyBufferRegion(_readback, 8, buffers.Geometry, 4, 4);
+        _commands->CopyBufferRegion(_readback, 12, buffers.Geometry, buffers.Bytes - 8, 4);
         Check(_commands->Close(), "close copy");
         ID3D12CommandList* command = (ID3D12CommandList*)_commands;
         _queue->ExecuteCommandLists(1, &command);
         Wait(Signal());
         void* mapped = null;
-        var range = new D3D12_RANGE { End = 8 };
+        var range = new D3D12_RANGE { End = 16 };
         Check(_readback->Map(0, &range, &mapped), "map readback");
-        var valid = ((uint*)mapped)[0] == buffers.Marker && ((uint*)mapped)[1] == buffers.Marker;
+        var words = (uint*)mapped;
+        var valid = words[0] == buffers.Marker && words[1] == buffers.Marker &&
+            words[2] == buffers.FirstWord && words[3] == buffers.LastWord;
         D3D12_RANGE empty = default;
         _readback->Unmap(0, &empty);
         if (!valid)
@@ -139,9 +147,9 @@ unsafe sealed partial class Gpu : IDisposable
 
     internal void EnqueueSpeculative(Buffers buffers)
     {
-        if (_streamNext == 0)
+        if (!_gatePending)
         {
-            Check(_streamQueue->Wait(_gate, 1), "hold speculative streaming");
+            Check(_streamQueue->Wait(_gate, ++_gateValue), "hold speculative streaming");
             _gatePending = true;
         }
 
@@ -226,7 +234,7 @@ unsafe sealed partial class Gpu : IDisposable
 
     internal void OpenRetirement()
     {
-        Check(_gate->Signal(1), "open retirement gate");
+        Check(_gate->Signal(_gateValue), "open retirement gate");
         _gatePending = false;
     }
 
@@ -246,6 +254,17 @@ unsafe sealed partial class Gpu : IDisposable
         if (_streamNext > 0)
             Check(_queue->Wait(_streamFence, _streamNext), "drain streaming queue");
         Wait(Signal());
+        ReleaseStreamCommands();
+    }
+
+    private void ReleaseStreamCommands()
+    {
+        foreach (var (allocator, commands) in _streamCommands)
+        {
+            Release((ID3D12GraphicsCommandList*)commands);
+            Release((ID3D12CommandAllocator*)allocator);
+        }
+        _streamCommands.Clear();
     }
 
     internal (ulong Local, ulong NonLocal, ulong LocalBudget, ulong NonLocalBudget) Usage()
@@ -290,7 +309,7 @@ unsafe sealed partial class Gpu : IDisposable
     public void Dispose()
     {
         if (_gatePending)
-            _gate->Signal(1);
+            _gate->Signal(_gateValue);
         if (_event != HANDLE.NULL)
             CloseHandle(_event);
         Release(_readback);
@@ -310,12 +329,14 @@ unsafe sealed partial class Gpu : IDisposable
         Release(_adapter);
     }
 
-    internal sealed class Buffers(ID3D12Resource* geometry, ID3D12Resource* upload, ulong bytes, uint marker) : IDisposable
+    internal sealed class Buffers(ID3D12Resource* geometry, ID3D12Resource* upload, ulong bytes, uint marker, uint firstWord, uint lastWord) : IDisposable
     {
         internal ID3D12Resource* Geometry { get; } = geometry;
         internal ID3D12Resource* Upload { get; private set; } = upload;
         internal ulong Bytes { get; } = bytes;
         internal uint Marker { get; } = marker;
+        internal uint FirstWord { get; } = firstWord;
+        internal uint LastWord { get; } = lastWord;
         internal void ReleaseUpload() { Release(Upload); Upload = null; }
         public void Dispose() { ReleaseUpload(); Release(Geometry); }
     }

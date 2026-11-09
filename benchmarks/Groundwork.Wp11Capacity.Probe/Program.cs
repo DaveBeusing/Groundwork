@@ -4,6 +4,12 @@ using System.Text.Json;
 
 const ulong MiB = 1024 * 1024;
 var vendor = args.Length == 0 ? 0x10DEu : uint.Parse(args[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
+if (args.Length == 4 && args[1] == "terrain")
+{
+    Terrain.Run(vendor, args[2], int.Parse(args[3], CultureInfo.InvariantCulture));
+    return;
+}
+
 using var gpu = new Gpu(vendor);
 using var process = Process.GetCurrentProcess();
 var budget = new Dictionary<string, Charge>

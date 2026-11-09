@@ -8,6 +8,7 @@
     <AnalysisMode>None</AnalysisMode>
   </PropertyGroup>
   <ItemGroup>
+    <ProjectReference Include="../Groundwork.Wp11Meshing.Probe/Groundwork.Wp11Meshing.Probe.csproj" />
     <PackageReference Include="TerraFX.Interop.Windows" Version="[10.0.26100.6]" />
   </ItemGroup>
 </Project>
