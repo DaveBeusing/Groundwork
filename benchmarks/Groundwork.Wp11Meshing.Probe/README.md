@@ -441,3 +441,25 @@ is one cell. The existing budget and endpoint checks still apply.
 ```
 
 [Spatial seam brush group results](results-windows-mc-spatial-seam-edit-groups.json)
+
+## Non-spherical terrain on the edited 2:1 seam
+
+This fixture uses the front of a finite box near X = 16. The local
+solver substitutes the front half-space only when the bound around
+the swept ball cannot reach any of the other five faces. It checks
+the face projection, spherical edit surfaces, their intersection
+circles and valid three-surface endpoints. The edit order and
+eight-brush bound are unchanged. Other box faces and arbitrary
+terrain shapes are outside this local analytic model.
+
+Each group checks the existing spatial entry and exit paths, a
+contact after crossing the seam and a contact at the plane/cut
+intersection. The ray reference independently combines a box slab
+interval with the brush intervals. The suite also repeats the ray
+grid and 32 additional sphere sweeps per variant.
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-flat-seam.json -RayLatency -RayRuns 1 -RaySamples 1000
+```
+
+[Flat seam edit group results](results-windows-mc-flat-seam-edit-groups.json)

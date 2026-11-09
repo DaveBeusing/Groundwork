@@ -30,6 +30,7 @@ static class RayLatencyProbe
             new(new(15.7f, 25.173f, 26.319f), .1f, true),
             new(new(15.7f, 25.173f, 26.319f), .15f, false)
         ];
+        var flatSeamEditGroups = CheckUpperEditGroups(tables, edits, spatial: true, atSeam: true, planar: true);
         var seamEditGroups = CheckUpperEditGroups(tables, edits, spatial: true, atSeam: true);
         var cancelledBrushPair = CheckCancelledBrushPair(tables, edits);
         var spatialEditGroups = CheckUpperEditGroups(tables, edits, spatial: true);
@@ -113,7 +114,7 @@ static class RayLatencyProbe
             samplesPerCase = samples, stopwatchFrequencyHz = Stopwatch.Frequency,
             latency, originalChecksum, editedChecksum, edits, originalCases, editedCases, cutCases, sphereCases, openingCases, editedGeometry,
             collisionSpheres = edited.CollisionSpheres.ToArray(),
-            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, spatialEditGroups, seamEditGroups, cancelledBrushPair,
+            overlapEdits, overlapOpeningCases, overlapRay, overlapNearMiss, overlapGeometry, overlapChecksum = Audit.Digest(overlapMesh), mixedEdits, largerEditGroups, upperEditGroups, spatialEditGroups, seamEditGroups, flatSeamEditGroups, cancelledBrushPair,
             budgetControl = new { bounded.Exhausted, bounded.Samples }
         };
     }
@@ -458,7 +459,7 @@ static class RayLatencyProbe
             ray = new { origin, expected, actual = ray.Hits } };
     }
 
-    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits, bool spatial = false, bool atSeam = false)
+    private static object[] CheckUpperEditGroups(Tables tables, DensityEdit[] edits, bool spatial = false, bool atSeam = false, bool planar = false)
     {
         var terrain = atSeam ? Grid.SeamOpeningTerrain : Grid.BridgeRight;
         var cut = atSeam ? edits[0] with { Center = new Vector3(16, 16, 16) } : edits[0];
@@ -498,7 +499,7 @@ static class RayLatencyProbe
         return groups.Select(group =>
         {
             DensityEdit[] ordered = atSeam ? brushes[..group.Count] : [.. brushes[..group.Count], .. edits[1..]];
-            var fixture = atSeam ? "seam-opening" : "bridge";
+            var fixture = planar ? "seam-flat-opening" : atSeam ? "seam-opening" : "bridge";
             var grid = atSeam ? new Grid(32, fixture, "face", false, false, false, true, false, false, ordered) :
                 Create(ordered);
             var mesh = Marching.Extract(grid, tables, trackSources: true);
@@ -543,6 +544,17 @@ static class RayLatencyProbe
                 cases.Add((new("seam-crossing-inner-wall", Point(.72f, side), Point(-.30f, side), radius), .72f + wall));
             }
 
+            if (planar)
+            {
+                const float radius = .04f;
+                const float side = .365f;
+                var face = Grid.SeamFlatFront - cut.Center.X;
+                var openingRadius = MathF.Sqrt(cut.Radius * cut.Radius - face * face);
+                var delta = openingRadius - side;
+                var contact = .72f - face - MathF.Sqrt(radius * radius - delta * delta);
+                cases.Add((new("flat-face-rim", Point(.72f, side), Point(-.12f, side), radius), contact));
+            }
+
             var sweeps = cases.Select(test =>
             {
                 var actual = SphereSweep.TraceCollision(grid, mesh, test.Path);
@@ -557,7 +569,8 @@ static class RayLatencyProbe
             var origin = Point(-12, 0);
             var ray = new CollisionRayQuery(grid, mesh).Trace(origin, outward);
             var expected = GeometryProbe.DensityHits(grid, origin, outward);
-            var analyticCrossings = spatial ? OrderedAxisCrossings(origin, outward, terrain, brushes[..group.Count]) : null;
+            var slab = planar ? (Grid.SeamFlatBack - origin.X, Grid.SeamFlatFront - origin.X) : ((float, float)?)null;
+            var analyticCrossings = spatial ? OrderedAxisCrossings(origin, outward, terrain, brushes[..group.Count], slab) : null;
             var editedCrossings = analyticCrossings is null ? group.AxialCrossings : analyticCrossings[1..];
             if (expected.Count != editedCrossings.Length + 1 || ray.Hits.Count != expected.Count || ray.Exhausted ||
                 editedCrossings.Where((crossing, index) => MathF.Abs(expected[index + 1] - crossing) > .001f ||
@@ -565,7 +578,7 @@ static class RayLatencyProbe
                 throw new InvalidOperationException($"Upper group ray failed for {group.Count}: reference {expected.Count}, query {ray.Hits.Count}.");
 
             object? seamGrazing = null;
-            if (atSeam)
+            if (atSeam && !planar)
             {
                 var grazingOrigin = new Vector3(15.819f, 0, 17.173f);
                 var grazing = new CollisionRayQuery(grid, mesh).Trace(grazingOrigin, Vector3.UnitY);
@@ -577,7 +590,19 @@ static class RayLatencyProbe
                 seamGrazing = new { origin = grazingOrigin, expected = grazingReference, actual = grazing.Hits };
             }
 
-            return (object)new { brushCount = group.Count, spatial, atSeam, edits = ordered, sweeps,
+            object? flatFace = null;
+            if (planar)
+            {
+                var faceOrigin = new Vector3(0, 17.173f, 16.319f);
+                var face = new CollisionRayQuery(grid, mesh).Trace(faceOrigin, Vector3.UnitX);
+                float[] faceReference = [Grid.SeamFlatBack, Grid.SeamFlatFront];
+                if (face.Hits.Count != 2 || face.Exhausted ||
+                    faceReference.Where((hit, index) => MathF.Abs(hit - face.Hits[index]) > .001f).Any())
+                    throw new InvalidOperationException($"Unedited flat face ray failed for {group.Count} brushes.");
+                flatFace = new { origin = faceOrigin, expected = faceReference, actual = face.Hits };
+            }
+
+            return (object)new { brushCount = group.Count, spatial, atSeam, planar, edits = ordered, sweeps, flatFace,
                 transitionTriangles = mesh.TransitionTriangles, seamGrazing,
                 ray = new { origin, direction = outward, expected, analyticCrossings, actual = ray.Hits, ray.MeshHits, ray.RepairedIntervals },
                 checksum = Audit.Digest(mesh), geometry = GeometryProbe.Check(mesh, grid, fixture, "face") };
@@ -595,18 +620,20 @@ static class RayLatencyProbe
         }
     }
 
-    private static float[] OrderedAxisCrossings(Vector3 origin, Vector3 direction, CollisionSphere terrain, DensityEdit[] edits)
+    private static float[] OrderedAxisCrossings(Vector3 origin, Vector3 direction, CollisionSphere terrain, DensityEdit[] edits, (float Start, float End)? slab = null)
     {
         // Independently combine one-dimensional intervals in edit order.
-        // The tested ray stays in the meridian of the right lobe only.
+        // The tested ray stays in the meridian of one lobe or inside the slab sides.
         DensityEdit[] solids = [new(terrain.Center, terrain.Radius, true), .. edits];
-        var intervals = solids.Select(edit =>
+        var intervals = solids.Select((edit, index) =>
         {
+            if (index == 0 && slab is { } face)
+                return (Start: face.Start, End: face.End, Add: true);
             var offset = edit.Center - origin;
             var center = Vector3.Dot(offset, direction);
             var perpendicular = (offset - center * direction).LengthSquared();
             var halfSpan = MathF.Sqrt(Math.Max(0, edit.Radius * edit.Radius - perpendicular));
-            return (Start: center - halfSpan, End: center + halfSpan, edit.Add);
+            return (Start: center - halfSpan, End: center + halfSpan, Add: edit.Add);
         }).ToArray();
         var endpoints = intervals.Where(x => x.Start < x.End)
             .SelectMany(x => new[] { x.Start, x.End }).Distinct().Order().ToArray();

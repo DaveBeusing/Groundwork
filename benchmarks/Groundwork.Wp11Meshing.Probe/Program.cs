@@ -142,6 +142,10 @@ sealed class Grid
     internal static readonly CollisionSphere BridgeLeft = new(new(8.67f, 16.19f, 15.53f), 4.16f);
     internal static readonly CollisionSphere BridgeRight = new(new(23.17f, 16.13f, 15.49f), 4.26f);
     internal static readonly CollisionSphere SeamOpeningTerrain = new(new(11.744f, 16, 16), 4.26f);
+    private static readonly Vector3 SeamFlatCenter = new(12.03125f, 16, 16);
+    private static readonly Vector3 SeamFlatExtent = new(4, 3.06f, 3.06f);
+    internal static float SeamFlatBack => SeamFlatCenter.X - SeamFlatExtent.X;
+    internal static float SeamFlatFront => SeamFlatCenter.X + SeamFlatExtent.X;
     private static readonly Vector3 BridgeStemCenter = new(15.84f, 16.15f, 15.51f);
     private static readonly Vector3 BridgeStemExtent = new(7.22f, .77f, .78f);
     private readonly float[] _density;
@@ -152,7 +156,8 @@ sealed class Grid
     private readonly CollisionSphere[] _collisionCuts;
     private readonly CollisionSphere[] _openingCuts;
     internal ReadOnlySpan<CollisionSphere> OpeningCuts => _openingCuts;
-    private bool IsSeamOpening => _fixture == "seam-opening";
+    private bool IsFlatSeamOpening => _fixture == "seam-flat-opening";
+    private bool IsSeamOpening => _fixture == "seam-opening" || IsFlatSeamOpening;
     internal ReadOnlySpan<CollisionSphere> CollisionCuts => _collisionCuts;
     internal ReadOnlySpan<CollisionSphere> CollisionSpheres => _collisionSpheres;
     private readonly string _layout;
@@ -334,7 +339,7 @@ sealed class Grid
 
     internal SubtractiveRayRepair? CreateSubtractiveRayRepair()
     {
-        var acrossSeam = IsSeamOpening && _openingCuts.Length > 0 && _meshEdits.Length <= ClippedSphere.MaxEdits;
+        var acrossSeam = IsSeamOpening && _openingCuts.Length > 0 && _meshEdits.Length <= ClippedSolid.MaxEdits;
         if (!acrossSeam && !LocalFineMin.HasValue)
             return null;
         var brushes = _meshEdits.Where(edit => edit.Radius > 0 && (acrossSeam || !edit.Add &&
@@ -354,7 +359,7 @@ sealed class Grid
     internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p);
     internal float BaseField(Vector3 p) => EvaluateField(_fixture, p);
 
-    internal ClippedSphere? GetLocalOpening(CollisionSphere cut, Vector3 start, Vector3 end, float radius)
+    internal ClippedSolid? GetLocalOpening(CollisionSphere cut, Vector3 start, Vector3 end, float radius)
     {
         var reach = Math.Max(Vector3.Distance(start, cut.Center), Vector3.Distance(end, cut.Center)) + radius + .0001f;
         if (IsSeamOpening)
@@ -377,21 +382,31 @@ sealed class Grid
                 continue;
             if (!float.IsFinite(edit.Radius) || edit.Radius <= 0 ||
                 (!IsSeamOpening && MathF.Abs(edit.Center.X - Extent / 2) - edit.Radius <= GrazingRayFallback.SeamHalfWidth) ||
-                localEdits.Count == ClippedSphere.MaxEdits)
+                localEdits.Count == ClippedSolid.MaxEdits)
                 return null;
             localEdits.Add(edit);
         }
         if (!FormsOverlappingGroup(localEdits, cut))
             return null;
+        if (IsFlatSeamOpening)
+        {
+            // The swept ball stays clear of the back and the other four
+            // box faces, so its local terrain is the front half-space.
+            if (cut.Center.X - reach <= SeamFlatBack ||
+                MathF.Abs(cut.Center.Y - SeamFlatCenter.Y) + reach >= SeamFlatExtent.Y ||
+                MathF.Abs(cut.Center.Z - SeamFlatCenter.Z) + reach >= SeamFlatExtent.Z)
+                return null;
+            return ClippedSolid.CreatePlanar(SeamFlatFront, localEdits.ToArray());
+        }
         if (IsSeamOpening)
-            return ClippedSphere.Create(SeamOpeningTerrain, localEdits.ToArray());
+            return ClippedSolid.Create(SeamOpeningTerrain, localEdits.ToArray());
         // The convex bound encloses the whole swept ball, so components
         // that cannot enter it cannot provide an earlier contact.
         var touchesLeft = Vector3.Distance(BridgeLeft.Center, cut.Center) - BridgeLeft.Radius <= reach;
         var touchesRight = Vector3.Distance(BridgeRight.Center, cut.Center) - BridgeRight.Radius <= reach;
         if (touchesLeft == touchesRight)
             return null;
-        return ClippedSphere.Create(touchesLeft ? BridgeLeft : BridgeRight, localEdits.ToArray());
+        return ClippedSolid.Create(touchesLeft ? BridgeLeft : BridgeRight, localEdits.ToArray());
     }
     private static bool FormsOverlappingGroup(List<DensityEdit> edits, CollisionSphere cut)
     {
@@ -441,6 +456,7 @@ sealed class Grid
             "bridge" => MathF.Min(MathF.Min(Sphere(p, BridgeLeft.Center, BridgeLeft.Radius),
                 Sphere(p, BridgeRight.Center, BridgeRight.Radius)),
                 Box(p, BridgeStemCenter, BridgeStemExtent)),
+            "seam-flat-opening" => Box(p, SeamFlatCenter, SeamFlatExtent),
             "seam-opening" => Sphere(p, SeamOpeningTerrain.Center, SeamOpeningTerrain.Radius),
             "seam" => Sphere(p, center + new Vector3(-2.1f, 2.3f, 1.4f), 9.38f),
             "junction" => Sphere(p, new(11.37f, 10.8f, 11.8f), 8.15f),

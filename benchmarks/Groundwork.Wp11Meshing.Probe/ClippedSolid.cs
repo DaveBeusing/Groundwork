@@ -1,17 +1,19 @@
 using System.Numerics;
 
-sealed class ClippedSphere
+sealed class ClippedSolid
 {
     private const float SurfaceTolerance = .00001f;
     internal const int MaxEdits = 8;
     private readonly CollisionSphere[] _surfaces;
     private readonly DensityEdit[] _edits;
+    private readonly float? _planeX;
     private readonly Edge[] _edges;
     private readonly Vector3[] _corners;
 
-    private ClippedSphere(CollisionSphere solid, DensityEdit[] edits)
+    private ClippedSolid(CollisionSphere solid, DensityEdit[] edits, float? planeX = null)
     {
         _edits = edits;
+        _planeX = planeX;
         _surfaces = [solid, .. edits.Select(edit => new CollisionSphere(edit.Center, edit.Radius))];
         var edges = new List<Edge>();
         var corners = new List<Vector3>();
@@ -19,7 +21,10 @@ sealed class ClippedSphere
         for (var i = 0; i < _surfaces.Length; i++)
         for (var j = i + 1; j < _surfaces.Length; j++)
         {
-            if (Intersect(_surfaces[i], _surfaces[j], i, j) is not { } edge)
+            var intersection = i == 0 && _planeX is { } face
+                ? IntersectPlane(face, _surfaces[j], j)
+                : Intersect(_surfaces[i], _surfaces[j], i, j);
+            if (intersection is not { } edge)
                 continue;
             edges.Add(edge);
             for (var k = j + 1; k < _surfaces.Length; k++)
@@ -35,10 +40,15 @@ sealed class ClippedSphere
         _corners = corners.ToArray();
     }
 
-    internal static ClippedSphere? Create(CollisionSphere solid, DensityEdit[] edits) =>
+    internal static ClippedSolid? Create(CollisionSphere solid, DensityEdit[] edits) =>
         edits.Length is >= 1 and <= MaxEdits && edits.Any(edit => !edit.Add &&
             Intersect(solid, new CollisionSphere(edit.Center, edit.Radius), 0, 1).HasValue)
-            ? new ClippedSphere(solid, RemoveOverwrittenAdditions(edits)) : null;
+            ? new ClippedSolid(solid, RemoveOverwrittenAdditions(edits)) : null;
+
+    internal static ClippedSolid? CreatePlanar(float planeX, DensityEdit[] edits) =>
+        edits.Length is >= 1 and <= MaxEdits && edits.Any(edit => !edit.Add &&
+            MathF.Abs(edit.Center.X - planeX) < edit.Radius)
+            ? new ClippedSolid(default, RemoveOverwrittenAdditions(edits), planeX) : null;
 
     private static DensityEdit[] RemoveOverwrittenAdditions(DensityEdit[] edits)
     {
@@ -73,6 +83,13 @@ sealed class ClippedSphere
         var distance = float.PositiveInfinity;
         for (var i = 0; i < _surfaces.Length; i++)
         {
+            if (i == 0 && _planeX is { } face)
+            {
+                var projected = new Vector3(face, point.Y, point.Z);
+                if (Valid(projected, 0, -1, SurfaceTolerance))
+                    distance = Math.Min(distance, MathF.Abs(point.X - face));
+                continue;
+            }
             var surface = _surfaces[i];
             var offset = point - surface.Center;
             var length = offset.Length();
@@ -103,7 +120,9 @@ sealed class ClippedSphere
         for (var i = 0; i < _surfaces.Length; i++)
         {
             var surface = _surfaces[i];
-            var signed = i == skipA || i == skipB || i == skipC ? 0 : Vector3.Distance(point, surface.Center) - surface.Radius;
+            var signed = i == skipA || i == skipB || i == skipC ? 0 :
+                i == 0 && _planeX is { } face ? point.X - face :
+                Vector3.Distance(point, surface.Center) - surface.Radius;
             // Keep the edit order. A later union may restore a point in an
             // earlier subtraction. Boundary points belong to the closure.
             inside = i == 0 || _edits[i - 1].Add
@@ -112,6 +131,15 @@ sealed class ClippedSphere
         }
         return inside;
     }
+    private static Edge? IntersectPlane(float face, CollisionSphere sphere, int second)
+    {
+        var offset = sphere.Center.X - face;
+        if (MathF.Abs(offset) >= sphere.Radius)
+            return null;
+        var radius = MathF.Sqrt(sphere.Radius * sphere.Radius - offset * offset);
+        return new Edge(new Vector3(face, sphere.Center.Y, sphere.Center.Z), Vector3.UnitX, radius, 0, second);
+    }
+
     private static Edge? Intersect(CollisionSphere a, CollisionSphere b, int first, int second)
     {
         var delta = b.Center - a.Center;

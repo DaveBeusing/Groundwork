@@ -172,6 +172,23 @@ try {
                     throw "Spatial seam edit regression for $($group.brushCount) brushes in process $run."
                 }
             }
+            if (($result.flatSeamEditGroups.brushCount -join ',') -ne '5,6,7,8') {
+                throw "Flat seam edit groups missing in process $run."
+            }
+            foreach ($group in $result.flatSeamEditGroups) {
+                $groupRays = $group.geometry.collision.grid
+                $groupBand = $group.geometry.collision.'lod-band'
+                $groupSweeps = $group.geometry.movingBodies.summary
+                $targeted = if ($group.brushCount -eq 5) { 9 } else { 8 }
+                if (-not $group.planar -or -not $group.transitionTriangles -or $groupRays.Rays -ne 12288 -or
+                    $group.sweeps.Count -ne $targeted -or $groupRays.CrossingCountMismatches -or
+                    $groupRays.MissedHitRays -or $groupRays.UnexpectedHitRays -or
+                    $groupRays.FallbackBudgetExhaustedRays -or $groupBand.CrossingCountMismatches -or
+                    ($groupSweeps | Measure-Object sweeps -Sum).Sum -ne 32 -or
+                    ($groupSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                    throw "Flat seam edit regression for $($group.brushCount) brushes in process $run."
+                }
+            }
             $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run
             $rows += $result
             Write-Host "Ray latency and edit validation completed in process $run."
