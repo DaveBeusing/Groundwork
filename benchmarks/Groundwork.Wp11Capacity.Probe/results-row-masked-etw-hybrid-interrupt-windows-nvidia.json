@@ -1,0 +1,731 @@
+{
+  "mode": "row-masked-terrain",
+  "frameLatency": 2,
+  "display": {
+    "Vendor": 4318,
+    "Adapter": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+    "DeviceName": "\\\\.\\DISPLAY2",
+    "Left": -2560,
+    "Top": 0,
+    "Right": 0,
+    "Bottom": 1440,
+    "scanOut": {
+      "DeviceName": "\\\\.\\DISPLAY2",
+      "SourceVendor": 32902,
+      "TargetVendor": 32902,
+      "Technology": "DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EXTERNAL"
+    }
+  },
+  "routes": 2400,
+  "presents": 7200,
+  "etw": {
+    "lost": 0,
+    "presentPairs": 7200,
+    "dxgKrnl": 16092578,
+    "contextSwitches": 8835476,
+    "readyThread": 4966164,
+    "dmaTriples": 7200,
+    "signalStopsMatched": 6381,
+    "hardwareIsrEvents": 284001,
+    "hardwareIsrDirectStacks": 0,
+    "dpcEnqueueStacks": 588072,
+    "dpcExecuteStacks": 582899
+  },
+  "present": {
+    "count": 7200,
+    "p50": 0.2293,
+    "p95": 0.5745,
+    "p99": 1.2445,
+    "p999": 2.4665,
+    "max": 5.3614
+  },
+  "frameFence": {
+    "count": 7200,
+    "p50": 0.758,
+    "p95": 3.484,
+    "p99": 5.3462,
+    "p999": 5.9673,
+    "max": 8.0619
+  },
+  "gpuDraw": {
+    "count": 7200,
+    "p50": 0.004288,
+    "p95": 0.043296,
+    "p99": 0.174816,
+    "p999": 0.374336,
+    "max": 2.513664
+  },
+  "submit": {
+    "count": 7200,
+    "p50": 0.0859,
+    "p95": 0.1764,
+    "p99": 0.3811,
+    "p999": 0.8120,
+    "max": 1.8092
+  },
+  "signal": {
+    "count": 7200,
+    "p50": 0.0069,
+    "p95": 0.0142,
+    "p99": 0.0322,
+    "p999": 0.1051,
+    "max": 0.2917
+  },
+  "registration": {
+    "count": 6378,
+    "p50": 0.0047,
+    "p95": 0.0099,
+    "p99": 0.0383,
+    "p999": 0.1474,
+    "max": 0.6481
+  },
+  "eventWait": {
+    "count": 6378,
+    "p50": 0.3339,
+    "p95": 3.1477,
+    "p99": 4.9366,
+    "p999": 5.4472,
+    "max": 7.3877
+  },
+  "postPresentFence": {
+    "count": 7200,
+    "p50": 0.3264,
+    "p95": 2.9559,
+    "p99": 4.8465,
+    "p999": 5.4486,
+    "max": 7.4041
+  },
+  "waitedFrames": 6378,
+  "presentAbove": [
+    {
+      "process": 1,
+      "route": 51,
+      "phase": "movement",
+      "fenceValue": 498,
+      "submitMs": 0.3262,
+      "signalMs": 0.0231,
+      "registrationMs": 0,
+      "eventWaitMs": 0,
+      "didWait": false,
+      "postPresentFenceMs": 0.0245,
+      "runnableMs": 0,
+      "waitingMs": 0,
+      "frameFenceMs": 5.0576,
+      "gpuDrawMs": 0.00448,
+      "presentMs": 4.4775
+    },
+    {
+      "process": 1,
+      "route": 103,
+      "phase": "recovery",
+      "fenceValue": 970,
+      "submitMs": 0.1222,
+      "signalMs": 0.0182,
+      "registrationMs": 0,
+      "eventWaitMs": 0,
+      "didWait": false,
+      "postPresentFenceMs": 0.019,
+      "runnableMs": 0,
+      "waitingMs": 0,
+      "frameFenceMs": 3.9091,
+      "gpuDrawMs": 0.003936,
+      "presentMs": 3.6319
+    },
+    {
+      "process": 1,
+      "route": 302,
+      "phase": "movement",
+      "fenceValue": 2757,
+      "submitMs": 0.3438,
+      "signalMs": 0.0248,
+      "registrationMs": 0,
+      "eventWaitMs": 0,
+      "didWait": false,
+      "postPresentFenceMs": 0.0265,
+      "runnableMs": 0,
+      "waitingMs": 0,
+      "frameFenceMs": 6.039,
+      "gpuDrawMs": 0.00432,
+      "presentMs": 5.3614
+    },
+    {
+      "process": 1,
+      "route": 862,
+      "phase": "movement",
+      "fenceValue": 7797,
+      "submitMs": 0.1314,
+      "signalMs": 0.0151,
+      "registrationMs": 0.0071,
+      "eventWaitMs": 0.9949,
+      "didWait": true,
+      "postPresentFenceMs": 1.0192,
+      "runnableMs": 0.0122,
+      "waitingMs": 0.9773,
+      "frameFenceMs": 4.9049,
+      "gpuDrawMs": 0.004352,
+      "presentMs": 3.6353
+    },
+    {
+      "process": 2,
+      "route": 3,
+      "phase": "movement",
+      "fenceValue": 66,
+      "submitMs": 0.8083,
+      "signalMs": 0.0037,
+      "registrationMs": 0,
+      "eventWaitMs": 0,
+      "didWait": false,
+      "postPresentFenceMs": 0.005,
+      "runnableMs": 0,
+      "waitingMs": 0,
+      "frameFenceMs": 4.889,
+      "gpuDrawMs": 0.004832,
+      "presentMs": 3.8185
+    },
+    {
+      "process": 2,
+      "route": 1087,
+      "phase": "movement",
+      "fenceValue": 9822,
+      "submitMs": 0.2129,
+      "signalMs": 0.0338,
+      "registrationMs": 0.0151,
+      "eventWaitMs": 0.9027,
+      "didWait": true,
+      "postPresentFenceMs": 0.9551,
+      "runnableMs": 0.1703,
+      "waitingMs": 0.716,
+      "frameFenceMs": 5.5062,
+      "gpuDrawMs": 0.0224,
+      "presentMs": 4.0527
+    },
+    {
+      "process": 2,
+      "route": 1191,
+      "phase": "movement",
+      "fenceValue": 10758,
+      "submitMs": 0.1417,
+      "signalMs": 0.0102,
+      "registrationMs": 0,
+      "eventWaitMs": 0,
+      "didWait": false,
+      "postPresentFenceMs": 0.0107,
+      "runnableMs": 0,
+      "waitingMs": 0,
+      "frameFenceMs": 2.9051,
+      "gpuDrawMs": 0.099392,
+      "presentMs": 2.6443
+    }
+  ],
+  "frameFenceAbove": [],
+  "topFrameFence": [
+    {
+      "process": 2,
+      "route": 460,
+      "phase": "recovery",
+      "fenceValue": 4183,
+      "submitMs": 0.2237,
+      "signalMs": 0.0152,
+      "registrationMs": 0.0125,
+      "eventWaitMs": 7.2226,
+      "didWait": true,
+      "postPresentFenceMs": 7.254,
+      "runnableMs": 0.1038,
+      "waitingMs": 7.1061,
+      "frameFenceMs": 8.0619,
+      "gpuDrawMs": 2.513664,
+      "presentMs": 0.4052
+    },
+    {
+      "process": 1,
+      "route": 750,
+      "phase": "stale",
+      "fenceValue": 6791,
+      "submitMs": 0.1156,
+      "signalMs": 0.0077,
+      "registrationMs": 0.0070,
+      "eventWaitMs": 7.3877,
+      "didWait": true,
+      "postPresentFenceMs": 7.4041,
+      "runnableMs": 0.0094,
+      "waitingMs": 7.3716,
+      "frameFenceMs": 7.905,
+      "gpuDrawMs": 0.003872,
+      "presentMs": 0.2561
+    },
+    {
+      "process": 1,
+      "route": 1086,
+      "phase": "recovery",
+      "fenceValue": 9817,
+      "submitMs": 0.0853,
+      "signalMs": 0.0086,
+      "registrationMs": 0.0052,
+      "eventWaitMs": 7.2016,
+      "didWait": true,
+      "postPresentFenceMs": 7.2172,
+      "runnableMs": 0.0916,
+      "waitingMs": 7.1038,
+      "frameFenceMs": 7.6062,
+      "gpuDrawMs": 0.324352,
+      "presentMs": 0.2083
+    },
+    {
+      "process": 1,
+      "route": 1046,
+      "phase": "movement",
+      "fenceValue": 9453,
+      "submitMs": 0.2044,
+      "signalMs": 0.0136,
+      "registrationMs": 0.0123,
+      "eventWaitMs": 5.3145,
+      "didWait": true,
+      "postPresentFenceMs": 5.3435,
+      "runnableMs": 0.0159,
+      "waitingMs": 5.2874,
+      "frameFenceMs": 6.3932,
+      "gpuDrawMs": 0.185344,
+      "presentMs": 0.6662
+    },
+    {
+      "process": 1,
+      "route": 353,
+      "phase": "recovery",
+      "fenceValue": 3220,
+      "submitMs": 0.1930,
+      "signalMs": 0.0169,
+      "registrationMs": 0.0120,
+      "eventWaitMs": 4.9683,
+      "didWait": true,
+      "postPresentFenceMs": 4.9995,
+      "runnableMs": 0.0378,
+      "waitingMs": 4.9208,
+      "frameFenceMs": 6.146,
+      "gpuDrawMs": 0.003936,
+      "presentMs": 0.4999
+    },
+    {
+      "process": 1,
+      "route": 194,
+      "phase": "movement",
+      "fenceValue": 1785,
+      "submitMs": 0.1298,
+      "signalMs": 0.0458,
+      "registrationMs": 0.0080,
+      "eventWaitMs": 5.3587,
+      "didWait": true,
+      "postPresentFenceMs": 5.4147,
+      "runnableMs": 0.1225,
+      "waitingMs": 5.226,
+      "frameFenceMs": 6.0786,
+      "gpuDrawMs": 0.00432,
+      "presentMs": 0.3585
+    }
+  ],
+  "perRun": [
+    {
+      "run": 1,
+      "frameFence": {
+        "count": 3600,
+        "p50": 0.7641,
+        "p95": 3.7196,
+        "p99": 5.4033,
+        "p999": 6.146,
+        "max": 7.905
+      },
+      "present": {
+        "count": 3600,
+        "p50": 0.2353,
+        "p95": 0.5896,
+        "p99": 1.2631,
+        "p999": 3.6319,
+        "max": 5.3614
+      },
+      "presentAbove": 4,
+      "peaks": {
+        "retainedVertexBytes": 2593944,
+        "concurrentVertexBytes": 3673152,
+        "backlogVertexUpperBoundBytes": 3715864,
+        "processPeakWorkingSetBytes": 253067264,
+        "processPeakPrivateSampleBytes": 245399552,
+        "defaultVertexAllocationBytes": 3276800,
+        "uploadAllocationBytes": 1703936,
+        "totalD3D12ResourceBytes": 7667712,
+        "dxgiLocalUsageBytes": 27193344,
+        "dxgiNonLocalUsageBytes": 56619008,
+        "dxgiCombinedUsageBytes": 83812352
+      }
+    },
+    {
+      "run": 2,
+      "frameFence": {
+        "count": 3600,
+        "p50": 0.7512,
+        "p95": 3.1936,
+        "p99": 5.2522,
+        "p999": 5.8264,
+        "max": 8.0619
+      },
+      "present": {
+        "count": 3600,
+        "p50": 0.2239,
+        "p95": 0.5339,
+        "p99": 1.2347,
+        "p999": 2.4665,
+        "max": 4.0527
+      },
+      "presentAbove": 3,
+      "peaks": {
+        "retainedVertexBytes": 2593944,
+        "concurrentVertexBytes": 3673152,
+        "backlogVertexUpperBoundBytes": 3715864,
+        "processPeakWorkingSetBytes": 250257408,
+        "processPeakPrivateSampleBytes": 242208768,
+        "defaultVertexAllocationBytes": 3276800,
+        "uploadAllocationBytes": 1703936,
+        "totalD3D12ResourceBytes": 7667712,
+        "dxgiLocalUsageBytes": 27193344,
+        "dxgiNonLocalUsageBytes": 56619008,
+        "dxgiCombinedUsageBytes": 83812352
+      }
+    }
+  ],
+  "dmaInterruptToPacketStop": {
+    "count": 7200,
+    "p50": 0.0154,
+    "p95": 0.0356,
+    "p99": 0.0707,
+    "p999": 0.3272,
+    "max": 0.6551
+  },
+  "priorOutlier": {
+    "frameFenceMs": 14.3708,
+    "dmaInterruptToPacketStopMs": 13.5175
+  },
+  "longestFrameFenceDma": {
+    "Run": 2,
+    "Route": 460,
+    "Phase": "recovery",
+    "Gap": 0.0126,
+    "DmaToIrq": 7.5096,
+    "Fence": 8.0619
+  },
+  "longestPostInterruptWindows": [
+    {
+      "run": 1,
+      "route": 948,
+      "phase": "recovery",
+      "logicalCpu": 1,
+      "frameFenceMs": 1.3401,
+      "interruptToDmaStopMs": 0.6551,
+      "enqueueAfterInterruptMs": 0.0009,
+      "executeAfterInterruptMs": 0.6467,
+      "enqueueToExecuteMs": 0.6458,
+      "completionDpcStartMs": 0.6481,
+      "completionDpcEndMs": 0.6742,
+      "completionDpcMs": 0.0261,
+      "calibrationOnInterruptedStack": true,
+      "precedingRoutines": [
+        {
+          "startMs": -0.1483,
+          "endMs": 0.0787,
+          "routine": "dxgkrnl.sys+0x226e0"
+        },
+        {
+          "startMs": 0.0791,
+          "endMs": 0.0994,
+          "routine": "dxgkrnl.sys+0x226e0"
+        },
+        {
+          "startMs": 0.0995,
+          "endMs": 0.6344,
+          "routine": "dxgkrnl.sys+0x226e0"
+        }
+      ],
+      "enqueueKernelStack": [
+        "dxgkrnl.sys!DpQueueDpc",
+        "nvlddmkm.sys+0xd4fedd",
+        "nvlddmkm.sys+0xd4f8c9",
+        "nvlddmkm.sys+0xb619d",
+        "dxgkrnl.sys!DpiFdoMessageInterruptRoutine",
+        "ntoskrnl.exe!KiInterruptMessageDispatch",
+        "ntoskrnl.exe!KiCallInterruptServiceRoutine",
+        "ntoskrnl.exe!KiInterruptSubDispatch",
+        "ntoskrnl.exe!KiInterruptDispatch",
+        "ntoskrnl.exe!KzLowerIrql",
+        "nvlddmkm.sys+0xd219a6",
+        "nvlddmkm.sys+0xd703ac",
+        "nvlddmkm.sys+0xd1f251",
+        "nvlddmkm.sys+0xd0ac3c",
+        "dxgkrnl.sys!ADAPTER_RENDER::DdiCalibrateGpuClock",
+        "dxgkrnl.sys!ADAPTER_RENDER::PerformClockCalibration",
+        "dxgkrnl.sys!DxgkpCalibrateGpuTimerDpc",
+        "ntoskrnl.exe!KiProcessExpiredTimerList",
+        "ntoskrnl.exe!KiTimerExpiration",
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KxSwapStacksAndRetireDpcList",
+        "ntoskrnl.exe!KiPlatformSwapStacksAndCallReturn",
+        "ntoskrnl.exe!KiDispatchInterrupt"
+      ],
+      "executeKernelStack": [
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KxSwapStacksAndRetireDpcList",
+        "ntoskrnl.exe!KiPlatformSwapStacksAndCallReturn",
+        "ntoskrnl.exe!KiDispatchInterrupt",
+        "ntoskrnl.exe!KiDpcInterruptBypass",
+        "ntoskrnl.exe!KiInterruptDispatch"
+      ]
+    },
+    {
+      "run": 2,
+      "route": 404,
+      "phase": "movement",
+      "logicalCpu": 10,
+      "frameFenceMs": 2.4609,
+      "interruptToDmaStopMs": 0.6213,
+      "enqueueAfterInterruptMs": 0.0009,
+      "executeAfterInterruptMs": 0.5167,
+      "enqueueToExecuteMs": 0.5158,
+      "completionDpcStartMs": 0.5181,
+      "completionDpcEndMs": 0.6331,
+      "completionDpcMs": 0.115,
+      "calibrationOnInterruptedStack": false,
+      "precedingRoutines": [
+        {
+          "startMs": 0.0223,
+          "endMs": 0.5165,
+          "routine": "nvlddmkm.sys+0xe91c0"
+        }
+      ],
+      "enqueueKernelStack": [
+        "dxgkrnl.sys!DpQueueDpc",
+        "nvlddmkm.sys+0xd4fedd",
+        "nvlddmkm.sys+0xd4f8c9",
+        "nvlddmkm.sys+0xb619d",
+        "dxgkrnl.sys!DpiFdoMessageInterruptRoutine",
+        "ntoskrnl.exe!KiInterruptMessageDispatch",
+        "ntoskrnl.exe!KiCallInterruptServiceRoutine",
+        "ntoskrnl.exe!KiInterruptSubDispatch",
+        "ntoskrnl.exe!KiInterruptDispatch"
+      ],
+      "executeKernelStack": [
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KxSwapStacksAndRetireDpcList",
+        "ntoskrnl.exe!KiPlatformSwapStacksAndCallReturn",
+        "ntoskrnl.exe!KiDispatchInterrupt",
+        "ntoskrnl.exe!KiDpcInterruptBypass",
+        "ntoskrnl.exe!KiInterruptDispatch"
+      ]
+    },
+    {
+      "run": 2,
+      "route": 810,
+      "phase": "stale",
+      "logicalCpu": 10,
+      "frameFenceMs": 1.374,
+      "interruptToDmaStopMs": 0.5661,
+      "enqueueAfterInterruptMs": 0.0011,
+      "executeAfterInterruptMs": 0.5585,
+      "enqueueToExecuteMs": 0.5574,
+      "completionDpcStartMs": 0.5599,
+      "completionDpcEndMs": 0.5836,
+      "completionDpcMs": 0.0237,
+      "calibrationOnInterruptedStack": true,
+      "precedingRoutines": [
+        {
+          "startMs": -0.0825,
+          "endMs": 0.0142,
+          "routine": "dxgkrnl.sys+0x226e0"
+        },
+        {
+          "startMs": 0.0146,
+          "endMs": 0.5574,
+          "routine": "dxgkrnl.sys+0x226e0"
+        }
+      ],
+      "enqueueKernelStack": [
+        "dxgkrnl.sys!DpQueueDpc",
+        "nvlddmkm.sys+0xd4fedd",
+        "nvlddmkm.sys+0xd4f8c9",
+        "nvlddmkm.sys+0xb619d",
+        "dxgkrnl.sys!DpiFdoMessageInterruptRoutine",
+        "ntoskrnl.exe!KiInterruptMessageDispatch",
+        "ntoskrnl.exe!KiCallInterruptServiceRoutine",
+        "ntoskrnl.exe!KiInterruptSubDispatch",
+        "ntoskrnl.exe!KiInterruptDispatch",
+        "ntoskrnl.exe!EtwpEventWriteFull",
+        "ntoskrnl.exe!EtwWriteEx",
+        "ntoskrnl.exe!EtwWriteTransfer",
+        "dxgkrnl.sys!McGenEventWrite_EtwWriteTransfer",
+        "dxgkrnl.sys!McTemplateK0q_EtwWriteTransfer",
+        "dxgkrnl.sys!ADAPTER_RENDER::DdiCalibrateGpuClock",
+        "dxgkrnl.sys!ADAPTER_RENDER::PerformClockCalibration",
+        "dxgkrnl.sys!DxgkpCalibrateGpuTimerDpc",
+        "ntoskrnl.exe!KiProcessExpiredTimerList",
+        "ntoskrnl.exe!KiTimerExpiration",
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ],
+      "executeKernelStack": [
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ]
+    },
+    {
+      "run": 1,
+      "route": 595,
+      "phase": "stale",
+      "logicalCpu": 1,
+      "frameFenceMs": 1.064,
+      "interruptToDmaStopMs": 0.4961,
+      "enqueueAfterInterruptMs": 0.0013,
+      "executeAfterInterruptMs": 0.4858,
+      "enqueueToExecuteMs": 0.4845,
+      "completionDpcStartMs": 0.4873,
+      "completionDpcEndMs": 0.5121,
+      "completionDpcMs": 0.0248,
+      "calibrationOnInterruptedStack": true,
+      "precedingRoutines": [
+        {
+          "startMs": -0.2294,
+          "endMs": 0.3147,
+          "routine": "dxgkrnl.sys+0x226e0"
+        },
+        {
+          "startMs": 0.3149,
+          "endMs": 0.3303,
+          "routine": "dxgkrnl.sys+0x226e0"
+        },
+        {
+          "startMs": 0.3304,
+          "endMs": 0.4855,
+          "routine": "dxgkrnl.sys+0x226e0"
+        }
+      ],
+      "enqueueKernelStack": [
+        "dxgkrnl.sys!DpQueueDpc",
+        "nvlddmkm.sys+0xd4fedd",
+        "nvlddmkm.sys+0xd4f8c9",
+        "nvlddmkm.sys+0xb619d",
+        "dxgkrnl.sys!DpiFdoMessageInterruptRoutine",
+        "ntoskrnl.exe!KiInterruptMessageDispatch",
+        "ntoskrnl.exe!KiCallInterruptServiceRoutine",
+        "ntoskrnl.exe!KiInterruptSubDispatch",
+        "ntoskrnl.exe!KiInterruptDispatch",
+        "igdkmdn64.sys+0x4edbab",
+        "igdkmdn64.sys+0x4e6844",
+        "igdkmdn64.sys+0x4e6b8e",
+        "igdkmdn64.sys+0x34a06b",
+        "dxgkrnl.sys!ADAPTER_RENDER::DdiCalibrateGpuClock",
+        "dxgkrnl.sys!ADAPTER_RENDER::PerformClockCalibration",
+        "dxgkrnl.sys!DxgkpCalibrateGpuTimerDpc",
+        "ntoskrnl.exe!KiProcessExpiredTimerList",
+        "ntoskrnl.exe!KiTimerExpiration",
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ],
+      "executeKernelStack": [
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ]
+    },
+    {
+      "run": 2,
+      "route": 883,
+      "phase": "stale",
+      "logicalCpu": 10,
+      "frameFenceMs": 1.2982,
+      "interruptToDmaStopMs": 0.4876,
+      "enqueueAfterInterruptMs": 0.0012,
+      "executeAfterInterruptMs": 0.4794,
+      "enqueueToExecuteMs": 0.4782,
+      "completionDpcStartMs": 0.4806,
+      "completionDpcEndMs": 0.5021,
+      "completionDpcMs": 0.0215,
+      "calibrationOnInterruptedStack": true,
+      "precedingRoutines": [
+        {
+          "startMs": -0.0619,
+          "endMs": 0.4759,
+          "routine": "dxgkrnl.sys+0x226e0"
+        }
+      ],
+      "enqueueKernelStack": [
+        "dxgkrnl.sys!DpQueueDpc",
+        "nvlddmkm.sys+0xd4fedd",
+        "nvlddmkm.sys+0xd4f8c9",
+        "nvlddmkm.sys+0xb619d",
+        "dxgkrnl.sys!DpiFdoMessageInterruptRoutine",
+        "ntoskrnl.exe!KiInterruptMessageDispatch",
+        "ntoskrnl.exe!KiCallInterruptServiceRoutine",
+        "ntoskrnl.exe!KiInterruptSubDispatch",
+        "ntoskrnl.exe!KiInterruptDispatch",
+        "ntoskrnl.exe!HalpHvCounterQueryCounter",
+        "ntoskrnl.exe!KeQueryPerformanceCounter",
+        "igdkmdn64.sys+0x4edb43",
+        "igdkmdn64.sys+0x4e6844",
+        "igdkmdn64.sys+0x4e6b8e",
+        "igdkmdn64.sys+0x34a06b",
+        "dxgkrnl.sys!ADAPTER_RENDER::DdiCalibrateGpuClock",
+        "dxgkrnl.sys!ADAPTER_RENDER::PerformClockCalibration",
+        "dxgkrnl.sys!DxgkpCalibrateGpuTimerDpc",
+        "ntoskrnl.exe!KiProcessExpiredTimerList",
+        "ntoskrnl.exe!KiTimerExpiration",
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ],
+      "executeKernelStack": [
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ]
+    },
+    {
+      "run": 1,
+      "route": 314,
+      "phase": "recovery",
+      "logicalCpu": 10,
+      "frameFenceMs": 1.9174,
+      "interruptToDmaStopMs": 0.4444,
+      "enqueueAfterInterruptMs": 0.0008,
+      "executeAfterInterruptMs": 0.4378,
+      "enqueueToExecuteMs": 0.437,
+      "completionDpcStartMs": 0.4387,
+      "completionDpcEndMs": 0.4519,
+      "completionDpcMs": 0.0132,
+      "calibrationOnInterruptedStack": true,
+      "precedingRoutines": [
+        {
+          "startMs": -0.1224,
+          "endMs": 0.4299,
+          "routine": "dxgkrnl.sys+0x226e0"
+        }
+      ],
+      "enqueueKernelStack": [
+        "dxgkrnl.sys!DpQueueDpc",
+        "nvlddmkm.sys+0xd4fedd",
+        "nvlddmkm.sys+0xd4f8c9",
+        "nvlddmkm.sys+0xb619d",
+        "dxgkrnl.sys!DpiFdoMessageInterruptRoutine",
+        "ntoskrnl.exe!KiInterruptMessageDispatch",
+        "ntoskrnl.exe!KiCallInterruptServiceRoutine",
+        "ntoskrnl.exe!KiInterruptSubDispatch",
+        "ntoskrnl.exe!KiInterruptDispatch",
+        "igdkmdn64.sys+0x4edb59",
+        "igdkmdn64.sys+0x4e6844",
+        "igdkmdn64.sys+0x4e6b8e",
+        "igdkmdn64.sys+0x34a06b",
+        "dxgkrnl.sys!ADAPTER_RENDER::DdiCalibrateGpuClock",
+        "dxgkrnl.sys!ADAPTER_RENDER::PerformClockCalibration",
+        "dxgkrnl.sys!DxgkpCalibrateGpuTimerDpc",
+        "ntoskrnl.exe!KiProcessExpiredTimerList",
+        "ntoskrnl.exe!KiTimerExpiration",
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ],
+      "executeKernelStack": [
+        "ntoskrnl.exe!KiRetireDpcList",
+        "ntoskrnl.exe!KiIdleLoop"
+      ]
+    }
+  ]
+}
