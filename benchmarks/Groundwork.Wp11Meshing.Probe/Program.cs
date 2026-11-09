@@ -197,7 +197,7 @@ sealed class Grid
     }
 
     internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull, IReadOnlyList<DensityEdit>? edits = null,
-        Vector3 fieldOffset = default, byte? fineBrickMask = null)
+        Vector3 fieldOffset = default, byte? fineBrickMask = null, float[]? densityScratch = null)
     {
         _fixture = fixture;
         _fieldOffset = fieldOffset;
@@ -286,7 +286,10 @@ sealed class Grid
         XCells = _cellCounts.X;
         BrickSize = _axes is null ? new I3(Mid, Mid, Mid) :
             new I3(_cellCounts.X / 2, _cellCounts.Y / 2, _cellCounts.Z / 2);
-        _density = new float[(_cellCounts.X + 1) * (_cellCounts.Y + 1) * (_cellCounts.Z + 1)];
+        var densityCount = (_cellCounts.X + 1) * (_cellCounts.Y + 1) * (_cellCounts.Z + 1);
+        if (densityScratch is not null && densityScratch.Length != densityCount)
+            throw new ArgumentException("Density scratch must match the grid dimensions.", nameof(densityScratch));
+        _density = densityScratch ?? new float[densityCount];
         for (var z = 0; z <= _cellCounts.Z; z++)
         for (var y = 0; y <= _cellCounts.Y; y++)
         for (var x = 0; x <= _cellCounts.X; x++)
@@ -347,7 +350,9 @@ sealed class Grid
     };
 
     internal int Index(I3 p, int width) => (p.Z * width + p.Y) * width + p.X;
-    private int DensityIndex(I3 p) => (p.Z * (_cellCounts.Y + 1) + p.Y) * (_cellCounts.X + 1) + p.X;
+    internal int DensityRowStride => _cellCounts.X + 1;
+    internal int DensityPlaneStride => DensityRowStride * (_cellCounts.Y + 1);
+    internal int DensityIndex(I3 p) => (p.Z * (_cellCounts.Y + 1) + p.Y) * (_cellCounts.X + 1) + p.X;
     internal float At(I3 p) => _density[DensityIndex(p)];
     internal bool ContainsCell(I3 p) => (uint)p.X < _cellCounts.X && (uint)p.Y < _cellCounts.Y && (uint)p.Z < _cellCounts.Z;
 
@@ -584,9 +589,13 @@ sealed class Tables
 static class Marching
 {
     private static readonly int[] FaceBits = [0, 1, 2, 5, 8, 7, 6, 3, 4];
-    internal static Mesh Extract(Grid grid, Tables tables, bool trackSources = false)
+    internal static Mesh Extract(Grid grid, Tables tables, bool trackSources = false, Mesh? scratch = null, bool fast = false)
     {
-        var output = new Mesh { Sources = trackSources ? [] : null };
+        if (trackSources && scratch is not null)
+            throw new ArgumentException("Tracked extraction requires an owned mesh.", nameof(scratch));
+        var output = scratch ?? new Mesh { Sources = trackSources ? [] : null };
+        output.Clear();
+        output.TransitionTriangles = 0;
         var mid = grid.BrickSize;
         Span<float> d = stackalloc float[13];
         Span<Vector3> p = stackalloc Vector3[13];
@@ -600,7 +609,10 @@ static class Marching
             for (var x = 0; x < mid.X; x += step)
             {
                 var origin = brick + new I3(x, y, z);
-                EmitRegular(grid, tables, output, origin, step, brick, d, p);
+                if (fast)
+                    EmitRegularFast(grid, tables, output, origin, step, brick, d, p);
+                else
+                    EmitRegular(grid, tables, output, origin, step, brick, d, p);
                 RecordSource(step == 1 ? "regular-fine" : "regular-coarse");
             }
 
@@ -624,18 +636,29 @@ static class Marching
                     {
                         var q = origin + u * (c % 3) + v * (c / 3);
                         d[c] = grid.At(q);
-                        p[c] = grid.FinePosition(q, brick);
+                        if (!fast)
+                            p[c] = grid.FinePosition(q, brick);
                     }
                     for (var c = 0; c < 4; c++)
                     {
                         var q = origin + u * ((c & 1) * 2) + v * ((c >> 1) * 2);
                         d[9 + c] = grid.At(q);
-                        p[9 + c] = grid.Position(q);
+                        if (!fast)
+                            p[9 + c] = grid.Position(q);
                     }
                     var code = 0;
                     for (var i = 0; i < FaceBits.Length; i++)
                         if (d[FaceBits[i]] < 0)
                             code |= 1 << i;
+                    if (fast)
+                    {
+                        if (code is 0 or 511)
+                            continue;
+                        for (var c = 0; c < 9; c++)
+                            p[c] = grid.FinePosition(origin + u * (c % 3) + v * (c / 3), brick);
+                        for (var c = 0; c < 4; c++)
+                            p[9 + c] = grid.Position(origin + u * ((c & 1) * 2) + v * ((c >> 1) * 2));
+                    }
                     // The table inversion bit and face direction determine the transition winding.
                     var transitionClass = tables.TransitionClass[code];
                     var reverse = ((transitionClass & 128) != 0) == (direction > 0);
@@ -684,6 +707,35 @@ static class Marching
         }
         if (code is 0 or 255)
             return;
+        EmitRegularSurface(grid, tables, output, origin, step, brick, d, p, code);
+    }
+
+    private static void EmitRegularFast(Grid grid, Tables tables, Mesh output, I3 origin, int step, I3 brick,
+        Span<float> d, Span<Vector3> p)
+    {
+        var density = grid.DensitySamples;
+        var index = grid.DensityIndex(origin);
+        var row = grid.DensityRowStride * step;
+        var plane = grid.DensityPlaneStride * step;
+        d[0] = density[index];
+        d[1] = density[index + step];
+        d[2] = density[index + row];
+        d[3] = density[index + row + step];
+        d[4] = density[index + plane];
+        d[5] = density[index + plane + step];
+        d[6] = density[index + plane + row];
+        d[7] = density[index + plane + row + step];
+        var code = Bit(d[0], 1) | Bit(d[1], 2) | Bit(d[2], 4) | Bit(d[3], 8) |
+            Bit(d[4], 16) | Bit(d[5], 32) | Bit(d[6], 64) | Bit(d[7], 128);
+        if (code is not (0 or 255))
+            EmitRegularSurface(grid, tables, output, origin, step, brick, d, p, code);
+
+        static int Bit(float value, int mask) => value < 0 ? mask : 0;
+    }
+
+    private static void EmitRegularSurface(Grid grid, Tables tables, Mesh output, I3 origin, int step, I3? brick,
+        Span<float> d, Span<Vector3> p, int code)
+    {
         for (var c = 0; c < 8; c++)
         {
             var q = origin + I3.Corner(c) * step;

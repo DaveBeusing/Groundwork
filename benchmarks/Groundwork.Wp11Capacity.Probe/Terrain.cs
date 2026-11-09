@@ -7,6 +7,8 @@ using System.Text.Json;
 internal static class Terrain
 {
     private const int Regions = 8;
+    private const int RegionCells = 32;
+    [ThreadStatic] private static RegionScratch? _scratch;
     private const ulong PackedVertexBudget = 4 * 1024 * 1024;
     private static ReadOnlySpan<byte> VariedFineMasks => [0x55, 0x02, 0x33, 0x08, 0x0F, 0x20, 0xCC, 0x80];
     private const int Warmup = 5;
@@ -14,7 +16,7 @@ internal static class Terrain
     private static readonly uint[] Roots = [40, 81, 82, 80, 41, 41];
     private static readonly string[] Lanes = ["old", "stream", "stream", "move", "edit", "recover"];
 
-    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker, bool optimized, bool paced, bool varied)
+    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker, bool optimized, bool paced, bool varied, bool tuned)
     {
         Require(repetitions > 0, "positive repetitions");
         var source = File.ReadAllBytes(tablePath);
@@ -32,9 +34,9 @@ internal static class Terrain
             if (concurrent && i == 0)
                 Require(new GroundedRoute().TryTraverse(collisionMesh, new(21.3f, 15.2f)),
                     "unedited terrain supports the original path across the seam");
-            if (!varied && (paced || optimized && i == 4))
+            if (tuned || !varied && (paced || optimized && i == 4))
             {
-                var candidate = Build(tables, i, concurrent, shareEqualRegions: true);
+                var candidate = Build(tables, i, concurrent, shareEqualRegions: !varied, varied: varied, tuned: tuned);
                 Require(candidate.Vertices.AsSpan().SequenceEqual(vertices) && candidate.Transitions == transitions &&
                     candidate.CollisionMesh.SequenceEqual(collisionMesh), "shared mesh extraction preserves exact output");
             }
@@ -73,7 +75,7 @@ internal static class Terrain
         var samples = new List<Trial>();
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex, varied);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex, varied, tuned);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -108,12 +110,12 @@ internal static class Terrain
                 : "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
-            capacities, peaks, timings, varied, regionInputs, trials = samples
+            capacities, peaks, timings, varied, tuned, regionInputs, trials = samples
         }));
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex, bool varied)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex, bool varied, bool tuned)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
@@ -260,7 +262,7 @@ internal static class Terrain
                 : concurrent && index >= 3
                 ? backlogged ? BuildWithBacklog(index, lane) :
                     pool is null ? BuildWithCompetition(index, lane) : BuildWithPool(pool, index, lane)
-                : Build(tables, index, concurrent, shareEqualRegions: paced && !varied, varied: varied);
+                : Build(tables, index, concurrent, shareEqualRegions: paced && !varied, varied: varied, tuned: tuned);
             timing[$"{lane}{index}MeshMs"] = Elapsed(start);
             Require(vertices.Length / 3 == shape.Triangles && transitions == shape.TransitionTriangles,
                 "repeatable mesh shape and allocation");
@@ -424,7 +426,7 @@ internal static class Terrain
                         "speculative allocation fits its acquired credit");
                     payload = bytes;
                     TrackPacked(bytes);
-                }, shareEqualRegions: paced && !varied, varied: varied);
+                }, shareEqualRegions: paced && !varied, varied: varied, tuned: tuned);
                 var buildMs = Elapsed(begin);
                 Require(vertices.LongLength * 12 == payload, "background packed output matches credit accounting");
                 background.Enqueue(new(Stopwatch.GetElapsedTime(queued, dequeued).TotalMilliseconds, buildMs,
@@ -451,7 +453,7 @@ internal static class Terrain
                 {
                     Require((ulong)bytes <= sizes[index].Charge.Cpu, "protected allocation fits its acquired credit");
                     TrackPacked(bytes);
-                }, shareEqualRegions: !varied && (paced || protectedUploads is not null && index == 4), varied: varied);
+                }, shareEqualRegions: !varied && (paced || protectedUploads is not null && index == 4), varied: varied, tuned: tuned);
                 return (Mesh: mesh, BuildMs: Elapsed(begin),
                     GcMs: (GC.GetTotalPauseDuration() - pause).TotalMilliseconds,
                     Allocated: GC.GetAllocatedBytesForCurrentThread() - allocated);
@@ -518,9 +520,10 @@ internal static class Terrain
         }
     }
 
-    private static (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Build(Tables tables, int job, bool concurrent, Action<long>? packedAllocated = null, bool shareEqualRegions = false, bool varied = false, List<RegionInput>? regionInputs = null)
+    private static (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Build(Tables tables, int job, bool concurrent, Action<long>? packedAllocated = null, bool shareEqualRegions = false, bool varied = false, List<RegionInput>? regionInputs = null, bool tuned = false)
     {
         var meshes = new Mesh[Regions];
+        var scratch = tuned ? _scratch ??= new RegionScratch() : null;
         var shared = shareEqualRegions ? new Dictionary<(string Fixture, string Layout), Mesh>() : null;
         DensityEdit[] edits = job >= 4 ? [new(new Vector3(15, 16, 15), 3, false)] : [];
         for (var i = 0; i < Regions; i++)
@@ -540,8 +543,9 @@ internal static class Terrain
             }
             var offset = varied ? new Vector3(i * .171875f, (i % 3) * .21875f, -i * .125f) : default;
             byte? fineMask = varied ? VariedFineMasks[i] : null;
-            var grid = new Grid(32, fixture, layout, false, false, false, false, false, false, edits, offset, fineMask);
-            meshes[i] = Marching.Extract(grid, tables);
+            var grid = new Grid(RegionCells, fixture, layout, false, false, false, false, false, false, edits,
+                offset, fineMask, scratch?.Density);
+            meshes[i] = Marching.Extract(grid, tables, scratch: i == 0 ? null : scratch?.Meshes[i - 1], fast: tuned);
             if (regionInputs is not null)
                 regionInputs.Add(new(job, i, fixture, fineMask!.Value,
                     Convert.ToHexString(SHA256.HashData(MemoryMarshal.AsBytes(grid.DensitySamples))),
@@ -614,6 +618,12 @@ internal static class Terrain
             lock (_sync)
                 Live = checked(Live - bytes);
         }
+    }
+
+    private sealed class RegionScratch
+    {
+        internal float[] Density { get; } = new float[(RegionCells + 1) * (RegionCells + 1) * (RegionCells + 1)];
+        internal Mesh[] Meshes { get; } = Enumerable.Range(0, Regions - 1).Select(_ => new Mesh()).ToArray();
     }
 
     private sealed record RegionInput(int Job, int Region, string Fixture, byte FineMask, string DensitySha256,

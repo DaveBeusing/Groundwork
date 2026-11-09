@@ -297,3 +297,24 @@ reuses the live CPU payload of the confirmed generation before a new
 verified GPU upload.
 
 [Distinct-region workstation measurements](results-varied-terrain-windows-nvidia.json)
+
+## Tuned extraction for distinct regions
+
+Run `tuned-terrain` with exactly the same density fields, LOD masks,
+CPU backlog and gated streaming copies as `varied-terrain`.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE tuned-terrain $tablePath 150
+```
+
+Each worker retains one density array and seven temporary triangle
+lists. Density samples are rebuilt for every region. The first
+region's collision mesh and the final packed payload have independent
+ownership. The extractor reads regular-cell corners by linear grid
+strides and computes transition positions only for nonuniform cases.
+The same interpolation and triangulation functions emit the output in
+the original order. Startup compares packed vertices, transition counts
+and collision triangles against the reference extractor for every job.
+No mesh inputs are deduplicated in this mode.
+
+[Tuned distinct-region measurements](results-tuned-terrain-windows-nvidia.json)
