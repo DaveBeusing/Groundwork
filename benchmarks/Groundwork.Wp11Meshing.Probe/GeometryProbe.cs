@@ -36,7 +36,8 @@ static class GeometryProbe
         }
     }
 
-    internal static object Check(Mesh mesh, Grid grid, string fixture, string layout)
+    internal static object Check(Mesh mesh, Grid grid, string fixture, string layout,
+        Func<Vector3, Vector3, List<float>>? rayReference = null)
     {
         VerifyIntersectionDetector();
         var normals = mesh.Select((triangle, index) =>
@@ -117,7 +118,7 @@ static class GeometryProbe
         void Trace(string group, int axis, Vector3 origin)
         {
             var direction = I3.Axis(axis).Position;
-            var expected = DensityHits(grid, origin, direction);
+            var expected = rayReference?.Invoke(origin, direction) ?? DensityHits(grid, origin, direction);
             var result = query.Trace(origin, direction);
             var meshHits = result.MeshHits;
             var actual = result.Hits;

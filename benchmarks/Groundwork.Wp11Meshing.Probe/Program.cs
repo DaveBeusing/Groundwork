@@ -146,6 +146,9 @@ sealed class Grid
     private static readonly Vector3 SeamFlatExtent = new(4, 3.06f, 3.06f);
     internal static float SeamFlatBack => SeamFlatCenter.X - SeamFlatExtent.X;
     internal static float SeamFlatFront => SeamFlatCenter.X + SeamFlatExtent.X;
+    internal static float SeamFlatSide => SeamFlatCenter.Y + SeamFlatExtent.Y;
+    internal static Vector3 SeamFlatMin => SeamFlatCenter - SeamFlatExtent;
+    internal static Vector3 SeamFlatMax => SeamFlatCenter + SeamFlatExtent;
     private static readonly Vector3 BridgeStemCenter = new(15.84f, 16.15f, 15.51f);
     private static readonly Vector3 BridgeStemExtent = new(7.22f, .77f, .78f);
     private readonly float[] _density;
@@ -156,7 +159,8 @@ sealed class Grid
     private readonly CollisionSphere[] _collisionCuts;
     private readonly CollisionSphere[] _openingCuts;
     internal ReadOnlySpan<CollisionSphere> OpeningCuts => _openingCuts;
-    private bool IsFlatSeamOpening => _fixture == "seam-flat-opening";
+    private bool IsEdgeSeamOpening => _fixture == "seam-edge-opening";
+    private bool IsFlatSeamOpening => _fixture == "seam-flat-opening" || IsEdgeSeamOpening;
     private bool IsSeamOpening => _fixture == "seam-opening" || IsFlatSeamOpening;
     internal ReadOnlySpan<CollisionSphere> CollisionCuts => _collisionCuts;
     internal ReadOnlySpan<CollisionSphere> CollisionSpheres => _collisionSpheres;
@@ -390,13 +394,15 @@ sealed class Grid
             return null;
         if (IsFlatSeamOpening)
         {
-            // The swept ball stays clear of the back and the other four
-            // box faces, so its local terrain is the front half-space.
+            // The bound may reach the front and, in the edge fixture,
+            // the positive Y face. Exclude all other box faces.
+            var touchesSide = cut.Center.Y + reach >= SeamFlatSide;
             if (cut.Center.X - reach <= SeamFlatBack ||
-                MathF.Abs(cut.Center.Y - SeamFlatCenter.Y) + reach >= SeamFlatExtent.Y ||
+                cut.Center.Y - reach <= SeamFlatCenter.Y - SeamFlatExtent.Y ||
+                (touchesSide && !IsEdgeSeamOpening) ||
                 MathF.Abs(cut.Center.Z - SeamFlatCenter.Z) + reach >= SeamFlatExtent.Z)
                 return null;
-            return ClippedSolid.CreatePlanar(SeamFlatFront, localEdits.ToArray());
+            return ClippedSolid.CreatePlanar(SeamFlatFront, localEdits.ToArray(), touchesSide ? SeamFlatSide : null);
         }
         if (IsSeamOpening)
             return ClippedSolid.Create(SeamOpeningTerrain, localEdits.ToArray());
@@ -456,7 +462,7 @@ sealed class Grid
             "bridge" => MathF.Min(MathF.Min(Sphere(p, BridgeLeft.Center, BridgeLeft.Radius),
                 Sphere(p, BridgeRight.Center, BridgeRight.Radius)),
                 Box(p, BridgeStemCenter, BridgeStemExtent)),
-            "seam-flat-opening" => Box(p, SeamFlatCenter, SeamFlatExtent),
+            "seam-flat-opening" or "seam-edge-opening" => Box(p, SeamFlatCenter, SeamFlatExtent),
             "seam-opening" => Sphere(p, SeamOpeningTerrain.Center, SeamOpeningTerrain.Radius),
             "seam" => Sphere(p, center + new Vector3(-2.1f, 2.3f, 1.4f), 9.38f),
             "junction" => Sphere(p, new(11.37f, 10.8f, 11.8f), 8.15f),

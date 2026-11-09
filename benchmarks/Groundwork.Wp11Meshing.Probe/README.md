@@ -463,3 +463,27 @@ grid and 32 additional sphere sweeps per variant.
 ```
 
 [Flat seam edit group results](results-windows-mc-flat-seam-edit-groups.json)
+
+## Spatial edits at a box edge on the 2:1 seam
+
+The opening is offset toward the positive Y edge of the box. The
+bounded local solver can now include the front and side half-spaces
+together. It considers the closest point on the shared edge and the
+endpoints where brushes clip the edge, in addition to the planar
+faces, spherical faces and clipped circles. It rejects a bound that
+can reach any of the other four box faces.
+
+Each spatial brush group repeats the entry and exit paths, including
+free seam crossings and the inner wall contact. Two extra controls
+check a diagonal contact with the uncut edge and a contact with the
+endpoint formed by both box faces and the subtractive sphere. The
+reference uses the line distance and the independently computed
+edge/cut intersection, respectively. The edge ray grid uses the exact
+ordered box and brush intervals. A targeted ray verifies a thin
+remaining strip that the fixed-step reference missed.
+
+```powershell
+./benchmarks/Groundwork.Wp11Meshing.Probe/Run.ps1 -Tables $tables -Output ./artifacts/wp11-c00-edge-seam.json -RayLatency -RayRuns 1 -RaySamples 1000
+```
+
+[Box-edge seam edit group results](results-windows-mc-edge-seam-edit-groups.json)
