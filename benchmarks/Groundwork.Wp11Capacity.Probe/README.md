@@ -416,3 +416,20 @@ which code was executing at the sample times. They do not give an exact
 duration for an individual routine. Keep the system-wide ETL local.
 
 [Stack and DxgKrnl workstation measurements](results-row-masked-etw-stacks-windows-nvidia.json)
+
+## Pinning a benchmark to a scan-out adapter
+
+Run the probe with `outputs` to list active Windows DisplayConfig paths
+and the separate DXGI output enumeration. The DisplayConfig target
+adapter identifies the scan-out leg used by this test. On a hybrid
+machine, the DXGI enumeration may associate both outputs with the
+rendering adapter even when DisplayConfig reports a different target.
+
+Set `GROUNDWORK_C00_OUTPUT_VENDOR` to `8086` for Intel or `10DE` for
+NVIDIA. The probe prefers the single external target on that vendor,
+otherwise it requires a single target. The rendering adapter remains
+the explicit first argument. The probe verifies the window is fully
+inside the chosen monitor before every frame and checks the selected
+DisplayConfig path again at process completion.
+
+[External Intel scan-out ETW measurements](results-row-masked-etw-hybrid-displayport-windows-nvidia.json)

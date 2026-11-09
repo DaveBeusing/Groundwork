@@ -23,7 +23,9 @@ internal static class Terrain
         Require(Convert.ToHexString(SHA256.HashData(source)) == TableHash, "pinned Transvoxel tables");
         var tables = new Tables(System.Text.Encoding.UTF8.GetString(source));
         using var gpu = new Gpu(vendor);
-        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval);
+        var outputVendor = Environment.GetEnvironmentVariable("GROUNDWORK_C00_OUTPUT_VENDOR");
+        var displayVendor = string.IsNullOrEmpty(outputVendor) ? (uint?)null : Convert.ToUInt32(outputVendor, 16);
+        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval, displayVendor);
         using var process = Process.GetCurrentProcess();
         var sizes = new Shape[Roots.Length];
         var regionInputs = new List<RegionInput>();
@@ -81,6 +83,7 @@ internal static class Terrain
                 samples.Add(trial);
         }
 
+        surface.VerifyDisplayPath();
         process.Refresh();
         var timings = new Dictionary<string, Stats>();
         foreach (var key in samples[0].Timing.Keys)
@@ -101,7 +104,9 @@ internal static class Terrain
         };
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = backlogged ? MeshingPool.WorkerCount - (reserveWorker ? 1 : 0) : concurrent ? 2 : 0,
+            adapter = gpu.Adapter, gpu.VendorId,
+            display = surface.Output is { } output
+                ? new { output.Vendor, output.Adapter, output.DeviceName, output.Left, output.Top, output.Right, output.Bottom, scanOut = surface.ScanOut } : null, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = backlogged ? MeshingPool.WorkerCount - (reserveWorker ? 1 : 0) : concurrent ? 2 : 0,
             reservedWorkers = reserveWorker ? 1 : 0, packedVertexBudgetBytes = PackedVertexBudget, optimized,
             reservedDefaultBytes = protectedUploads?.GeometryBytes ?? 0, reservedUploadBytes = protectedUploads?.UploadBytes ?? 0,
             activeSpeculativeBudgetBytes = activeSpeculativeBudget,

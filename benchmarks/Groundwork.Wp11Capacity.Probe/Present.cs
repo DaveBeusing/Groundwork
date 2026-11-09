@@ -27,7 +27,7 @@ unsafe sealed partial class Gpu
         private readonly ID3D12Resource*[] _targets = new ID3D12Resource*[2];
         internal ulong Bytes { get; private set; }
 
-        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1)
+        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null)
         {
             _gpu = gpu;
             _waitForDraw = waitForDraw;
@@ -36,8 +36,15 @@ unsafe sealed partial class Gpu
             IDXGISwapChain1* initial = null;
             try
             {
+                if (displayVendor is { } vendor)
+                {
+                    if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+                        throw new InvalidOperationException("Could not enable per-monitor DPI awareness.");
+                    SelectOutput(vendor);
+                }
+
                 fixed (char* type = "STATIC", title = "Groundwork C00 capacity probe")
-                    _window = CreateWindowExW(0, type, title, 0x10CF0000, 40, 40, (int)Width, (int)Height,
+                    _window = CreateWindowExW(0, type, title, 0x10CF0000, (Output?.Left ?? 0) + 40, (Output?.Top ?? 0) + 40, (int)Width, (int)Height,
                         HWND.NULL, HMENU.NULL, HINSTANCE.NULL, null);
                 if (_window == HWND.NULL)
                     throw new InvalidOperationException("CreateWindowExW failed.");
@@ -77,6 +84,8 @@ unsafe sealed partial class Gpu
                 Check(gpu._queue->GetTimestampFrequency(&frequency), "timestamp frequency");
                 _timestampFrequency = frequency;
                 CreatePipeline();
+                if (Output is { } output)
+                    VerifyOutput(output);
             }
             catch { Dispose(); throw; }
             finally { Release(initial); Release(factory); }
@@ -97,6 +106,8 @@ unsafe sealed partial class Gpu
             MSG message;
             while (PeekMessageW(&message, _window, 0, 0, 1))
                 DispatchMessageW(&message);
+            if (Output is { } output)
+                VerifyOutput(output);
             var start = Stopwatch.GetTimestamp();
             var paced = _frameReady != HANDLE.NULL;
             if (paced && WaitForSingleObject(_frameReady, 5_000) != 0)

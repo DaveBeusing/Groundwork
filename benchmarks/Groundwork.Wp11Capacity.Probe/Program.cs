@@ -3,6 +3,13 @@ using System.Globalization;
 using System.Text.Json;
 
 const ulong MiB = 1024 * 1024;
+if (args is ["outputs"])
+{
+    Console.WriteLine(JsonSerializer.Serialize(Gpu.QueryDisplayPaths()));
+    Console.WriteLine(JsonSerializer.Serialize(Gpu.EnumerateOutputs().Select(output =>
+        new { output.Vendor, output.Adapter, output.DeviceName, output.Left, output.Top, output.Right, output.Bottom })));
+    return;
+}
 var vendor = args.Length == 0 ? 0x10DEu : uint.Parse(args[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
 if (args.Length == 4 && args[1] is "terrain" or "concurrent-terrain" or "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain" or "row-masked-terrain")
 {
