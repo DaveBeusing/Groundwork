@@ -452,3 +452,13 @@ for this comparison. The frame-latency limit remains two, and the probe
 includes every backbuffer in the D3D12 allocation totals.
 
 [Hybrid backbuffer-count ETW comparison](results-row-masked-etw-hybrid-buffer-count-windows-nvidia.json)
+
+## Frame-latency limit comparison
+
+Set `GROUNDWORK_C00_FRAME_LATENCY` to `1` or `2` (default) for the
+paced swapchain. The comparison uses FLIP_DISCARD, two backbuffers,
+interval-0 Present and the same Intel DisplayPort scan-out. The
+DXGI readiness wait remains part of the frame-to-fence wall time
+and is also reported separately.
+
+[Hybrid frame-latency ETW comparison](results-row-masked-etw-hybrid-frame-latency-windows-nvidia.json)

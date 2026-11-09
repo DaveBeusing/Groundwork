@@ -27,7 +27,7 @@ unsafe sealed partial class Gpu
         private readonly ID3D12Resource*[] _targets;
         internal ulong Bytes { get; private set; }
 
-        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null, bool flipSequential = false, uint bufferCount = 2)
+        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null, bool flipSequential = false, uint bufferCount = 2, uint frameLatency = 2)
         {
             _targets = new ID3D12Resource*[bufferCount];
             _gpu = gpu;
@@ -62,7 +62,7 @@ unsafe sealed partial class Gpu
                     Check(initial->QueryInterface(__uuidof<IDXGISwapChain3>(), (void**)chain), "swapchain3");
                 if (paced)
                 {
-                    Check(_chain->SetMaximumFrameLatency(2), "set swapchain frame latency");
+                    Check(_chain->SetMaximumFrameLatency(frameLatency), "set swapchain frame latency");
                     _frameReady = _chain->GetFrameLatencyWaitableObject();
                     if (_frameReady == HANDLE.NULL)
                         throw new InvalidOperationException("Swapchain did not provide a frame-latency handle.");

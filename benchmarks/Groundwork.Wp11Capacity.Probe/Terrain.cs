@@ -37,7 +37,13 @@ internal static class Terrain
             "3" => 3u,
             _ => throw new ArgumentException("Expected two or three swapchain buffers.")
         };
-        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval, displayVendor, swapEffect, bufferCount);
+        var frameLatency = Environment.GetEnvironmentVariable("GROUNDWORK_C00_FRAME_LATENCY") switch
+        {
+            null or "2" => 2u,
+            "1" => 1u,
+            _ => throw new ArgumentException("Expected frame latency one or two.")
+        };
+        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval, displayVendor, swapEffect, bufferCount, frameLatency);
         using var process = Process.GetCurrentProcess();
         var sizes = new Shape[Roots.Length];
         var regionInputs = new List<RegionInput>();
@@ -128,7 +134,7 @@ internal static class Terrain
                 : $"visible HWND, 640x480, {bufferCount} RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
-            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, rowMasked, swapEffect = swapEffect ? "FLIP_SEQUENTIAL" : "FLIP_DISCARD", bufferCount, regionInputs, traceClock = traceClock ? new { pid = Environment.ProcessId, tid = Gpu.Surface.NativeThreadId, frequency = Stopwatch.Frequency } : null, trials = samples
+            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, rowMasked, swapEffect = swapEffect ? "FLIP_SEQUENTIAL" : "FLIP_DISCARD", bufferCount, frameLatency, regionInputs, traceClock = traceClock ? new { pid = Environment.ProcessId, tid = Gpu.Surface.NativeThreadId, frequency = Stopwatch.Frequency } : null, trials = samples
         }));
     }
 
