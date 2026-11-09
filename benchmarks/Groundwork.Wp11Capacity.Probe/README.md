@@ -140,3 +140,31 @@ meshing intermediates and allocations outside the byte ledger contribute
 to process memory.
 
 [Concurrent workstation measurements](results-concurrent-terrain-windows-nvidia.json)
+
+## Fixed worker pool and latency breakdown
+
+Use `pooled-terrain` to run the same grounded route, saturation checks,
+streaming gate and GPU retirement with a bounded FIFO and three persistent
+meshing threads.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE pooled-terrain $tablePath 150
+```
+
+Each protected phase dispatches one protected build and two competing builds.
+Queue time runs from submission to dequeue, barrier time from worker entry
+to the beginning of the build, and build wall time covers density sampling,
+extraction and packing. The coordinator records wave time through the final
+join. Initial staging builds still run on the coordinator, as in the
+concurrent baseline. This queue admits one wave at a time, while speculative
+GPU copies and streaming quota remain saturated through recovery.
+
+The probe records managed allocation deltas on each worker and process-wide
+GC pause duration deltas around each build, wave and route. Wave and route
+samples also include GC collection count deltas by generation. Build wall
+times include pauses. Process-wide pause deltas across concurrent intervals
+can count the same pause, so these values must not be added or attributed to
+an individual worker. Queue time also includes worker wake-up and scheduling
+delay. No scheduler trace is collected.
+
+[Fixed worker pool measurements](results-pooled-terrain-windows-nvidia.json)
