@@ -24,11 +24,12 @@ unsafe sealed partial class Gpu
         private ID3D12QueryHeap* _timestamps;
         private readonly ulong _timestampFrequency;
         private ID3D12PipelineState* _pipeline;
-        private readonly ID3D12Resource*[] _targets = new ID3D12Resource*[2];
+        private readonly ID3D12Resource*[] _targets;
         internal ulong Bytes { get; private set; }
 
-        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null, bool flipSequential = false)
+        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null, bool flipSequential = false, uint bufferCount = 2)
         {
+            _targets = new ID3D12Resource*[bufferCount];
             _gpu = gpu;
             _waitForDraw = waitForDraw;
             _syncInterval = syncInterval;
@@ -51,7 +52,7 @@ unsafe sealed partial class Gpu
                 Check(CreateFactory(0, __uuidof<IDXGIFactory4>(), (void**)&factory), "swapchain factory");
                 var desc = new DXGI_SWAP_CHAIN_DESC1
                 {
-                    Width = Width, Height = Height, Format = Format, BufferCount = 2, BufferUsage = 0x20,
+                    Width = Width, Height = Height, Format = Format, BufferCount = bufferCount, BufferUsage = 0x20,
                     SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
                     SwapEffect = flipSequential ? DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL : DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_DISCARD,
                     Flags = paced ? (uint)DXGI_SWAP_CHAIN_FLAG.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT : 0
@@ -66,10 +67,10 @@ unsafe sealed partial class Gpu
                     if (_frameReady == HANDLE.NULL)
                         throw new InvalidOperationException("Swapchain did not provide a frame-latency handle.");
                 }
-                var heap = new D3D12_DESCRIPTOR_HEAP_DESC { Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, NumDescriptors = 2 };
+                var heap = new D3D12_DESCRIPTOR_HEAP_DESC { Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, NumDescriptors = bufferCount };
                 fixed (ID3D12DescriptorHeap** rtv = &_rtv)
                     Check(gpu._device->CreateDescriptorHeap(&heap, __uuidof<ID3D12DescriptorHeap>(), (void**)rtv), "RTV heap");
-                for (uint i = 0; i < 2; i++)
+                for (uint i = 0; i < bufferCount; i++)
                 {
                     fixed (ID3D12Resource** target = &_targets[i])
                         Check(_chain->GetBuffer(i, __uuidof<ID3D12Resource>(), (void**)target), "swapchain buffer");

@@ -443,3 +443,12 @@ two buffers, frame-latency handle, Present interval and flags, and
 pins the window to the same Intel DisplayPort scan-out target.
 
 [Hybrid swap-effect ETW comparison](results-row-masked-etw-hybrid-swap-effects-windows-nvidia.json)
+
+## Backbuffer count comparison
+
+Set `GROUNDWORK_C00_BACK_BUFFERS` to `2` (default) or `3` to select
+the DXGI swapchain buffer count. Use `GROUNDWORK_C00_SWAP_EFFECT=discard`
+for this comparison. The frame-latency limit remains two, and the probe
+includes every backbuffer in the D3D12 allocation totals.
+
+[Hybrid backbuffer-count ETW comparison](results-row-masked-etw-hybrid-buffer-count-windows-nvidia.json)

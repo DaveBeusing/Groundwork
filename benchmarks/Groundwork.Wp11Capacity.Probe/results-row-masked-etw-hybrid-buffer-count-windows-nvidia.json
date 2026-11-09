@@ -1,0 +1,1677 @@
+{
+  "order": [
+    2,
+    3,
+    3,
+    2
+  ],
+  "mode": "row-masked-terrain",
+  "warmupsPerProcess": 5,
+  "renderer": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+  "display": {
+    "Vendor": 4318,
+    "Adapter": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+    "DeviceName": "\\\\.\\DISPLAY2",
+    "Left": -2560,
+    "Top": 0,
+    "Right": 0,
+    "Bottom": 1440,
+    "scanOut": {
+      "DeviceName": "\\\\.\\DISPLAY2",
+      "SourceVendor": 32902,
+      "TargetVendor": 32902,
+      "Technology": "DISPLAYCONFIG_OUTPUT_TECHNOLOGY_DISPLAYPORT_EXTERNAL"
+    }
+  },
+  "captureProfile": "C00Stacks.wprp",
+  "directNvidiaLeg": "open",
+  "events": {
+    "lost": 0,
+    "dxgKrnl": 14167469,
+    "contextSwitches": 5301817,
+    "readyThread": 3268629,
+    "presentPairs": 7200,
+    "traceBytes": 2042888192
+  },
+  "twoBuffers": {
+    "effect": "FLIP_DISCARD",
+    "bufferCount": 2,
+    "swapchainAllocationBytes": 2621440,
+    "routes": 1200,
+    "frames": 3600,
+    "present": {
+      "count": 3600,
+      "p50": 0.1622,
+      "p95": 0.2595,
+      "p99": 0.8367,
+      "p999": 1.2841,
+      "max": 1.4515
+    },
+    "movementPresent": {
+      "count": 1200,
+      "p50": 0.1967,
+      "p95": 0.3267,
+      "p99": 0.9674,
+      "p999": 1.2841,
+      "max": 1.4515
+    },
+    "frameFence": {
+      "count": 3600,
+      "p50": 0.6401,
+      "p95": 3.523,
+      "p99": 5.0896,
+      "p999": 5.8903,
+      "max": 7.833
+    },
+    "postPresentFence": {
+      "count": 3600,
+      "p50": 0.3525,
+      "p95": 3.1935,
+      "p99": 4.8135,
+      "p999": 5.61,
+      "max": 7.5769
+    },
+    "dxgiOnCpu": {
+      "count": 3600,
+      "p50": 0.1603,
+      "p95": 0.2494,
+      "p99": 0.8336,
+      "p999": 1.2823,
+      "max": 1.4493
+    },
+    "dxgiRunnable": {
+      "count": 3600,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "p999": 0.0181,
+      "max": 0.0455
+    },
+    "retryCalls": 0.0,
+    "schedulerUnknownFrames": 2,
+    "abovePresentBudget": 0,
+    "outliers": [],
+    "topTenPresent": [
+      {
+        "Process": 4,
+        "Frame": {
+          "Route": 400,
+          "Phase": "movement",
+          "PresentStart": 3663219474724,
+          "PresentEnd": 3663219489239,
+          "FenceEnd": 3663219503741,
+          "GpuDrawMs": 0.35808,
+          "DxgiReadyMs": 0.0017,
+          "FrameFenceMs": 3.0848,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.4515,
+          "RunningMs": 1.4515,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 1.4502,
+          "RunningMs": 0.0258,
+          "ReadyMs": 0.0041,
+          "WaitingMs": 1.4203,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.4493,
+          "RunningMs": 1.4493,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 392,
+          "Phase": "recovery",
+          "PresentStart": 3660876456378,
+          "PresentEnd": 3660876469419,
+          "FenceEnd": 3660876473475,
+          "GpuDrawMs": 0.00432,
+          "DxgiReadyMs": 0.0013,
+          "FrameFenceMs": 1.9016,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.3041,
+          "RunningMs": 1.3041,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.4056,
+          "RunningMs": 0.0239,
+          "ReadyMs": 0.0159,
+          "WaitingMs": 0.3658,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.3023,
+          "RunningMs": 1.3023,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 19,
+          "Phase": "recovery",
+          "PresentStart": 3660391812851,
+          "PresentEnd": 3660391825796,
+          "FenceEnd": 3660391849165,
+          "GpuDrawMs": 0.004416,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 3.7644,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.2945,
+          "RunningMs": 1.2945,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 2.3369,
+          "RunningMs": 0.0227,
+          "ReadyMs": 0.0154,
+          "WaitingMs": 2.2988,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.2928,
+          "RunningMs": 1.2928,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 466,
+          "Phase": "movement",
+          "PresentStart": 3660967582545,
+          "PresentEnd": 3660967595386,
+          "FenceEnd": 3660967610809,
+          "GpuDrawMs": 0.373888,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 2.9889,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.2841,
+          "RunningMs": 1.2841,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 1.5423,
+          "RunningMs": 0.0238,
+          "ReadyMs": 0.0057,
+          "WaitingMs": 1.5128,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.2823,
+          "RunningMs": 1.2823,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 4,
+        "Frame": {
+          "Route": 547,
+          "Phase": "movement",
+          "PresentStart": 3663401429631,
+          "PresentEnd": 3663401442471,
+          "FenceEnd": 3663401442533,
+          "GpuDrawMs": 0.005184,
+          "DxgiReadyMs": 0.0014,
+          "FrameFenceMs": 1.4295,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.284,
+          "RunningMs": 1.284,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0062,
+          "RunningMs": 0.0062,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.2823,
+          "RunningMs": 1.2823,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 64,
+          "Phase": "stale",
+          "PresentStart": 3660452681822,
+          "PresentEnd": 3660452694066,
+          "FenceEnd": 3660452694144,
+          "GpuDrawMs": 0.004288,
+          "DxgiReadyMs": 0.001,
+          "FrameFenceMs": 1.4062,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.2244,
+          "RunningMs": 1.1943,
+          "ReadyMs": 0.0199,
+          "WaitingMs": 0.0102,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0078,
+          "RunningMs": 0.0078,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.186,
+          "RunningMs": 1.186,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 491,
+          "Phase": "movement",
+          "PresentStart": 3660997795017,
+          "PresentEnd": 3660997807259,
+          "FenceEnd": 3660997807320,
+          "GpuDrawMs": 0.005088,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 1.3639,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.2242,
+          "RunningMs": 1.2242,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0061,
+          "RunningMs": 0.0061,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.2223,
+          "RunningMs": 1.2223,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 512,
+          "Phase": "movement",
+          "PresentStart": 3661024334803,
+          "PresentEnd": 3661024346706,
+          "FenceEnd": 3661024349920,
+          "GpuDrawMs": 0.00528,
+          "DxgiReadyMs": 0.0009,
+          "FrameFenceMs": 1.6099,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.1903,
+          "RunningMs": 1.1903,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.3214,
+          "RunningMs": 0.0117,
+          "ReadyMs": 0.0035,
+          "WaitingMs": 0.3062,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.1892,
+          "RunningMs": 1.1892,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 441,
+          "Phase": "movement",
+          "PresentStart": 3660937266246,
+          "PresentEnd": 3660937277466,
+          "FenceEnd": 3660937277515,
+          "GpuDrawMs": 0.005248,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 1.2675,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.122,
+          "RunningMs": 1.122,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0049,
+          "RunningMs": 0.0049,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.1205,
+          "RunningMs": 1.1205,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 4,
+        "Frame": {
+          "Route": 424,
+          "Phase": "movement",
+          "PresentStart": 3663249930602,
+          "PresentEnd": 3663249941592,
+          "FenceEnd": 3663249941653,
+          "GpuDrawMs": 0.005248,
+          "DxgiReadyMs": 0.0014,
+          "FrameFenceMs": 1.2506,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.099,
+          "RunningMs": 1.099,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0061,
+          "RunningMs": 0.0061,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.0968,
+          "RunningMs": 1.0968,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      }
+    ],
+    "topTenPresentStackMatches": [
+      {
+        "name": "FlipPresentToDWM",
+        "samples": 12,
+        "calls": 10
+      },
+      {
+        "name": "DdiEscape",
+        "samples": 6,
+        "calls": 6
+      },
+      {
+        "name": "intelcontrollib.dll",
+        "samples": 9,
+        "calls": 9
+      },
+      {
+        "name": "igd10umt64xe.dll",
+        "samples": 9,
+        "calls": 9
+      }
+    ],
+    "outlierStackMatches": [
+      {
+        "name": "FlipPresentToDWM",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "DdiEscape",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "intelcontrollib.dll",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "igd10umt64xe.dll",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "igdkmdn64.sys",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "nvwgf2umx.dll",
+        "samples": 0,
+        "calls": 0
+      }
+    ],
+    "outlierSamples": 0,
+    "outlierDxgKrnlEvents": 0,
+    "worstStack": [
+      {
+        "Process": 4,
+        "Route": 400,
+        "Phase": "movement",
+        "SincePresentStartMs": 0.6761,
+        "Stack": [
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x926a8"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x92818"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x92ede"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x92e91"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x93523"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x9206f"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x92480"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x11047"
+          },
+          {
+            "Module": "tedrdrv.sys",
+            "Method": null,
+            "Offset": "0x5de9c"
+          },
+          {
+            "Module": "cyvrlpc.sys",
+            "Method": null,
+            "Offset": "0x33ea"
+          },
+          {
+            "Module": "cyvrlpc.sys",
+            "Method": null,
+            "Offset": "0x16c3c"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "CmpCallCallBacksEx",
+            "Offset": "0x86638d"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "CmpParseKey",
+            "Offset": "0x89e18e"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "ObpLookupObjectName",
+            "Offset": "0x89c763"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "ObOpenObjectByNameEx",
+            "Offset": "0x89aac4"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "CmOpenKey",
+            "Offset": "0x876599"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "CmOpenKeyCallout",
+            "Offset": "0x87633d"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "KeExpandKernelStackAndCalloutInternal",
+            "Offset": "0x2f851a"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "KeExpandKernelStackAndCallout",
+            "Offset": "0x467605"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "NtOpenKeyEx",
+            "Offset": "0xa45d40"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "KiSystemServiceExitPico",
+            "Offset": "0x6c5841"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "KiServiceLinkage",
+            "Offset": "0x6b3460"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_RegRtlOpenKeyTransacted",
+            "Offset": "0x8ef8e4"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmOpenDeviceRegKeyWorker",
+            "Offset": "0x8ee894"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmOpenDeviceRegKey",
+            "Offset": "0x8ee629"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmGetDeviceRegPropWorker",
+            "Offset": "0x8edb37"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmGetDeviceRegProp",
+            "Offset": "0x8ed987"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmGetDeviceSoftwareKeyPath",
+            "Offset": "0x99112d"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmOpenDeviceRegKeyWorker",
+            "Offset": "0x8eee5b"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "_CmOpenDeviceRegKey",
+            "Offset": "0x8ee629"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "IoOpenDeviceRegistryKey",
+            "Offset": "0x999311"
+          },
+          {
+            "Module": "igdkmdn64.sys",
+            "Method": null,
+            "Offset": "0x540b43"
+          },
+          {
+            "Module": "igdkmdn64.sys",
+            "Method": null,
+            "Offset": "0x53e806"
+          },
+          {
+            "Module": "igdkmdn64.sys",
+            "Method": null,
+            "Offset": "0x54ce16"
+          },
+          {
+            "Module": "igdkmdn64.sys",
+            "Method": null,
+            "Offset": "0x15a29"
+          },
+          {
+            "Module": "dxgkrnl.sys",
+            "Method": "DXGADAPTER::DdiEscape",
+            "Offset": "0x2f0364"
+          },
+          {
+            "Module": "dxgkrnl.sys",
+            "Method": "DxgkEscape",
+            "Offset": "0x443fba"
+          },
+          {
+            "Module": "ntoskrnl.exe",
+            "Method": "KiSystemServiceExitPico",
+            "Offset": "0x6c5841"
+          },
+          {
+            "Module": "win32u.dll",
+            "Method": "NtGdiDdDDIEscape",
+            "Offset": "0x4fe4"
+          },
+          {
+            "Module": "intelcontrollib.dll",
+            "Method": null,
+            "Offset": "0x4bcad"
+          },
+          {
+            "Module": "intelcontrollib.dll",
+            "Method": null,
+            "Offset": "0x4b71d"
+          },
+          {
+            "Module": "intelcontrollib.dll",
+            "Method": null,
+            "Offset": "0x4a176"
+          },
+          {
+            "Module": "intelcontrollib.dll",
+            "Method": null,
+            "Offset": "0x3e126"
+          },
+          {
+            "Module": "intelcontrollib.dll",
+            "Method": null,
+            "Offset": "0x5f58"
+          },
+          {
+            "Module": "controllib.dll",
+            "Method": null,
+            "Offset": "0x5b30"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0x5e7e4f"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0x2e4211"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0x6ece5e"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0xe353b"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0xbaa31"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0x750cc"
+          },
+          {
+            "Module": "igd10umt64xe.dll",
+            "Method": null,
+            "Offset": "0x6bfb4"
+          },
+          {
+            "Module": "d3d11.dll",
+            "Method": null,
+            "Offset": "0x4ea8e"
+          },
+          {
+            "Module": "d3d11.dll",
+            "Method": null,
+            "Offset": "0x4dcfd"
+          },
+          {
+            "Module": "dxgi.dll",
+            "Method": "CFlipPresentToDWM<CDXGISwapChainWrapper>::FlipPresentCore",
+            "Offset": "0x6264a"
+          },
+          {
+            "Module": "dxgi.dll",
+            "Method": "CDXGISwapChain::FlipPresentToDWM",
+            "Offset": "0x6319c"
+          },
+          {
+            "Module": "dxgi.dll",
+            "Method": "CDXGISwapChain::PresentImplCore",
+            "Offset": "0x13e27"
+          },
+          {
+            "Module": "dxgi.dll",
+            "Method": "CDXGISwapChain::PresentImpl",
+            "Offset": "0x199dc"
+          },
+          {
+            "Module": "dxgi.dll",
+            "Method": "CDXGISwapChain::Present",
+            "Offset": "0x1917a"
+          },
+          {
+            "Module": null,
+            "Method": null,
+            "Offset": null
+          },
+          {
+            "Module": null,
+            "Method": null,
+            "Offset": null
+          },
+          {
+            "Module": null,
+            "Method": null,
+            "Offset": null
+          },
+          {
+            "Module": null,
+            "Method": null,
+            "Offset": null
+          },
+          {
+            "Module": null,
+            "Method": null,
+            "Offset": null
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0x183b73"
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0x42538"
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0xabc57"
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0xab542"
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0xaaf03"
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0xa9e55"
+          },
+          {
+            "Module": "coreclr.dll",
+            "Method": null,
+            "Offset": "0x15b377"
+          },
+          {
+            "Module": "hostpolicy.dll",
+            "Method": null,
+            "Offset": "0x1dd0a"
+          },
+          {
+            "Module": "hostpolicy.dll",
+            "Method": null,
+            "Offset": "0x1dfac"
+          },
+          {
+            "Module": "hostpolicy.dll",
+            "Method": null,
+            "Offset": "0x1ef21"
+          },
+          {
+            "Module": "hostfxr.dll",
+            "Method": null,
+            "Offset": "0xd56b"
+          },
+          {
+            "Module": "hostfxr.dll",
+            "Method": null,
+            "Offset": "0x1029c"
+          },
+          {
+            "Module": "hostfxr.dll",
+            "Method": null,
+            "Offset": "0x12676"
+          },
+          {
+            "Module": "hostfxr.dll",
+            "Method": null,
+            "Offset": "0x1079d"
+          },
+          {
+            "Module": "hostfxr.dll",
+            "Method": null,
+            "Offset": "0x8998"
+          },
+          {
+            "Module": "dotnet.exe",
+            "Method": null,
+            "Offset": "0x2a28"
+          },
+          {
+            "Module": "dotnet.exe",
+            "Method": null,
+            "Offset": "0x2f2e"
+          },
+          {
+            "Module": "dotnet.exe",
+            "Method": null,
+            "Offset": "0xb238"
+          },
+          {
+            "Module": "kernel32.dll",
+            "Method": null,
+            "Offset": "0x2dda7"
+          },
+          {
+            "Module": "ntdll.dll",
+            "Method": "RtlUserThreadStart",
+            "Offset": "0x7ee4c"
+          }
+        ]
+      }
+    ],
+    "perRun": [
+      {
+        "run": 1,
+        "present": {
+          "count": 1800,
+          "p50": 0.1623,
+          "p95": 0.253,
+          "p99": 0.8571,
+          "p999": 1.2945,
+          "max": 1.3041
+        },
+        "above": 0,
+        "rawSha256": "6B3B0A6A2E4C1206EB4ADAA9AB1D56B5DC5A7D06A6BE2565114B129FCC915684"
+      },
+      {
+        "run": 4,
+        "present": {
+          "count": 1800,
+          "p50": 0.1621,
+          "p95": 0.2637,
+          "p99": 0.8146,
+          "p999": 1.284,
+          "max": 1.4515
+        },
+        "above": 0,
+        "rawSha256": "26C27229A83653F6234D7866B243102C31BA7A9B82A8EE494B6F2F6049D89E06"
+      }
+    ],
+    "timeBudgetChecks": [
+      {
+        "budget": "meshingJobMs",
+        "limit": 24,
+        "max": 31.4601,
+        "routesAbove": 6
+      },
+      {
+        "budget": "protectedDispatch",
+        "limit": 24,
+        "max": 31.5399,
+        "routesAbove": 1
+      },
+      {
+        "budget": "verifiedUploadMs",
+        "limit": 17,
+        "max": 13.4769,
+        "routesAbove": 0
+      },
+      {
+        "budget": "movementReadyMs",
+        "limit": 64,
+        "max": 40.3731,
+        "routesAbove": 0
+      },
+      {
+        "budget": "firstEditCommittedMs",
+        "limit": 43,
+        "max": 38.7476,
+        "routesAbove": 0
+      },
+      {
+        "budget": "recoveryReadyMs",
+        "limit": 60,
+        "max": 31.9199,
+        "routesAbove": 0
+      },
+      {
+        "budget": "presentCallMs",
+        "limit": 2.5,
+        "max": 1.4515,
+        "routesAbove": 0
+      },
+      {
+        "budget": "frameFenceMs",
+        "limit": 11,
+        "max": 7.833,
+        "routesAbove": 0
+      },
+      {
+        "budget": "gpuDrawMs",
+        "limit": 3.2,
+        "max": 0.392256,
+        "routesAbove": 0
+      }
+    ],
+    "memoryBudgetChecks": [
+      {
+        "budget": "retainedVertexMiB",
+        "limit": 4,
+        "peakMiB": 3.50299072265625,
+        "withinLimit": true
+      },
+      {
+        "budget": "processPeakWorkingSetMiB",
+        "limit": 240,
+        "peakMiB": 231.5234375,
+        "withinLimit": true
+      },
+      {
+        "budget": "processSampledPrivateMiB",
+        "limit": 224,
+        "peakMiB": 222.79296875,
+        "withinLimit": true
+      },
+      {
+        "budget": "d3d12ResourcesMiB",
+        "limit": 9,
+        "peakMiB": 7.3125,
+        "withinLimit": true
+      },
+      {
+        "budget": "dxgiSampledCombinedMiB",
+        "limit": 104,
+        "peakMiB": 77.484375,
+        "withinLimit": true
+      }
+    ],
+    "speculativeBuilds": 25296,
+    "speculativeBuildsAbove": 10
+  },
+  "threeBuffers": {
+    "effect": "FLIP_DISCARD",
+    "bufferCount": 3,
+    "swapchainAllocationBytes": 3932160,
+    "routes": 1200,
+    "frames": 3600,
+    "present": {
+      "count": 3600,
+      "p50": 0.1649,
+      "p95": 0.2885,
+      "p99": 0.8643,
+      "p999": 1.631,
+      "max": 1.8413
+    },
+    "movementPresent": {
+      "count": 1200,
+      "p50": 0.1992,
+      "p95": 0.4225,
+      "p99": 1.0144,
+      "p999": 1.7583,
+      "max": 1.8413
+    },
+    "frameFence": {
+      "count": 3600,
+      "p50": 0.6486,
+      "p95": 3.5253,
+      "p99": 5.1462,
+      "p999": 5.6702,
+      "max": 6.8744
+    },
+    "postPresentFence": {
+      "count": 3600,
+      "p50": 0.3573,
+      "p95": 3.1829,
+      "p99": 4.845,
+      "p999": 5.4174,
+      "max": 6.5825
+    },
+    "dxgiOnCpu": {
+      "count": 3600,
+      "p50": 0.1628,
+      "p95": 0.2753,
+      "p99": 0.8632,
+      "p999": 1.6287,
+      "max": 1.8258
+    },
+    "dxgiRunnable": {
+      "count": 3600,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "p999": 0.0203,
+      "max": 0.1338
+    },
+    "retryCalls": 0.0,
+    "schedulerUnknownFrames": 0,
+    "abovePresentBudget": 0,
+    "outliers": [],
+    "topTenPresent": [
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 174,
+          "Phase": "movement",
+          "PresentStart": 3662150941214,
+          "PresentEnd": 3662150959627,
+          "FenceEnd": 3662150959679,
+          "GpuDrawMs": 0.005088,
+          "DxgiReadyMs": 0.0024,
+          "FrameFenceMs": 2.0831,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.8413,
+          "RunningMs": 1.8287,
+          "ReadyMs": 0.0126,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0052,
+          "RunningMs": 0.0052,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.8384,
+          "RunningMs": 1.8258,
+          "ReadyMs": 0.0126,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 515,
+          "Phase": "movement",
+          "PresentStart": 3662576078647,
+          "PresentEnd": 3662576096230,
+          "FenceEnd": 3662576096290,
+          "GpuDrawMs": 0.005184,
+          "DxgiReadyMs": 0.0015,
+          "FrameFenceMs": 2,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.7583,
+          "RunningMs": 1.7537,
+          "ReadyMs": 0.0046,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.006,
+          "RunningMs": 0.006,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.756,
+          "RunningMs": 1.7514,
+          "ReadyMs": 0.0046,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 222,
+          "Phase": "movement",
+          "PresentStart": 3662211433936,
+          "PresentEnd": 3662211451298,
+          "FenceEnd": 3662211451387,
+          "GpuDrawMs": 0.01632,
+          "DxgiReadyMs": 0.0017,
+          "FrameFenceMs": 1.9347,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.7362,
+          "RunningMs": 1.7362,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0089,
+          "RunningMs": 0.0089,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.7338,
+          "RunningMs": 1.7338,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 297,
+          "Phase": "movement",
+          "PresentStart": 3662302297870,
+          "PresentEnd": 3662302314180,
+          "FenceEnd": 3662302314258,
+          "GpuDrawMs": 0.005088,
+          "DxgiReadyMs": 0.0016,
+          "FrameFenceMs": 1.8173,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.631,
+          "RunningMs": 1.631,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0078,
+          "RunningMs": 0.0078,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.6287,
+          "RunningMs": 1.6287,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 23,
+          "Phase": "movement",
+          "PresentStart": 3661968631237,
+          "PresentEnd": 3661968646682,
+          "FenceEnd": 3661968646756,
+          "GpuDrawMs": 0.00512,
+          "DxgiReadyMs": 0.0013,
+          "FrameFenceMs": 1.7286,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.5445,
+          "RunningMs": 1.5445,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0074,
+          "RunningMs": 0.0074,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.5423,
+          "RunningMs": 1.5423,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 447,
+          "Phase": "movement",
+          "PresentStart": 3662494327618,
+          "PresentEnd": 3662494342949,
+          "FenceEnd": 3662494343098,
+          "GpuDrawMs": 0.005088,
+          "DxgiReadyMs": 0.0035,
+          "FrameFenceMs": 2.0304,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.5331,
+          "RunningMs": 1.5331,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0149,
+          "RunningMs": 0.0149,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.5242,
+          "RunningMs": 1.5242,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 322,
+          "Phase": "movement",
+          "PresentStart": 3662332680392,
+          "PresentEnd": 3662332694166,
+          "FenceEnd": 3662332734177,
+          "GpuDrawMs": 0.005152,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 5.5529,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.3774,
+          "RunningMs": 1.3774,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 4.0011,
+          "RunningMs": 0.0262,
+          "ReadyMs": 0.0179,
+          "WaitingMs": 3.957,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.3753,
+          "RunningMs": 1.3753,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 346,
+          "Phase": "stale",
+          "PresentStart": 3662362842045,
+          "PresentEnd": 3662362855055,
+          "FenceEnd": 3662362874037,
+          "GpuDrawMs": 0.004416,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 3.3439,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.301,
+          "RunningMs": 1.301,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 1.8982,
+          "RunningMs": 0.0246,
+          "ReadyMs": 0.0141,
+          "WaitingMs": 1.8595,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.2992,
+          "RunningMs": 1.2992,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 2,
+        "Frame": {
+          "Route": 191,
+          "Phase": "movement",
+          "PresentStart": 3661398156091,
+          "PresentEnd": 3661398168211,
+          "FenceEnd": 3661398168260,
+          "GpuDrawMs": 0.00512,
+          "DxgiReadyMs": 0.0011,
+          "FrameFenceMs": 1.3352,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.212,
+          "RunningMs": 1.2111,
+          "ReadyMs": 0.0009,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0049,
+          "RunningMs": 0.0049,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.21,
+          "RunningMs": 1.2091,
+          "ReadyMs": 0.0009,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 3,
+        "Frame": {
+          "Route": 271,
+          "Phase": "movement",
+          "PresentStart": 3662271638568,
+          "PresentEnd": 3662271650334,
+          "FenceEnd": 3662271655154,
+          "GpuDrawMs": 0.203904,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 1.796,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.1766,
+          "RunningMs": 1.1766,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.482,
+          "RunningMs": 0.0223,
+          "ReadyMs": 0.0236,
+          "WaitingMs": 0.4361,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.1747,
+          "RunningMs": 1.1747,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      }
+    ],
+    "topTenPresentStackMatches": [
+      {
+        "name": "FlipPresentToDWM",
+        "samples": 10,
+        "calls": 9
+      },
+      {
+        "name": "DdiEscape",
+        "samples": 6,
+        "calls": 5
+      },
+      {
+        "name": "intelcontrollib.dll",
+        "samples": 7,
+        "calls": 6
+      },
+      {
+        "name": "igd10umt64xe.dll",
+        "samples": 8,
+        "calls": 7
+      }
+    ],
+    "outlierStackMatches": [
+      {
+        "name": "FlipPresentToDWM",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "DdiEscape",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "intelcontrollib.dll",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "igd10umt64xe.dll",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "igdkmdn64.sys",
+        "samples": 0,
+        "calls": 0
+      },
+      {
+        "name": "nvwgf2umx.dll",
+        "samples": 0,
+        "calls": 0
+      }
+    ],
+    "outlierSamples": 0,
+    "outlierDxgKrnlEvents": 0,
+    "worstStack": [],
+    "perRun": [
+      {
+        "run": 2,
+        "present": {
+          "count": 1800,
+          "p50": 0.1611,
+          "p95": 0.2485,
+          "p99": 0.8389,
+          "p999": 1.0573,
+          "max": 1.212
+        },
+        "above": 0,
+        "rawSha256": "5D7D3B0EB64EA613A0ACE1D4352473F89F8A7072C11CC8190FBE652A53C16AFC"
+      },
+      {
+        "run": 3,
+        "present": {
+          "count": 1800,
+          "p50": 0.1697,
+          "p95": 0.3298,
+          "p99": 0.8788,
+          "p999": 1.7583,
+          "max": 1.8413
+        },
+        "above": 0,
+        "rawSha256": "33AE6C1D39828DB72346D93EC2852D19A654539256C4EF3E755C97DF9D22A5E3"
+      }
+    ],
+    "timeBudgetChecks": [
+      {
+        "budget": "meshingJobMs",
+        "limit": 24,
+        "max": 30.8517,
+        "routesAbove": 3
+      },
+      {
+        "budget": "protectedDispatch",
+        "limit": 24,
+        "max": 30.9177,
+        "routesAbove": 2
+      },
+      {
+        "budget": "verifiedUploadMs",
+        "limit": 17,
+        "max": 15.2228,
+        "routesAbove": 0
+      },
+      {
+        "budget": "movementReadyMs",
+        "limit": 64,
+        "max": 38.3677,
+        "routesAbove": 0
+      },
+      {
+        "budget": "firstEditCommittedMs",
+        "limit": 43,
+        "max": 42.4691,
+        "routesAbove": 0
+      },
+      {
+        "budget": "recoveryReadyMs",
+        "limit": 60,
+        "max": 30.0904,
+        "routesAbove": 0
+      },
+      {
+        "budget": "presentCallMs",
+        "limit": 2.5,
+        "max": 1.8413,
+        "routesAbove": 0
+      },
+      {
+        "budget": "frameFenceMs",
+        "limit": 11,
+        "max": 6.8744,
+        "routesAbove": 0
+      },
+      {
+        "budget": "gpuDrawMs",
+        "limit": 3.2,
+        "max": 0.71984,
+        "routesAbove": 0
+      }
+    ],
+    "memoryBudgetChecks": [
+      {
+        "budget": "retainedVertexMiB",
+        "limit": 4,
+        "peakMiB": 3.50299072265625,
+        "withinLimit": true
+      },
+      {
+        "budget": "processPeakWorkingSetMiB",
+        "limit": 240,
+        "peakMiB": 240.13671875,
+        "withinLimit": false
+      },
+      {
+        "budget": "processSampledPrivateMiB",
+        "limit": 224,
+        "peakMiB": 230.875,
+        "withinLimit": false
+      },
+      {
+        "budget": "d3d12ResourcesMiB",
+        "limit": 9,
+        "peakMiB": 8.5625,
+        "withinLimit": true
+      },
+      {
+        "budget": "dxgiSampledCombinedMiB",
+        "limit": 104,
+        "peakMiB": 81.15625,
+        "withinLimit": true
+      }
+    ],
+    "speculativeBuilds": 30130,
+    "speculativeBuildsAbove": 14
+  }
+}
