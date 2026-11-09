@@ -462,3 +462,16 @@ DXGI readiness wait remains part of the frame-to-fence wall time
 and is also reported separately.
 
 [Hybrid frame-latency ETW comparison](results-row-masked-etw-hybrid-frame-latency-windows-nvidia.json)
+
+## Queue and fence follow-up
+
+Use `C00Fence.wprp!C00Fence` for the CPU-stack profile plus the
+Direct3D 12 provider. Set `GROUNDWORK_C00_TRACE_CLOCK=1` and run the
+same row-masked route. The frame clock records the draw submission,
+post-Present queue signal, target fence value, wait registration,
+blocking wait and final fence confirmation. Zero wait markers mean
+the fence was already complete at the first check. CPU wait duration
+includes the render thread's scheduling delay after it becomes ready.
+GPU draw duration comes from the D3D12 timestamp queries.
+
+[Queue and fence ETW follow-up](results-row-masked-etw-hybrid-fence-followup-windows-nvidia.json)

@@ -99,10 +99,11 @@ unsafe sealed partial class Gpu
             return handle;
         }
 
-        internal readonly record struct FrameClock(long FrameStart, long PresentStart, long PresentEnd, long FenceEnd);
+        internal readonly record struct FrameClock(long FrameStart, long PresentStart, long PresentEnd, long FenceEnd,
+            long SubmitStart, long SubmitEnd, long SignalStart, long SignalEnd, ulong FenceValue, FenceWaitClock Wait);
         internal static uint NativeThreadId => GetCurrentThreadId();
 
-        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries, double DrawFenceWait, FrameClock Clock) Draw(Buffers buffers, uint vertices)
+        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries, double DrawFenceWait, FrameClock Clock) Draw(Buffers buffers, uint vertices, bool captureClock = false)
         {
             MSG message;
             while (PeekMessageW(&message, _window, 0, 0, 1))
@@ -146,7 +147,9 @@ unsafe sealed partial class Gpu
             commands->ResolveQueryData(_timestamps, timestamp, 0, 2, _gpu._readback, 16);
             Check(commands->Close(), "close draw");
             var list = (ID3D12CommandList*)commands;
+            var submitStart = captureClock ? Stopwatch.GetTimestamp() : 0;
             _gpu._queue->ExecuteCommandLists(1, &list);
+            var submitEnd = captureClock ? Stopwatch.GetTimestamp() : 0;
             var drawFenceWait = 0d;
             if (_waitForDraw)
             {
@@ -167,7 +170,10 @@ unsafe sealed partial class Gpu
             }
             var presentEnd = Stopwatch.GetTimestamp();
             var presentMs = Stopwatch.GetElapsedTime(present, presentEnd).TotalMilliseconds;
-            _gpu.Wait(_gpu.Signal());
+            var signalStart = captureClock ? Stopwatch.GetTimestamp() : 0;
+            var fenceValue = _gpu.Signal();
+            var signalEnd = captureClock ? Stopwatch.GetTimestamp() : 0;
+            var wait = _gpu.Wait(fenceValue, captureClock);
             if (result.Value != 0)
                 throw new InvalidOperationException($"Present returned 0x{result.Value:X8}.");
             var fenceEnd = Stopwatch.GetTimestamp();
@@ -179,7 +185,7 @@ unsafe sealed partial class Gpu
             var elapsed = ticks[1] - ticks[0];
             D3D12_RANGE empty = default;
             _gpu._readback->Unmap(0, &empty);
-            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait, new(start, present, presentEnd, fenceEnd));
+            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait, new(start, present, presentEnd, fenceEnd, submitStart, submitEnd, signalStart, signalEnd, fenceValue, wait));
         }
 
         private static void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,

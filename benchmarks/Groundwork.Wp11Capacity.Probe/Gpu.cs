@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using TerraFX.Interop.DirectX;
 using TerraFX.Interop.Windows;
@@ -246,14 +247,23 @@ unsafe sealed partial class Gpu : IDisposable
         _gatePending = false;
     }
 
-    internal void Wait(ulong fence)
+    internal void Wait(ulong fence) => Wait(fence, false);
+
+    private FenceWaitClock Wait(ulong fence, bool capture)
     {
         if (IsComplete(fence))
-            return;
+            return default;
+        var registrationStart = capture ? Stopwatch.GetTimestamp() : 0;
         Check(_fence->SetEventOnCompletion(fence, _event), "wait registration");
-        if (WaitForSingleObject(_event, 10_000) != 0 || !IsComplete(fence))
+        var waitStart = capture ? Stopwatch.GetTimestamp() : 0;
+        var result = WaitForSingleObject(_event, 10_000);
+        var waitReturn = capture ? Stopwatch.GetTimestamp() : 0;
+        if (result != 0 || !IsComplete(fence))
             throw new TimeoutException("GPU fence did not settle.");
+        return new(registrationStart, waitStart, waitReturn);
     }
+
+    internal readonly record struct FenceWaitClock(long RegistrationStart, long WaitStart, long WaitReturn);
 
     internal void Drain()
     {

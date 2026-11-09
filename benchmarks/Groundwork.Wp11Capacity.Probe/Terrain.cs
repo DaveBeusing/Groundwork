@@ -498,7 +498,7 @@ internal static class Terrain
         void Frame(string label, Job job)
         {
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held before present");
-            var (present, frame, gpuDraw, readyWait, retries, drawFenceWait, clock) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
+            var (present, frame, gpuDraw, readyWait, retries, drawFenceWait, clock) = surface.Draw(job.Buffers, (uint)job.Vertices.Length, traceClock);
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held after present");
             timing[$"{label}PresentMs"] = present;
             timing[$"{label}FrameFenceMs"] = frame;
