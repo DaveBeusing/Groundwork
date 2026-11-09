@@ -1,0 +1,6054 @@
+{
+  "timestampUtc": "2026-11-09T08:36:07.1723685Z",
+  "sdk": "10.0.403",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "installedMemoryBytes": 68719476736.0,
+  "graphics": [
+    {
+      "Name": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+      "DriverVersion": "32.0.15.9653"
+    },
+    {
+      "Name": "Intel(R) Graphics",
+      "DriverVersion": "32.0.101.8724"
+    }
+  ],
+  "runs": 3,
+  "results": [
+    {
+      "adapter": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+      "VendorId": 4318,
+      "readbackAllocationBytes": 65536,
+      "budgets": {
+        "active-old": {
+          "Cpu": 16777216,
+          "Gpu": 33554432,
+          "Upload": 33554432,
+          "Slots": 1
+        },
+        "speculative": {
+          "Cpu": 16777216,
+          "Gpu": 33554432,
+          "Upload": 33554432,
+          "Slots": 2
+        },
+        "movement": {
+          "Cpu": 6291456,
+          "Gpu": 12582912,
+          "Upload": 12582912,
+          "Slots": 1
+        },
+        "head-edit": {
+          "Cpu": 10485760,
+          "Gpu": 20971520,
+          "Upload": 20971520,
+          "Slots": 1
+        },
+        "recovery": {
+          "Cpu": 12582912,
+          "Gpu": 25165824,
+          "Upload": 25165824,
+          "Slots": 1
+        }
+      },
+      "baseline": {
+        "Phase": "baseline",
+        "ElapsedMs": 4.9799,
+        "Reserved": {
+          "Cpu": 0,
+          "Gpu": 0,
+          "Upload": 0,
+          "Slots": 0
+        },
+        "Materialized": {
+          "Cpu": 0,
+          "Gpu": 0,
+          "Upload": 0,
+          "Slots": 0
+        },
+        "Lanes": {
+          "active-old": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "speculative": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "movement": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "head-edit": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "recovery": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          }
+        },
+        "Local": 17555456,
+        "NonLocal": 40693760,
+        "LocalBudget": 24504172544,
+        "NonLocalBudget": 50152030208,
+        "WorkingSetBytes": 118210560,
+        "PrivateBytes": 121520128
+      },
+      "peaks": {
+        "cpuPayloadBytes": 62914560,
+        "processPeakPrivateSampleBytes": 412012544,
+        "gpuDefaultAllocationBytes": 125829120,
+        "uploadAllocationBytes": 58720256,
+        "totalD3D12BufferBytes": 184614912,
+        "processPeakWorkingSetBytes": 281276416,
+        "dxgiLocalUsageBytes": 143384576,
+        "dxgiNonLocalUsageBytes": 101715968,
+        "dxgiCombinedUsageBytes": 245100544
+      },
+      "trace": [
+        {
+          "Phase": "baseline",
+          "ElapsedMs": 4.9799,
+          "Reserved": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 40693760,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 118210560,
+          "PrivateBytes": 121520128
+        },
+        {
+          "Phase": "old-root-reserved",
+          "ElapsedMs": 34.0273,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 40693760,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 118263808,
+          "PrivateBytes": 121585664
+        },
+        {
+          "Phase": "old-root-allocated",
+          "ElapsedMs": 60.9215,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 74248192,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 168845312,
+          "PrivateBytes": 205639680
+        },
+        {
+          "Phase": "old-root-gpu-verified",
+          "ElapsedMs": 98.6053,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 75714560,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170577920,
+          "PrivateBytes": 207106048
+        },
+        {
+          "Phase": "1-worker-finished-buffers-retained",
+          "ElapsedMs": 108.9225,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 75714560,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170639360,
+          "PrivateBytes": 207106048
+        },
+        {
+          "Phase": "1-upload-settled",
+          "ElapsedMs": 122.0165,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 42160128,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170668032,
+          "PrivateBytes": 207106048
+        },
+        {
+          "Phase": "stream-a-reserved",
+          "ElapsedMs": 130.821,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 42160128,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170676224,
+          "PrivateBytes": 207106048
+        },
+        {
+          "Phase": "stream-a-allocated",
+          "ElapsedMs": 147.3161,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 58937344,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 179363840,
+          "PrivateBytes": 234377216
+        },
+        {
+          "Phase": "stream-a-gpu-pending",
+          "ElapsedMs": 160.9355,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 59355136,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 179924992,
+          "PrivateBytes": 234795008
+        },
+        {
+          "Phase": "stream-b-reserved",
+          "ElapsedMs": 170.1036,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 59355136,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 179924992,
+          "PrivateBytes": 234795008
+        },
+        {
+          "Phase": "stream-b-allocated",
+          "ElapsedMs": 186.6208,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76132352,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205123584,
+          "PrivateBytes": 277159936
+        },
+        {
+          "Phase": "stream-b-gpu-pending",
+          "ElapsedMs": 198.0019,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205688832,
+          "PrivateBytes": 277532672
+        },
+        {
+          "Phase": "streaming-saturated-denied",
+          "ElapsedMs": 207.1661,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205697024,
+          "PrivateBytes": 277557248
+        },
+        {
+          "Phase": "cancelled-stream-still-charged",
+          "ElapsedMs": 215.7603,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205701120,
+          "PrivateBytes": 277557248
+        },
+        {
+          "Phase": "movement-coverage-reserved",
+          "ElapsedMs": 224.7598,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205701120,
+          "PrivateBytes": 277557248
+        },
+        {
+          "Phase": "movement-coverage-allocated",
+          "ElapsedMs": 238.7886,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212004864,
+          "PrivateBytes": 296443904
+        },
+        {
+          "Phase": "movement-coverage-gpu-verified",
+          "ElapsedMs": 258.8947,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212008960,
+          "PrivateBytes": 296443904
+        },
+        {
+          "Phase": "movement-coverage-ready",
+          "ElapsedMs": 267.4726,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212008960,
+          "PrivateBytes": 296443904
+        },
+        {
+          "Phase": "4-worker-finished-buffers-retained",
+          "ElapsedMs": 274.8384,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212008960,
+          "PrivateBytes": 296443904
+        },
+        {
+          "Phase": "4-upload-settled",
+          "ElapsedMs": 284.6032,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212008960,
+          "PrivateBytes": 296443904
+        },
+        {
+          "Phase": "edit-41-reserved",
+          "ElapsedMs": 293.3073,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212008960,
+          "PrivateBytes": 296443904
+        },
+        {
+          "Phase": "edit-41-allocated",
+          "ElapsedMs": 309.3652,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243470336,
+          "PrivateBytes": 348975104
+        },
+        {
+          "Phase": "edit-41-gpu-verified",
+          "ElapsedMs": 331.0066,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243470336,
+          "PrivateBytes": 348975104
+        },
+        {
+          "Phase": "41-worker-finished-buffers-retained",
+          "ElapsedMs": 339.3186,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243470336,
+          "PrivateBytes": 348975104
+        },
+        {
+          "Phase": "41-upload-settled",
+          "ElapsedMs": 351.8266,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243470336,
+          "PrivateBytes": 348975104
+        },
+        {
+          "Phase": "first-edit-committed-stale-presentation-held",
+          "ElapsedMs": 359.7592,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243470336,
+          "PrivateBytes": 348975104
+        },
+        {
+          "Phase": "recover-edit-41-reserved",
+          "ElapsedMs": 367.0396,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243470336,
+          "PrivateBytes": 348975104
+        },
+        {
+          "Phase": "recover-edit-41-allocated",
+          "ElapsedMs": 386.6646,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281227264,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "recover-edit-41-gpu-verified",
+          "ElapsedMs": 409.0873,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281227264,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "recovery-ready-old-retained",
+          "ElapsedMs": 418.4347,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281227264,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "41-worker-finished-buffers-retained",
+          "ElapsedMs": 425.7149,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281227264,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "41-upload-settled",
+          "ElapsedMs": 433.615,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281227264,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "old-and-cancelled-held-behind-fence",
+          "ElapsedMs": 440.0425,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281239552,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "retirement-confirmed",
+          "ElapsedMs": 472.7703,
+          "Reserved": {
+            "Cpu": 37748736,
+            "Gpu": 75497472,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 37748736,
+            "Gpu": 75497472,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 93052928,
+          "NonLocal": 59772928,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281276416,
+          "PrivateBytes": 412012544
+        },
+        {
+          "Phase": "settled",
+          "ElapsedMs": 485.3032,
+          "Reserved": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 42995712,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281276416,
+          "PrivateBytes": 412012544
+        }
+      ],
+      "finalRoute": {
+        "AuthoritativeRoot": 41,
+        "PresentedRoot": 41,
+        "Position": 2,
+        "NextEdit": 42
+      },
+      "checks": {
+        "atomicAdmission": true,
+        "plusMinusOne": true,
+        "protectedMovement": true,
+        "firstEdit": true,
+        "protectedRecovery": true,
+        "fenceRetention": true
+      }
+    },
+    {
+      "adapter": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+      "VendorId": 4318,
+      "readbackAllocationBytes": 65536,
+      "budgets": {
+        "active-old": {
+          "Cpu": 16777216,
+          "Gpu": 33554432,
+          "Upload": 33554432,
+          "Slots": 1
+        },
+        "speculative": {
+          "Cpu": 16777216,
+          "Gpu": 33554432,
+          "Upload": 33554432,
+          "Slots": 2
+        },
+        "movement": {
+          "Cpu": 6291456,
+          "Gpu": 12582912,
+          "Upload": 12582912,
+          "Slots": 1
+        },
+        "head-edit": {
+          "Cpu": 10485760,
+          "Gpu": 20971520,
+          "Upload": 20971520,
+          "Slots": 1
+        },
+        "recovery": {
+          "Cpu": 12582912,
+          "Gpu": 25165824,
+          "Upload": 25165824,
+          "Slots": 1
+        }
+      },
+      "baseline": {
+        "Phase": "baseline",
+        "ElapsedMs": 4.227,
+        "Reserved": {
+          "Cpu": 0,
+          "Gpu": 0,
+          "Upload": 0,
+          "Slots": 0
+        },
+        "Materialized": {
+          "Cpu": 0,
+          "Gpu": 0,
+          "Upload": 0,
+          "Slots": 0
+        },
+        "Lanes": {
+          "active-old": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "speculative": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "movement": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "head-edit": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "recovery": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          }
+        },
+        "Local": 17555456,
+        "NonLocal": 40693760,
+        "LocalBudget": 24504172544,
+        "NonLocalBudget": 50152030208,
+        "WorkingSetBytes": 118296576,
+        "PrivateBytes": 121274368
+      },
+      "peaks": {
+        "cpuPayloadBytes": 62914560,
+        "processPeakPrivateSampleBytes": 411684864,
+        "gpuDefaultAllocationBytes": 125829120,
+        "uploadAllocationBytes": 58720256,
+        "totalD3D12BufferBytes": 184614912,
+        "processPeakWorkingSetBytes": 281460736,
+        "dxgiLocalUsageBytes": 143384576,
+        "dxgiNonLocalUsageBytes": 101715968,
+        "dxgiCombinedUsageBytes": 245100544
+      },
+      "trace": [
+        {
+          "Phase": "baseline",
+          "ElapsedMs": 4.227,
+          "Reserved": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 40693760,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 118296576,
+          "PrivateBytes": 121274368
+        },
+        {
+          "Phase": "old-root-reserved",
+          "ElapsedMs": 31.6904,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 40693760,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 118349824,
+          "PrivateBytes": 121339904
+        },
+        {
+          "Phase": "old-root-allocated",
+          "ElapsedMs": 61.4917,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 74248192,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 168927232,
+          "PrivateBytes": 205393920
+        },
+        {
+          "Phase": "old-root-gpu-verified",
+          "ElapsedMs": 139.4503,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 75714560,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170659840,
+          "PrivateBytes": 206860288
+        },
+        {
+          "Phase": "1-worker-finished-buffers-retained",
+          "ElapsedMs": 150.1262,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 75714560,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170721280,
+          "PrivateBytes": 206860288
+        },
+        {
+          "Phase": "1-upload-settled",
+          "ElapsedMs": 168.3003,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 42160128,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170749952,
+          "PrivateBytes": 206860288
+        },
+        {
+          "Phase": "stream-a-reserved",
+          "ElapsedMs": 178.4955,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 42160128,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170758144,
+          "PrivateBytes": 206860288
+        },
+        {
+          "Phase": "stream-a-allocated",
+          "ElapsedMs": 200.7173,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 58937344,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 179441664,
+          "PrivateBytes": 233934848
+        },
+        {
+          "Phase": "stream-a-gpu-pending",
+          "ElapsedMs": 219.9241,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 59355136,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 180158464,
+          "PrivateBytes": 234508288
+        },
+        {
+          "Phase": "stream-b-reserved",
+          "ElapsedMs": 228.8293,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 59355136,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 180158464,
+          "PrivateBytes": 234508288
+        },
+        {
+          "Phase": "stream-b-allocated",
+          "ElapsedMs": 243.6959,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76132352,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205352960,
+          "PrivateBytes": 276869120
+        },
+        {
+          "Phase": "stream-b-gpu-pending",
+          "ElapsedMs": 253.6192,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205897728,
+          "PrivateBytes": 277221376
+        },
+        {
+          "Phase": "streaming-saturated-denied",
+          "ElapsedMs": 262.0859,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205897728,
+          "PrivateBytes": 277221376
+        },
+        {
+          "Phase": "cancelled-stream-still-charged",
+          "ElapsedMs": 269.7398,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205901824,
+          "PrivateBytes": 277221376
+        },
+        {
+          "Phase": "movement-coverage-reserved",
+          "ElapsedMs": 277.7491,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205901824,
+          "PrivateBytes": 277221376
+        },
+        {
+          "Phase": "movement-coverage-allocated",
+          "ElapsedMs": 289.9939,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212201472,
+          "PrivateBytes": 296108032
+        },
+        {
+          "Phase": "movement-coverage-gpu-verified",
+          "ElapsedMs": 310.7276,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212205568,
+          "PrivateBytes": 296108032
+        },
+        {
+          "Phase": "movement-coverage-ready",
+          "ElapsedMs": 319.2772,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212205568,
+          "PrivateBytes": 296108032
+        },
+        {
+          "Phase": "4-worker-finished-buffers-retained",
+          "ElapsedMs": 327.3452,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212205568,
+          "PrivateBytes": 296108032
+        },
+        {
+          "Phase": "4-upload-settled",
+          "ElapsedMs": 334.9461,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212205568,
+          "PrivateBytes": 296108032
+        },
+        {
+          "Phase": "edit-41-reserved",
+          "ElapsedMs": 343.4427,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212205568,
+          "PrivateBytes": 296108032
+        },
+        {
+          "Phase": "edit-41-allocated",
+          "ElapsedMs": 357.7332,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243666944,
+          "PrivateBytes": 348639232
+        },
+        {
+          "Phase": "edit-41-gpu-verified",
+          "ElapsedMs": 384.1146,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243666944,
+          "PrivateBytes": 348639232
+        },
+        {
+          "Phase": "41-worker-finished-buffers-retained",
+          "ElapsedMs": 392.3564,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243666944,
+          "PrivateBytes": 348639232
+        },
+        {
+          "Phase": "41-upload-settled",
+          "ElapsedMs": 400.2977,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243666944,
+          "PrivateBytes": 348639232
+        },
+        {
+          "Phase": "first-edit-committed-stale-presentation-held",
+          "ElapsedMs": 408.6792,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243666944,
+          "PrivateBytes": 348639232
+        },
+        {
+          "Phase": "recover-edit-41-reserved",
+          "ElapsedMs": 418.5022,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243666944,
+          "PrivateBytes": 348639232
+        },
+        {
+          "Phase": "recover-edit-41-allocated",
+          "ElapsedMs": 434.2158,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281419776,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "recover-edit-41-gpu-verified",
+          "ElapsedMs": 462.0384,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281419776,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "recovery-ready-old-retained",
+          "ElapsedMs": 469.3897,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281419776,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "41-worker-finished-buffers-retained",
+          "ElapsedMs": 476.2259,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281419776,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "41-upload-settled",
+          "ElapsedMs": 491.6143,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281419776,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "old-and-cancelled-held-behind-fence",
+          "ElapsedMs": 499.0839,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281423872,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "retirement-confirmed",
+          "ElapsedMs": 534.3662,
+          "Reserved": {
+            "Cpu": 37748736,
+            "Gpu": 75497472,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 37748736,
+            "Gpu": 75497472,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 93052928,
+          "NonLocal": 59772928,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281460736,
+          "PrivateBytes": 411684864
+        },
+        {
+          "Phase": "settled",
+          "ElapsedMs": 543.6064,
+          "Reserved": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 42995712,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281460736,
+          "PrivateBytes": 411684864
+        }
+      ],
+      "finalRoute": {
+        "AuthoritativeRoot": 41,
+        "PresentedRoot": 41,
+        "Position": 2,
+        "NextEdit": 42
+      },
+      "checks": {
+        "atomicAdmission": true,
+        "plusMinusOne": true,
+        "protectedMovement": true,
+        "firstEdit": true,
+        "protectedRecovery": true,
+        "fenceRetention": true
+      }
+    },
+    {
+      "adapter": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+      "VendorId": 4318,
+      "readbackAllocationBytes": 65536,
+      "budgets": {
+        "active-old": {
+          "Cpu": 16777216,
+          "Gpu": 33554432,
+          "Upload": 33554432,
+          "Slots": 1
+        },
+        "speculative": {
+          "Cpu": 16777216,
+          "Gpu": 33554432,
+          "Upload": 33554432,
+          "Slots": 2
+        },
+        "movement": {
+          "Cpu": 6291456,
+          "Gpu": 12582912,
+          "Upload": 12582912,
+          "Slots": 1
+        },
+        "head-edit": {
+          "Cpu": 10485760,
+          "Gpu": 20971520,
+          "Upload": 20971520,
+          "Slots": 1
+        },
+        "recovery": {
+          "Cpu": 12582912,
+          "Gpu": 25165824,
+          "Upload": 25165824,
+          "Slots": 1
+        }
+      },
+      "baseline": {
+        "Phase": "baseline",
+        "ElapsedMs": 3.691,
+        "Reserved": {
+          "Cpu": 0,
+          "Gpu": 0,
+          "Upload": 0,
+          "Slots": 0
+        },
+        "Materialized": {
+          "Cpu": 0,
+          "Gpu": 0,
+          "Upload": 0,
+          "Slots": 0
+        },
+        "Lanes": {
+          "active-old": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "speculative": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "movement": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "head-edit": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "recovery": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          }
+        },
+        "Local": 17555456,
+        "NonLocal": 40693760,
+        "LocalBudget": 24504172544,
+        "NonLocalBudget": 50152030208,
+        "WorkingSetBytes": 118370304,
+        "PrivateBytes": 121163776
+      },
+      "peaks": {
+        "cpuPayloadBytes": 62914560,
+        "processPeakPrivateSampleBytes": 411152384,
+        "gpuDefaultAllocationBytes": 125829120,
+        "uploadAllocationBytes": 58720256,
+        "totalD3D12BufferBytes": 184614912,
+        "processPeakWorkingSetBytes": 281382912,
+        "dxgiLocalUsageBytes": 143384576,
+        "dxgiNonLocalUsageBytes": 101715968,
+        "dxgiCombinedUsageBytes": 245100544
+      },
+      "trace": [
+        {
+          "Phase": "baseline",
+          "ElapsedMs": 3.691,
+          "Reserved": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 40693760,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 118370304,
+          "PrivateBytes": 121163776
+        },
+        {
+          "Phase": "old-root-reserved",
+          "ElapsedMs": 28.9063,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 40693760,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 118423552,
+          "PrivateBytes": 121229312
+        },
+        {
+          "Phase": "old-root-allocated",
+          "ElapsedMs": 51.0983,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 74248192,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 168996864,
+          "PrivateBytes": 205279232
+        },
+        {
+          "Phase": "old-root-gpu-verified",
+          "ElapsedMs": 91.0371,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 1
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 75714560,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170729472,
+          "PrivateBytes": 206745600
+        },
+        {
+          "Phase": "1-worker-finished-buffers-retained",
+          "ElapsedMs": 101.1632,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 33554432,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 75714560,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170790912,
+          "PrivateBytes": 206745600
+        },
+        {
+          "Phase": "1-upload-settled",
+          "ElapsedMs": 110.3757,
+          "Reserved": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 42160128,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170819584,
+          "PrivateBytes": 206745600
+        },
+        {
+          "Phase": "stream-a-reserved",
+          "ElapsedMs": 117.9411,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 16777216,
+            "Gpu": 33554432,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 51109888,
+          "NonLocal": 42160128,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 170827776,
+          "PrivateBytes": 206745600
+        },
+        {
+          "Phase": "stream-a-allocated",
+          "ElapsedMs": 132.47,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 58937344,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 179511296,
+          "PrivateBytes": 233553920
+        },
+        {
+          "Phase": "stream-a-gpu-pending",
+          "ElapsedMs": 142.9574,
+          "Reserved": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 59355136,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 180072448,
+          "PrivateBytes": 233975808
+        },
+        {
+          "Phase": "stream-b-reserved",
+          "ElapsedMs": 150.9673,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 25165824,
+            "Gpu": 50331648,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 67887104,
+          "NonLocal": 59355136,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 180072448,
+          "PrivateBytes": 233975808
+        },
+        {
+          "Phase": "stream-b-allocated",
+          "ElapsedMs": 163.6243,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76132352,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205271040,
+          "PrivateBytes": 276340736
+        },
+        {
+          "Phase": "stream-b-gpu-pending",
+          "ElapsedMs": 173.1982,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205819904,
+          "PrivateBytes": 276697088
+        },
+        {
+          "Phase": "streaming-saturated-denied",
+          "ElapsedMs": 180.7967,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205819904,
+          "PrivateBytes": 276697088
+        },
+        {
+          "Phase": "cancelled-stream-still-charged",
+          "ElapsedMs": 188.0174,
+          "Reserved": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205824000,
+          "PrivateBytes": 276697088
+        },
+        {
+          "Phase": "movement-coverage-reserved",
+          "ElapsedMs": 194.1751,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 33554432,
+            "Gpu": 67108864,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 84664320,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 205824000,
+          "PrivateBytes": 276697088
+        },
+        {
+          "Phase": "movement-coverage-allocated",
+          "ElapsedMs": 205.1072,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212123648,
+          "PrivateBytes": 295583744
+        },
+        {
+          "Phase": "movement-coverage-gpu-verified",
+          "ElapsedMs": 225.8724,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212127744,
+          "PrivateBytes": 295583744
+        },
+        {
+          "Phase": "movement-coverage-ready",
+          "ElapsedMs": 233.6163,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 1
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212127744,
+          "PrivateBytes": 295583744
+        },
+        {
+          "Phase": "4-worker-finished-buffers-retained",
+          "ElapsedMs": 241.2138,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 46137344,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 12582912,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 89133056,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212127744,
+          "PrivateBytes": 295583744
+        },
+        {
+          "Phase": "4-upload-settled",
+          "ElapsedMs": 248.6758,
+          "Reserved": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212127744,
+          "PrivateBytes": 295583744
+        },
+        {
+          "Phase": "edit-41-reserved",
+          "ElapsedMs": 256.2689,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 39845888,
+            "Gpu": 79691776,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 97247232,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 212127744,
+          "PrivateBytes": 295583744
+        },
+        {
+          "Phase": "edit-41-allocated",
+          "ElapsedMs": 273.4921,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243589120,
+          "PrivateBytes": 348114944
+        },
+        {
+          "Phase": "edit-41-gpu-verified",
+          "ElapsedMs": 300.9896,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 1
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243589120,
+          "PrivateBytes": 348114944
+        },
+        {
+          "Phase": "41-worker-finished-buffers-retained",
+          "ElapsedMs": 309.1838,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 54525952,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 20971520,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 97521664,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243589120,
+          "PrivateBytes": 348114944
+        },
+        {
+          "Phase": "41-upload-settled",
+          "ElapsedMs": 316.2442,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243589120,
+          "PrivateBytes": 348114944
+        },
+        {
+          "Phase": "first-edit-committed-stale-presentation-held",
+          "ElapsedMs": 324.8286,
+          "Reserved": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243589120,
+          "PrivateBytes": 348114944
+        },
+        {
+          "Phase": "recover-edit-41-reserved",
+          "ElapsedMs": 332.7104,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 50331648,
+            "Gpu": 100663296,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 118218752,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 243589120,
+          "PrivateBytes": 348114944
+        },
+        {
+          "Phase": "recover-edit-41-allocated",
+          "ElapsedMs": 347.8349,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281341952,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "recover-edit-41-gpu-verified",
+          "ElapsedMs": 371.7421,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281341952,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "recovery-ready-old-retained",
+          "ElapsedMs": 379.9532,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 3
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 1
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281341952,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "41-worker-finished-buffers-retained",
+          "ElapsedMs": 388.338,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 58720256,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 25165824,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 101715968,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281341952,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "41-upload-settled",
+          "ElapsedMs": 396.6741,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281341952,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "old-and-cancelled-held-behind-fence",
+          "ElapsedMs": 405.28,
+          "Reserved": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Materialized": {
+            "Cpu": 62914560,
+            "Gpu": 125829120,
+            "Upload": 33554432,
+            "Slots": 2
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 16777216,
+              "Gpu": 33554432,
+              "Upload": 33554432,
+              "Slots": 2
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 143384576,
+          "NonLocal": 76550144,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281346048,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "retirement-confirmed",
+          "ElapsedMs": 436.2307,
+          "Reserved": {
+            "Cpu": 37748736,
+            "Gpu": 75497472,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Materialized": {
+            "Cpu": 37748736,
+            "Gpu": 75497472,
+            "Upload": 16777216,
+            "Slots": 1
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 8388608,
+              "Gpu": 16777216,
+              "Upload": 16777216,
+              "Slots": 1
+            },
+            "movement": {
+              "Cpu": 6291456,
+              "Gpu": 12582912,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 10485760,
+              "Gpu": 20971520,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 12582912,
+              "Gpu": 25165824,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 93052928,
+          "NonLocal": 59772928,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281382912,
+          "PrivateBytes": 411152384
+        },
+        {
+          "Phase": "settled",
+          "ElapsedMs": 445.1687,
+          "Reserved": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Materialized": {
+            "Cpu": 0,
+            "Gpu": 0,
+            "Upload": 0,
+            "Slots": 0
+          },
+          "Lanes": {
+            "active-old": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "speculative": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "movement": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "head-edit": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            },
+            "recovery": {
+              "Cpu": 0,
+              "Gpu": 0,
+              "Upload": 0,
+              "Slots": 0
+            }
+          },
+          "Local": 17555456,
+          "NonLocal": 42995712,
+          "LocalBudget": 24504172544,
+          "NonLocalBudget": 50152030208,
+          "WorkingSetBytes": 281382912,
+          "PrivateBytes": 411152384
+        }
+      ],
+      "finalRoute": {
+        "AuthoritativeRoot": 41,
+        "PresentedRoot": 41,
+        "Position": 2,
+        "NextEdit": 42
+      },
+      "checks": {
+        "atomicAdmission": true,
+        "plusMinusOne": true,
+        "protectedMovement": true,
+        "firstEdit": true,
+        "protectedRecovery": true,
+        "fenceRetention": true
+      }
+    }
+  ]
+}
