@@ -318,3 +318,40 @@ and collision triangles against the reference extractor for every job.
 No mesh inputs are deduplicated in this mode.
 
 [Tuned distinct-region measurements](results-tuned-terrain-windows-nvidia.json)
+
+## Draw completion before Present
+
+Use `ready-present-terrain` to keep the tuned extraction, distinct
+region inputs, reserved worker and saturated queues while adding an
+explicit draw-completion fence before calling DXGI.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE ready-present-terrain $tablePath 150
+```
+
+The coordinator waits for the graphics queue to finish the submitted
+draw and transition the buffer back to PRESENT before calling Present.
+The post-Present fence still governs reuse and retirement. The benchmark
+records the pre-Present draw fence wait separately and includes both
+fences, swapchain readiness and all Present attempts in frame wall time.
+The Present call and frame budgets stay the same.
+
+[Draw-ready workstation measurements](results-ready-present-terrain-windows-nvidia.json)
+
+## Present sync-interval comparison
+
+Use `immediate-present-terrain` for the same tuned route and DXGI
+readiness wait with sync interval 0. It uses the original post-Present
+fence without the experimental pre-Present draw wait.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE immediate-present-terrain $tablePath 150
+```
+
+Interval 0 changes flip-queue behavior. S_OK confirms submission and
+does not establish display timing for individual frames. This test
+continues to charge readiness, retries and the retirement fence to
+the full frame wall time. The original `tuned-terrain` mode retains
+interval 1 for comparison.
+
+[Sync interval 0 measurements](results-immediate-present-terrain-windows-nvidia.json)

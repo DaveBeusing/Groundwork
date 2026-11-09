@@ -12,6 +12,8 @@ unsafe sealed partial class Gpu
         private const uint Width = 640, Height = 480;
         private const DXGI_FORMAT Format = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM;
         private readonly Gpu _gpu;
+        private readonly bool _waitForDraw;
+        private readonly uint _syncInterval;
         private HWND _window;
         private HANDLE _frameReady;
         private const uint DoNotWait = 8;
@@ -25,9 +27,11 @@ unsafe sealed partial class Gpu
         private readonly ID3D12Resource*[] _targets = new ID3D12Resource*[2];
         internal ulong Bytes { get; private set; }
 
-        internal Surface(Gpu gpu, bool paced = false)
+        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1)
         {
             _gpu = gpu;
+            _waitForDraw = waitForDraw;
+            _syncInterval = syncInterval;
             IDXGIFactory4* factory = null;
             IDXGISwapChain1* initial = null;
             try
@@ -85,7 +89,7 @@ unsafe sealed partial class Gpu
             return handle;
         }
 
-        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries) Draw(Buffers buffers, uint vertices)
+        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries, double DrawFenceWait) Draw(Buffers buffers, uint vertices)
         {
             MSG message;
             while (PeekMessageW(&message, _window, 0, 0, 1))
@@ -128,14 +132,23 @@ unsafe sealed partial class Gpu
             Check(commands->Close(), "close draw");
             var list = (ID3D12CommandList*)commands;
             _gpu._queue->ExecuteCommandLists(1, &list);
+            var drawFenceWait = 0d;
+            if (_waitForDraw)
+            {
+                // Resolve GPU readiness explicitly before entering DXGI. The
+                // post-Present fence still protects retirement and reuse.
+                var submitted = Stopwatch.GetTimestamp();
+                _gpu.Wait(_gpu.Signal());
+                drawFenceWait = Stopwatch.GetElapsedTime(submitted).TotalMilliseconds;
+            }
             var present = Stopwatch.GetTimestamp();
-            var result = _chain->Present(1, paced ? DoNotWait : 0);
+            var result = _chain->Present(_syncInterval, paced ? DoNotWait : 0);
             var busyRetries = 0;
             while (paced && result.Value == StillDrawing && Stopwatch.GetElapsedTime(present).TotalMilliseconds < 500)
             {
                 busyRetries++;
                 Thread.Sleep(1);
-                result = _chain->Present(1, DoNotWait);
+                result = _chain->Present(_syncInterval, DoNotWait);
             }
             var presentMs = Stopwatch.GetElapsedTime(present).TotalMilliseconds;
             _gpu.Wait(_gpu.Signal());
@@ -149,7 +162,7 @@ unsafe sealed partial class Gpu
             var elapsed = ticks[1] - ticks[0];
             D3D12_RANGE empty = default;
             _gpu._readback->Unmap(0, &empty);
-            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries);
+            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait);
         }
 
         private static void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,

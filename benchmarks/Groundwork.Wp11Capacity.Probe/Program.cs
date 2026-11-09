@@ -4,12 +4,12 @@ using System.Text.Json;
 
 const ulong MiB = 1024 * 1024;
 var vendor = args.Length == 0 ? 0x10DEu : uint.Parse(args[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-if (args.Length == 4 && args[1] is "terrain" or "concurrent-terrain" or "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain")
+if (args.Length == 4 && args[1] is "terrain" or "concurrent-terrain" or "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain")
 {
     Terrain.Run(vendor, args[2], int.Parse(args[3], CultureInfo.InvariantCulture), args[1] != "terrain",
-        args[1] is "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain",
-        args[1] is "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain",
-        args[1] is "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain", args[1] is "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain", args[1] is "paced-terrain" or "varied-terrain" or "tuned-terrain", args[1] is "varied-terrain" or "tuned-terrain", args[1] == "tuned-terrain");
+        args[1] is "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain",
+        args[1] is "backlogged-terrain" or "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain",
+        args[1] is "reserved-terrain" or "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain", args[1] is "optimized-terrain" or "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain", args[1] is "paced-terrain" or "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain", args[1] is "varied-terrain" or "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain", args[1] is "tuned-terrain" or "ready-present-terrain" or "immediate-present-terrain", args[1] == "ready-present-terrain", args[1] == "immediate-present-terrain" ? 0u : 1u);
     return;
 }
 

@@ -16,14 +16,14 @@ internal static class Terrain
     private static readonly uint[] Roots = [40, 81, 82, 80, 41, 41];
     private static readonly string[] Lanes = ["old", "stream", "stream", "move", "edit", "recover"];
 
-    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker, bool optimized, bool paced, bool varied, bool tuned)
+    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker, bool optimized, bool paced, bool varied, bool tuned, bool waitForDraw, uint syncInterval)
     {
         Require(repetitions > 0, "positive repetitions");
         var source = File.ReadAllBytes(tablePath);
         Require(Convert.ToHexString(SHA256.HashData(source)) == TableHash, "pinned Transvoxel tables");
         var tables = new Tables(System.Text.Encoding.UTF8.GetString(source));
         using var gpu = new Gpu(vendor);
-        using var surface = new Gpu.Surface(gpu, paced);
+        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval);
         using var process = Process.GetCurrentProcess();
         var sizes = new Shape[Roots.Length];
         var regionInputs = new List<RegionInput>();
@@ -75,7 +75,7 @@ internal static class Terrain
         var samples = new List<Trial>();
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex, varied, tuned);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex, varied, tuned, waitForDraw);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -106,16 +106,16 @@ internal static class Terrain
             activeSpeculativeBudgetBytes = activeSpeculativeBudget,
             poolWorkers = pool is null ? 0 : MeshingPool.WorkerCount, backlogged, queueCapacity = MeshingPool.QueueCapacity,
             serverGc = System.Runtime.GCSettings.IsServerGC, gcLatencyMode = System.Runtime.GCSettings.LatencyMode.ToString(),
-            present = paced ? "visible HWND, 640x480, two RGBA8 buffers, frame-latency wait then Present(1, DO_NOT_WAIT), S_OK"
+            present = paced ? $"visible HWND, 640x480, two RGBA8 buffers, frame-latency wait then Present({syncInterval}, DO_NOT_WAIT), S_OK"
                 : "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
-            capacities, peaks, timings, varied, tuned, regionInputs, trials = samples
+            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, regionInputs, trials = samples
         }));
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex, bool varied, bool tuned)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex, bool varied, bool tuned, bool waitForDraw)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
@@ -474,7 +474,7 @@ internal static class Terrain
         void Frame(string label, Job job)
         {
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held before present");
-            var (present, frame, gpuDraw, readyWait, retries) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
+            var (present, frame, gpuDraw, readyWait, retries, drawFenceWait) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held after present");
             timing[$"{label}PresentMs"] = present;
             timing[$"{label}FrameFenceMs"] = frame;
@@ -483,6 +483,8 @@ internal static class Terrain
             {
                 timing[$"{label}ReadyWaitMs"] = readyWait;
                 timing[$"{label}PresentRetries"] = retries;
+                if (waitForDraw)
+                    timing[$"{label}DrawFenceWaitMs"] = drawFenceWait;
             }
             Sample();
         }
