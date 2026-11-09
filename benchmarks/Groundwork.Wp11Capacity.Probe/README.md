@@ -275,3 +275,25 @@ from frame start through queue fence includes the readiness wait. The
 readiness time and retry count are also recorded separately.
 
 [Shared extraction and paced Present measurements](results-paced-terrain-windows-nvidia.json)
+
+## Distinct density fields and LOD layouts
+
+Run `varied-terrain` with the same reserved worker, speculative packed
+vertex cap, full speculative CPU FIFO, gated GPU copies and paced
+Present as the shared-extraction test.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE varied-terrain $tablePath 150
+```
+
+Each job extracts all eight 32-cell regions independently. The sampled
+density field has a different local translation per region and the
+eight layouts use four differently oriented half-fine face layouts and four distinct fine octants. The preflight records density sample SHA-256, the fine-brick
+mask and mesh counts for every region. It checks pairwise distinct
+fields and masks within each job and requires transition triangles
+in every region. The first region preserves the walkable platform
+and 2:1 seam for the same collision and detour checks. Recovery still
+reuses the live CPU payload of the confirmed generation before a new
+verified GPU upload.
+
+[Distinct-region workstation measurements](results-varied-terrain-windows-nvidia.json)

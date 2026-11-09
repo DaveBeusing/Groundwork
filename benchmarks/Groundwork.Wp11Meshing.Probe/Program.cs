@@ -152,6 +152,8 @@ sealed class Grid
     private static readonly Vector3 BridgeStemCenter = new(15.84f, 16.15f, 15.51f);
     private static readonly Vector3 BridgeStemExtent = new(7.22f, .77f, .78f);
     private readonly float[] _density;
+    private readonly Vector3 _fieldOffset;
+    private readonly byte? _fineBrickMask;
     private readonly string _fixture;
     private readonly DensityEdit[] _edits;
     private readonly DensityEdit[] _meshEdits;
@@ -170,6 +172,7 @@ sealed class Grid
     internal int Mid => N / 2;
     internal I3 BrickSize { get; }
     internal int SampleCount => _density.Length;
+    internal ReadOnlySpan<float> DensitySamples => _density;
     internal float CellSize { get; }
     internal float Extent => N * CellSize;
     internal string EffectiveLayout => _layout;
@@ -193,9 +196,12 @@ sealed class Grid
         return position;
     }
 
-    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull, IReadOnlyList<DensityEdit>? edits = null)
+    internal Grid(int n, string fixture, string layout, bool refineCollision, bool junctionCollision, bool mixedCollision, bool tangentialCollision, bool tangentialBaseline, bool tangentialFull, IReadOnlyList<DensityEdit>? edits = null,
+        Vector3 fieldOffset = default, byte? fineBrickMask = null)
     {
         _fixture = fixture;
+        _fieldOffset = fieldOffset;
+        _fineBrickMask = fineBrickMask;
         _edits = edits is null ? [] : edits.ToArray();
         var spheres = new List<CollisionSphere>();
         var cuts = new List<CollisionSphere>();
@@ -330,7 +336,10 @@ sealed class Grid
         return feature;
     }
 
-    internal int Step(I3 p) => _layout switch
+    internal int Step(I3 p) => _fineBrickMask is { } mask
+        ? ((mask & (1 << ((p.X < BrickSize.X ? 0 : 1) | (p.Y < BrickSize.Y ? 0 : 2) |
+            (p.Z < BrickSize.Z ? 0 : 4)))) != 0 ? 1 : 2)
+        : _layout switch
     {
         "uniform" => 1,
         "corner" => p.X < BrickSize.X && p.Y < BrickSize.Y && p.Z < BrickSize.Z ? 1 : 2,
@@ -361,7 +370,7 @@ sealed class Grid
         return new GrazingRayFallback(p => EvaluateEditedField(fixture, edits, p), Extent);
     }
 
-    internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p);
+    internal float Field(Vector3 p) => EvaluateEditedField(_fixture, _edits, p - _fieldOffset);
     internal float BaseField(Vector3 p) => EvaluateField(_fixture, p);
 
     internal ClippedSolid? GetLocalOpening(CollisionSphere cut, Vector3 start, Vector3 end, float radius)
@@ -442,7 +451,7 @@ sealed class Grid
         return visited == (1 << edits.Count) - 1;
     }
 
-    private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p);
+    private float MeshField(Vector3 p) => EvaluateEditedField(_fixture, _meshEdits, p - _fieldOffset);
 
     private static float EvaluateEditedField(string fixture, DensityEdit[] edits, Vector3 p)
     {
