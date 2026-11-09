@@ -73,9 +73,10 @@ internal static class Terrain
             ? new Gpu.ProtectedUploads(gpu, sizes.Skip(firstPooledIndex).Select(shape => shape.Charge.Cpu + 8).ToArray())
             : null;
         var samples = new List<Trial>();
+        var traceClock = Environment.GetEnvironmentVariable("GROUNDWORK_C00_TRACE_CLOCK") == "1";
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex, varied, tuned, waitForDraw, rowMasked);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex, varied, tuned, waitForDraw, rowMasked, traceClock);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -110,12 +111,12 @@ internal static class Terrain
                 : "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
-            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, rowMasked, regionInputs, trials = samples
+            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, rowMasked, regionInputs, traceClock = traceClock ? new { pid = Environment.ProcessId, tid = Gpu.Surface.NativeThreadId, frequency = Stopwatch.Frequency } : null, trials = samples
         }));
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex, bool varied, bool tuned, bool waitForDraw, bool rowMasked)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex, bool varied, bool tuned, bool waitForDraw, bool rowMasked, bool traceClock)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
@@ -474,11 +475,13 @@ internal static class Terrain
         void Frame(string label, Job job)
         {
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held before present");
-            var (present, frame, gpuDraw, readyWait, retries, drawFenceWait) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
+            var (present, frame, gpuDraw, readyWait, retries, drawFenceWait, clock) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held after present");
             timing[$"{label}PresentMs"] = present;
             timing[$"{label}FrameFenceMs"] = frame;
             timing[$"{label}GpuDrawMs"] = gpuDraw;
+            if (traceClock)
+                (trial.FrameClocks ??= new())[label] = clock;
             if (paced)
             {
                 timing[$"{label}ReadyWaitMs"] = readyWait;
@@ -656,6 +659,7 @@ internal static class Terrain
         public ulong VertexUpperBoundBytes { get; set; }
         public ulong SpeculativeReservedPeakBytes { get; set; }
         public int SpeculativeFallbacks { get; set; }
+        public Dictionary<string, Gpu.Surface.FrameClock>? FrameClocks { get; set; }
         public BackgroundBuild[]? Background { get; set; }
         public int RouteSteps { get; set; }
         public float[]? FinalPosition { get; set; }

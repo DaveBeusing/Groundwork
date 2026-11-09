@@ -1,0 +1,1319 @@
+{
+  "benchmarkBaseline": "94ac6e3c03f5dd9739f7499feee27d17414a8b38",
+  "recording": "C00.wprp",
+  "sdk": "10.0.403",
+  "adapter": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+  "os": {
+    "Caption": "Microsoft Windows 11 Enterprise",
+    "Version": "10.0.26300",
+    "OSArchitecture": "64-Bit"
+  },
+  "cpu": [
+    {
+      "Name": "Intel(R) Core(TM) Ultra 9 285HX",
+      "NumberOfCores": 24,
+      "NumberOfLogicalProcessors": 24
+    }
+  ],
+  "graphics": [
+    {
+      "Name": "NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU",
+      "DriverVersion": "32.0.15.9653"
+    },
+    {
+      "Name": "Intel(R) Graphics",
+      "DriverVersion": "32.0.101.8724"
+    }
+  ],
+  "mode": "row-masked-terrain",
+  "syncInterval": 0,
+  "successfulRoutes": 1800,
+  "successfulPresentFrames": 5400,
+  "present": {
+    "overall": {
+      "count": 5400,
+      "p50": 0.1915,
+      "p95": 0.3385,
+      "p99": 1.0679,
+      "p999": 2.0534,
+      "max": 2.7685
+    },
+    "movement": {
+      "count": 1800,
+      "p50": 0.2258,
+      "p95": 0.4393,
+      "p99": 1.4,
+      "p999": 2.6533,
+      "max": 2.7685
+    },
+    "stale": {
+      "count": 1800,
+      "p50": 0.1705,
+      "p95": 0.2737,
+      "p99": 0.4269,
+      "p999": 1.5775,
+      "max": 2.3265
+    },
+    "recovery": {
+      "count": 1800,
+      "p50": 0.172,
+      "p95": 0.3034,
+      "p99": 0.5541,
+      "p999": 1.655,
+      "max": 2.3876
+    },
+    "aboveBudget": [
+      {
+        "process": 1,
+        "route": 231,
+        "phase": "movement",
+        "presentMs": 2.7685,
+        "frameFenceMs": 3.0211,
+        "dxgiReadyMs": 0.0028,
+        "gpuDrawMs": 0.03696,
+        "retries": 0,
+        "routeGcMs": 2.039
+      },
+      {
+        "process": 1,
+        "route": 383,
+        "phase": "movement",
+        "presentMs": 2.6533,
+        "frameFenceMs": 2.9073,
+        "dxgiReadyMs": 0.0028,
+        "gpuDrawMs": 0.016576,
+        "retries": 0,
+        "routeGcMs": 0
+      }
+    ],
+    "topTen": [
+      {
+        "process": 1,
+        "route": 231,
+        "phase": "movement",
+        "presentMs": 2.7685,
+        "frameFenceMs": 3.0211,
+        "dxgiReadyMs": 0.0028,
+        "gpuDrawMs": 0.03696,
+        "retries": 0,
+        "routeGcMs": 2.039
+      },
+      {
+        "process": 1,
+        "route": 383,
+        "phase": "movement",
+        "presentMs": 2.6533,
+        "frameFenceMs": 2.9073,
+        "dxgiReadyMs": 0.0028,
+        "gpuDrawMs": 0.016576,
+        "retries": 0,
+        "routeGcMs": 0
+      },
+      {
+        "process": 2,
+        "route": 24,
+        "phase": "recovery",
+        "presentMs": 2.3876,
+        "frameFenceMs": 3.0713,
+        "dxgiReadyMs": 0.0011,
+        "gpuDrawMs": 0.340224,
+        "retries": 0,
+        "routeGcMs": 0.868
+      },
+      {
+        "process": 2,
+        "route": 551,
+        "phase": "stale",
+        "presentMs": 2.3265,
+        "frameFenceMs": 2.5585,
+        "dxgiReadyMs": 0.0016,
+        "gpuDrawMs": 0.00432,
+        "retries": 0,
+        "routeGcMs": 0.814
+      },
+      {
+        "process": 1,
+        "route": 13,
+        "phase": "movement",
+        "presentMs": 2.2479,
+        "frameFenceMs": 2.5023,
+        "dxgiReadyMs": 0.0021,
+        "gpuDrawMs": 0.051872,
+        "retries": 0,
+        "routeGcMs": 1.526
+      },
+      {
+        "process": 1,
+        "route": 250,
+        "phase": "movement",
+        "presentMs": 2.0534,
+        "frameFenceMs": 2.2869,
+        "dxgiReadyMs": 0.0018,
+        "gpuDrawMs": 0.05904,
+        "retries": 0,
+        "routeGcMs": 1.315
+      },
+      {
+        "process": 2,
+        "route": 416,
+        "phase": "movement",
+        "presentMs": 1.9842,
+        "frameFenceMs": 2.2098,
+        "dxgiReadyMs": 0.0018,
+        "gpuDrawMs": 0.00512,
+        "retries": 0,
+        "routeGcMs": 1.425
+      },
+      {
+        "process": 1,
+        "route": 211,
+        "phase": "movement",
+        "presentMs": 1.9756,
+        "frameFenceMs": 2.2888,
+        "dxgiReadyMs": 0.0045,
+        "gpuDrawMs": 0.02208,
+        "retries": 0,
+        "routeGcMs": 2.697
+      },
+      {
+        "process": 2,
+        "route": 229,
+        "phase": "movement",
+        "presentMs": 1.9011,
+        "frameFenceMs": 2.0506,
+        "dxgiReadyMs": 0.0012,
+        "gpuDrawMs": 0.008512,
+        "retries": 0,
+        "routeGcMs": 1.042
+      },
+      {
+        "process": 2,
+        "route": 88,
+        "phase": "movement",
+        "presentMs": 1.8278,
+        "frameFenceMs": 2.0747,
+        "dxgiReadyMs": 0.0016,
+        "gpuDrawMs": 0.005376,
+        "retries": 0,
+        "routeGcMs": 1.696
+      }
+    ],
+    "retryCalls": 0.0,
+    "framesWithRetries": 0,
+    "dxgiReady": {
+      "count": 5400,
+      "p50": 0.0012,
+      "p95": 0.0021,
+      "p99": 0.0032,
+      "p999": 0.0093,
+      "max": 0.0262
+    },
+    "frameFence": {
+      "count": 5400,
+      "p50": 0.6889,
+      "p95": 3.3447,
+      "p99": 5.2194,
+      "p999": 5.9206,
+      "max": 7.8846
+    },
+    "gpuDraw": {
+      "count": 5400,
+      "p50": 0.005152,
+      "p95": 0.179424,
+      "p99": 0.35808,
+      "p999": 0.712896,
+      "max": 2.26752
+    }
+  },
+  "timeDistributions": {
+    "staging": {
+      "count": 5400,
+      "p50": 4.5253,
+      "p95": 7.9642,
+      "p99": 9.9635,
+      "p999": 12.8551,
+      "max": 15.113
+    },
+    "movementMeshing": {
+      "count": 1800,
+      "p50": 5.917,
+      "p95": 8.8717,
+      "p99": 10.704,
+      "p999": 13.3497,
+      "max": 17.2852
+    },
+    "editMeshing": {
+      "count": 1800,
+      "p50": 6.3557,
+      "p95": 10.7916,
+      "p99": 13.1726,
+      "p999": 19.6495,
+      "max": 20.2678
+    },
+    "protectedDispatch": {
+      "count": 5400,
+      "p50": 5.0226,
+      "p95": 9.2852,
+      "p99": 11.7925,
+      "p999": 15.9163,
+      "max": 20.4108
+    },
+    "verifiedUpload": {
+      "count": 7200,
+      "p50": 1.0627,
+      "p95": 4.0952,
+      "p99": 6.1848,
+      "p999": 10.0568,
+      "max": 12.2311
+    },
+    "movement": {
+      "count": 1800,
+      "p50": 26.9593,
+      "p95": 35.4966,
+      "p99": 40.0819,
+      "p999": 46.4385,
+      "max": 54.9548
+    },
+    "edit": {
+      "count": 1800,
+      "p50": 16.8606,
+      "p95": 24.0593,
+      "p99": 27.0712,
+      "p999": 33.4357,
+      "max": 35.0634
+    },
+    "recovery": {
+      "count": 1800,
+      "p50": 22.0182,
+      "p95": 28.6315,
+      "p99": 32.5808,
+      "p999": 37.2591,
+      "max": 40.4624
+    },
+    "route": {
+      "count": 1800,
+      "p50": 135.1289,
+      "p95": 169.9032,
+      "p99": 192.6181,
+      "p999": 215.0603,
+      "max": 224.1159
+    },
+    "gc": {
+      "count": 1800,
+      "p50": 1.055,
+      "p95": 2.146,
+      "p99": 2.737,
+      "p999": 4.696,
+      "max": 6.328
+    },
+    "backgroundBuild": {
+      "count": 54964,
+      "p50": 4.7874,
+      "p95": 9.3238,
+      "p99": 11.709,
+      "p999": 16.0941,
+      "max": 38.2884
+    },
+    "backgroundQueue": {
+      "count": 54964,
+      "p50": 6.8728,
+      "p95": 12.7697,
+      "p99": 16.2737,
+      "p999": 20.8292,
+      "max": 33.321
+    },
+    "protectedQueue": {
+      "count": 3600,
+      "p50": 0.0176,
+      "p95": 0.04,
+      "p99": 0.0755,
+      "p999": 0.1865,
+      "max": 0.4045
+    }
+  },
+  "timeBudgetChecks": [
+    {
+      "budget": "meshingJobMs",
+      "limit": 24,
+      "max": 20.2678,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "protectedDispatch",
+      "limit": 24,
+      "max": 20.4108,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "verifiedUploadMs",
+      "limit": 17,
+      "max": 12.2311,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "movementReadyMs",
+      "limit": 64,
+      "max": 54.9548,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "firstEditCommittedMs",
+      "limit": 43,
+      "max": 35.0634,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "recoveryReadyMs",
+      "limit": 60,
+      "max": 40.4624,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "presentCallMs",
+      "limit": 2.5,
+      "max": 2.7685,
+      "routesAboveLimit": 2
+    },
+    {
+      "budget": "frameFenceMs",
+      "limit": 11,
+      "max": 7.8846,
+      "routesAboveLimit": 0
+    },
+    {
+      "budget": "gpuDrawMs",
+      "limit": 3.2,
+      "max": 2.26752,
+      "routesAboveLimit": 0
+    }
+  ],
+  "memoryBudgetChecks": [
+    {
+      "budget": "retainedVertexMiB",
+      "limit": 4,
+      "peakMiB": 3.50299072265625,
+      "withinLimit": true
+    },
+    {
+      "budget": "processPeakWorkingSetMiB",
+      "limit": 240,
+      "peakMiB": 228.8671875,
+      "withinLimit": true
+    },
+    {
+      "budget": "processSampledPrivateMiB",
+      "limit": 224,
+      "peakMiB": 223.7109375,
+      "withinLimit": true
+    },
+    {
+      "budget": "d3d12ResourcesMiB",
+      "limit": 9,
+      "peakMiB": 7.3125,
+      "withinLimit": true
+    },
+    {
+      "budget": "dxgiSampledCombinedMiB",
+      "limit": 104,
+      "peakMiB": 77.5,
+      "withinLimit": true
+    }
+  ],
+  "speculativeBuildsAboveMeshingBudget": 3,
+  "processes": [
+    {
+      "process": 1,
+      "warmup": 5,
+      "repetitions": 600,
+      "capturedUtc": "2026-11-09T13:08:47.4931757Z",
+      "present": {
+        "count": 1800,
+        "p50": 0.1975,
+        "p95": 0.3576,
+        "p99": 1.0131,
+        "p999": 2.6533,
+        "max": 2.7685
+      },
+      "abovePresentBudget": 2,
+      "rawSha256": "4D4005A9E3DFB72B4817467F989C53F483FCDB883592C02066BB8C34E50E5511",
+      "presentBy100Routes": [
+        {
+          "firstRoute": 1,
+          "present": {
+            "count": 300,
+            "p50": 0.1964,
+            "p95": 0.3576,
+            "p99": 0.8892,
+            "p999": 2.2479,
+            "max": 2.2479
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 101,
+          "present": {
+            "count": 300,
+            "p50": 0.2023,
+            "p95": 0.3602,
+            "p99": 1.0824,
+            "p999": 1.6423,
+            "max": 1.6423
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 201,
+          "present": {
+            "count": 300,
+            "p50": 0.2062,
+            "p95": 0.3882,
+            "p99": 1.2189,
+            "p999": 2.7685,
+            "max": 2.7685
+          },
+          "overBudget": 1
+        },
+        {
+          "firstRoute": 301,
+          "present": {
+            "count": 300,
+            "p50": 0.1979,
+            "p95": 0.3526,
+            "p99": 0.8396,
+            "p999": 2.6533,
+            "max": 2.6533
+          },
+          "overBudget": 1
+        },
+        {
+          "firstRoute": 401,
+          "present": {
+            "count": 300,
+            "p50": 0.1856,
+            "p95": 0.2999,
+            "p99": 0.8314,
+            "p999": 1.6267,
+            "max": 1.6267
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 501,
+          "present": {
+            "count": 300,
+            "p50": 0.1945,
+            "p95": 0.3273,
+            "p99": 0.7709,
+            "p999": 1.6016,
+            "max": 1.6016
+          },
+          "overBudget": 0
+        }
+      ],
+      "route": {
+        "P50": 134.4098,
+        "P95": 177.0799,
+        "P99": 198.9345,
+        "Max": 224.1159
+      },
+      "peaks": {
+        "retainedVertexBytes": 2593944,
+        "concurrentVertexBytes": 3673152,
+        "backlogVertexUpperBoundBytes": 3715864,
+        "processPeakWorkingSetBytes": 239464448,
+        "processPeakPrivateSampleBytes": 232378368,
+        "defaultVertexAllocationBytes": 3276800,
+        "uploadAllocationBytes": 1703936,
+        "totalD3D12ResourceBytes": 7667712,
+        "dxgiLocalUsageBytes": 27131904,
+        "dxgiNonLocalUsageBytes": 54116352,
+        "dxgiCombinedUsageBytes": 81248256
+      },
+      "measuredRouteSeconds": 82.42858309999997
+    },
+    {
+      "process": 2,
+      "warmup": 5,
+      "repetitions": 600,
+      "capturedUtc": "2026-11-09T13:10:09.4398140Z",
+      "present": {
+        "count": 1800,
+        "p50": 0.1924,
+        "p95": 0.3384,
+        "p99": 1.1151,
+        "p999": 2.3265,
+        "max": 2.3876
+      },
+      "abovePresentBudget": 0,
+      "rawSha256": "34F666E72B454FD06E8669F11EC7121AF36866171C59B87181B94152AEF0CF3B",
+      "presentBy100Routes": [
+        {
+          "firstRoute": 1,
+          "present": {
+            "count": 300,
+            "p50": 0.1982,
+            "p95": 0.3537,
+            "p99": 1.2303,
+            "p999": 2.3876,
+            "max": 2.3876
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 101,
+          "present": {
+            "count": 300,
+            "p50": 0.1811,
+            "p95": 0.2932,
+            "p99": 1.0794,
+            "p999": 1.5775,
+            "max": 1.5775
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 201,
+          "present": {
+            "count": 300,
+            "p50": 0.1751,
+            "p95": 0.2849,
+            "p99": 0.9139,
+            "p999": 1.9011,
+            "max": 1.9011
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 301,
+          "present": {
+            "count": 300,
+            "p50": 0.195,
+            "p95": 0.3795,
+            "p99": 0.7578,
+            "p999": 1.4095,
+            "max": 1.4095
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 401,
+          "present": {
+            "count": 300,
+            "p50": 0.1877,
+            "p95": 0.3096,
+            "p99": 0.9866,
+            "p999": 1.9842,
+            "max": 1.9842
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 501,
+          "present": {
+            "count": 300,
+            "p50": 0.2071,
+            "p95": 0.3808,
+            "p99": 1.2227,
+            "p999": 2.3265,
+            "max": 2.3265
+          },
+          "overBudget": 0
+        }
+      ],
+      "route": {
+        "P50": 129.6446,
+        "P95": 166.7964,
+        "P99": 183.0237,
+        "Max": 197.41
+      },
+      "peaks": {
+        "retainedVertexBytes": 2593944,
+        "concurrentVertexBytes": 3673152,
+        "backlogVertexUpperBoundBytes": 3715864,
+        "processPeakWorkingSetBytes": 239984640,
+        "processPeakPrivateSampleBytes": 234577920,
+        "defaultVertexAllocationBytes": 3276800,
+        "uploadAllocationBytes": 1703936,
+        "totalD3D12ResourceBytes": 7667712,
+        "dxgiLocalUsageBytes": 27131904,
+        "dxgiNonLocalUsageBytes": 54132736,
+        "dxgiCombinedUsageBytes": 81264640
+      },
+      "measuredRouteSeconds": 79.35393829999995
+    },
+    {
+      "process": 3,
+      "warmup": 5,
+      "repetitions": 600,
+      "capturedUtc": "2026-11-09T13:11:37.6440447Z",
+      "present": {
+        "count": 1800,
+        "p50": 0.1832,
+        "p95": 0.3202,
+        "p99": 0.9905,
+        "p999": 1.4906,
+        "max": 1.655
+      },
+      "abovePresentBudget": 0,
+      "rawSha256": "B5071CB15EF27C9C30EA456967CD4A50E5BCCACABBB4626D31E80FCE847C133C",
+      "presentBy100Routes": [
+        {
+          "firstRoute": 1,
+          "present": {
+            "count": 300,
+            "p50": 0.1738,
+            "p95": 0.3044,
+            "p99": 0.8585,
+            "p999": 1.4244,
+            "max": 1.4244
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 101,
+          "present": {
+            "count": 300,
+            "p50": 0.1729,
+            "p95": 0.297,
+            "p99": 0.8211,
+            "p999": 1.1007,
+            "max": 1.1007
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 201,
+          "present": {
+            "count": 300,
+            "p50": 0.1759,
+            "p95": 0.3186,
+            "p99": 0.9042,
+            "p999": 1.167,
+            "max": 1.167
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 301,
+          "present": {
+            "count": 300,
+            "p50": 0.1846,
+            "p95": 0.3164,
+            "p99": 1.0808,
+            "p999": 1.4,
+            "max": 1.4
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 401,
+          "present": {
+            "count": 300,
+            "p50": 0.1931,
+            "p95": 0.3253,
+            "p99": 0.9905,
+            "p999": 1.2173,
+            "max": 1.2173
+          },
+          "overBudget": 0
+        },
+        {
+          "firstRoute": 501,
+          "present": {
+            "count": 300,
+            "p50": 0.1935,
+            "p95": 0.3215,
+            "p99": 1.1795,
+            "p999": 1.655,
+            "max": 1.655
+          },
+          "overBudget": 0
+        }
+      ],
+      "route": {
+        "P50": 140.6273,
+        "P95": 169.0119,
+        "P99": 192.6087,
+        "Max": 200.1089
+      },
+      "peaks": {
+        "retainedVertexBytes": 2593944,
+        "concurrentVertexBytes": 3673152,
+        "backlogVertexUpperBoundBytes": 3715864,
+        "processPeakWorkingSetBytes": 234639360,
+        "processPeakPrivateSampleBytes": 228421632,
+        "defaultVertexAllocationBytes": 3276800,
+        "uploadAllocationBytes": 1703936,
+        "totalD3D12ResourceBytes": 7667712,
+        "dxgiLocalUsageBytes": 27131904,
+        "dxgiNonLocalUsageBytes": 54116352,
+        "dxgiCombinedUsageBytes": 81248256
+      },
+      "measuredRouteSeconds": 85.28985949999992
+    }
+  ],
+  "etw": {
+    "traceBytes": 315097088,
+    "lostEvents": 0,
+    "contextSwitches": 4979675,
+    "readyEvents": 2770037,
+    "dxgKrnlEvents": 0,
+    "processes": [
+      {
+        "Number": 1,
+        "Pid": 36980,
+        "Tid": 41524,
+        "Frequency": 10000000,
+        "SchedulerEvents": 113635,
+        "DxgiEvents": 3630
+      },
+      {
+        "Number": 2,
+        "Pid": 43424,
+        "Tid": 45216,
+        "Frequency": 10000000,
+        "SchedulerEvents": 111944,
+        "DxgiEvents": 3630
+      },
+      {
+        "Number": 3,
+        "Pid": 40236,
+        "Tid": 50680,
+        "Frequency": 10000000,
+        "SchedulerEvents": 111893,
+        "DxgiEvents": 3630
+      }
+    ],
+    "dxgiMatched": 5400,
+    "schedulerUnknownFrames": 11,
+    "presentOnCpu": {
+      "count": 5400,
+      "p50": 0.1908,
+      "p95": 0.3293,
+      "p99": 1.0434,
+      "p999": 1.9789,
+      "max": 2.7634
+    },
+    "presentReady": {
+      "count": 5400,
+      "p50": 0,
+      "p95": 0.0015,
+      "p99": 0.0182,
+      "p999": 0.1833,
+      "max": 0.4382
+    },
+    "presentWaiting": {
+      "count": 5400,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0.0046,
+      "p999": 0.2771,
+      "max": 2.0631
+    },
+    "postPresentFence": {
+      "count": 5400,
+      "p50": 0.3466,
+      "p95": 2.9383,
+      "p99": 4.8421,
+      "p999": 5.5918,
+      "max": 7.6332
+    },
+    "postPresentFenceReady": {
+      "count": 5400,
+      "p50": 0.0131,
+      "p95": 0.1709,
+      "p99": 0.2192,
+      "p999": 0.2836,
+      "max": 1.1247
+    },
+    "postPresentFenceWaiting": {
+      "count": 5400,
+      "p50": 0.2898,
+      "p95": 2.8572,
+      "p99": 4.8128,
+      "p999": 5.489,
+      "max": 7.6061
+    },
+    "topPresent": [
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 231,
+          "Phase": "movement",
+          "PresentStart": 3608978018514,
+          "PresentEnd": 3608978046199,
+          "FenceEnd": 3608978046345,
+          "GpuDrawMs": 0.03696,
+          "DxgiReadyMs": 0.0028,
+          "FrameFenceMs": 3.0211,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.7685,
+          "RunningMs": 2.7634,
+          "ReadyMs": 0.0051,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0146,
+          "RunningMs": 0.0146,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.7628,
+          "RunningMs": 2.7577,
+          "ReadyMs": 0.0051,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 383,
+          "Phase": "movement",
+          "PresentStart": 3609190290056,
+          "PresentEnd": 3609190316589,
+          "FenceEnd": 3609190316711,
+          "GpuDrawMs": 0.016576,
+          "DxgiReadyMs": 0.0028,
+          "FrameFenceMs": 2.9073,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.6533,
+          "RunningMs": 2.6484,
+          "ReadyMs": 0.0049,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0122,
+          "RunningMs": 0.0122,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.6467,
+          "RunningMs": 2.6418,
+          "ReadyMs": 0.0049,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 2,
+        "Frame": {
+          "Route": 24,
+          "Phase": "recovery",
+          "PresentStart": 3609531566985,
+          "PresentEnd": 3609531590861,
+          "FenceEnd": 3609531596262,
+          "GpuDrawMs": 0.340224,
+          "DxgiReadyMs": 0.0011,
+          "FrameFenceMs": 3.0713,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.3876,
+          "RunningMs": 0.3113,
+          "ReadyMs": 0.0132,
+          "WaitingMs": 2.0631,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.5401,
+          "RunningMs": 0.0093,
+          "ReadyMs": 0.0048,
+          "WaitingMs": 0.526,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.3848,
+          "RunningMs": 0.3085,
+          "ReadyMs": 0.0132,
+          "WaitingMs": 2.0631,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 2,
+        "Frame": {
+          "Route": 551,
+          "Phase": "stale",
+          "PresentStart": 3610225282315,
+          "PresentEnd": 3610225305580,
+          "FenceEnd": 3610225305678,
+          "GpuDrawMs": 0.00432,
+          "DxgiReadyMs": 0.0016,
+          "FrameFenceMs": 2.5585,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.3265,
+          "RunningMs": 2.3249,
+          "ReadyMs": 0.0016,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0098,
+          "RunningMs": 0.0098,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.3217,
+          "RunningMs": 2.3201,
+          "ReadyMs": 0.0016,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 13,
+          "Phase": "movement",
+          "PresentStart": 3608675493649,
+          "PresentEnd": 3608675516128,
+          "FenceEnd": 3608675516240,
+          "GpuDrawMs": 0.051872,
+          "DxgiReadyMs": 0.0021,
+          "FrameFenceMs": 2.5023,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.2479,
+          "RunningMs": 2.2479,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0112,
+          "RunningMs": 0.0112,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.2431,
+          "RunningMs": 2.2431,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 250,
+          "Phase": "movement",
+          "PresentStart": 3609008405068,
+          "PresentEnd": 3609008425602,
+          "FenceEnd": 3609008425702,
+          "GpuDrawMs": 0.05904,
+          "DxgiReadyMs": 0.0018,
+          "FrameFenceMs": 2.2869,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.0534,
+          "RunningMs": 2.0515,
+          "ReadyMs": 0.0019,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.01,
+          "RunningMs": 0.01,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.0474,
+          "RunningMs": 2.0455,
+          "ReadyMs": 0.0019,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 2,
+        "Frame": {
+          "Route": 416,
+          "Phase": "movement",
+          "PresentStart": 3610043153256,
+          "PresentEnd": 3610043173098,
+          "FenceEnd": 3610043173163,
+          "GpuDrawMs": 0.00512,
+          "DxgiReadyMs": 0.0018,
+          "FrameFenceMs": 2.2098,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.9842,
+          "RunningMs": 1.9789,
+          "ReadyMs": 0.0053,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0065,
+          "RunningMs": 0.0065,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.9786,
+          "RunningMs": 1.9733,
+          "ReadyMs": 0.0053,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 211,
+          "Phase": "movement",
+          "PresentStart": 3608947913240,
+          "PresentEnd": 3608947932996,
+          "FenceEnd": 3608947933073,
+          "GpuDrawMs": 0.02208,
+          "DxgiReadyMs": 0.0045,
+          "FrameFenceMs": 2.2888,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.9756,
+          "RunningMs": 1.9742,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0.0014
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0077,
+          "RunningMs": 0.0077,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.9717,
+          "RunningMs": 1.9703,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0.0014
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 2,
+        "Frame": {
+          "Route": 229,
+          "Phase": "movement",
+          "PresentStart": 3609801408832,
+          "PresentEnd": 3609801427843,
+          "FenceEnd": 3609801428007,
+          "GpuDrawMs": 0.008512,
+          "DxgiReadyMs": 0.0012,
+          "FrameFenceMs": 2.0506,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.9011,
+          "RunningMs": 1.7487,
+          "ReadyMs": 0.1524,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0164,
+          "RunningMs": 0.0164,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.8963,
+          "RunningMs": 1.7439,
+          "ReadyMs": 0.1524,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 2,
+        "Frame": {
+          "Route": 88,
+          "Phase": "movement",
+          "PresentStart": 3609619614362,
+          "PresentEnd": 3609619632640,
+          "FenceEnd": 3609619632733,
+          "GpuDrawMs": 0.005376,
+          "DxgiReadyMs": 0.0016,
+          "FrameFenceMs": 2.0747,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 1.8278,
+          "RunningMs": 1.8197,
+          "ReadyMs": 0.0081,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0093,
+          "RunningMs": 0.0093,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 1.8234,
+          "RunningMs": 1.8153,
+          "ReadyMs": 0.0081,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      }
+    ],
+    "abovePresentBudget": [
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 231,
+          "Phase": "movement",
+          "PresentStart": 3608978018514,
+          "PresentEnd": 3608978046199,
+          "FenceEnd": 3608978046345,
+          "GpuDrawMs": 0.03696,
+          "DxgiReadyMs": 0.0028,
+          "FrameFenceMs": 3.0211,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.7685,
+          "RunningMs": 2.7634,
+          "ReadyMs": 0.0051,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0146,
+          "RunningMs": 0.0146,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.7628,
+          "RunningMs": 2.7577,
+          "ReadyMs": 0.0051,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      },
+      {
+        "Process": 1,
+        "Frame": {
+          "Route": 383,
+          "Phase": "movement",
+          "PresentStart": 3609190290056,
+          "PresentEnd": 3609190316589,
+          "FenceEnd": 3609190316711,
+          "GpuDrawMs": 0.016576,
+          "DxgiReadyMs": 0.0028,
+          "FrameFenceMs": 2.9073,
+          "Retries": 0
+        },
+        "Present": {
+          "WallMs": 2.6533,
+          "RunningMs": 2.6484,
+          "ReadyMs": 0.0049,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "PostPresentFence": {
+          "WallMs": 0.0122,
+          "RunningMs": 0.0122,
+          "ReadyMs": 0,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Dxgi": {
+          "WallMs": 2.6467,
+          "RunningMs": 2.6418,
+          "ReadyMs": 0.0049,
+          "WaitingMs": 0,
+          "UnknownMs": 0
+        },
+        "Starts": 1,
+        "Stops": 1
+      }
+    ],
+    "aboveFrameOrDrawBudget": [],
+    "dxgiWall": {
+      "count": 5400,
+      "p50": 0.1872,
+      "p95": 0.3259,
+      "p99": 1.0572,
+      "p999": 2.0474,
+      "max": 2.7628
+    },
+    "dxgiOnCpu": {
+      "count": 5400,
+      "p50": 0.1869,
+      "p95": 0.3237,
+      "p99": 1.0402,
+      "p999": 1.9733,
+      "max": 2.7577
+    },
+    "dxgiReady": {
+      "count": 5400,
+      "p50": 0,
+      "p95": 0.0012,
+      "p99": 0.0077,
+      "p999": 0.1687,
+      "max": 0.4382
+    },
+    "dxgiWaiting": {
+      "count": 5400,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "p999": 0.011,
+      "max": 2.0631
+    }
+  }
+}

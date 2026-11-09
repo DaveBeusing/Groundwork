@@ -375,3 +375,31 @@ and speculative jobs. Preflight compares each job's packed vertices,
 transition count and collision triangles against the reference path.
 
 [Row-mask workstation measurements](results-row-masked-terrain-windows-nvidia.json)
+
+## ETW correlation of Present and fence timing
+
+In an elevated terminal, start the checked-in WPR profile. Run the
+benchmark itself from a regular terminal and stop WPR once it exits.
+
+```powershell
+wpr -start "./benchmarks/Groundwork.Wp11Capacity.Probe/C00.wprp!C00" -filemode
+# In the regular terminal, after building the Release probe
+$env:GROUNDWORK_C00_TRACE_CLOCK = '1'
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE row-masked-terrain $tablePath 600 > run1.json
+# In the elevated terminal
+wpr -stop c00.etl
+```
+
+The optional JSON markers include the process and native render-thread
+IDs, QPC frequency and exact frame, Present and fence boundaries.
+Match DXGI events 42 and 43 on the same process and thread inside the
+Present interval. Intersect context switches and ReadyThread events
+with each QPC interval to separate running, runnable, waiting and
+unknown time. DXGI time is nested inside the measured Present call.
+The interval from Present return to the frame fence includes signaling
+and waiting on the CPU, while the GPU draw duration is a separate GPU
+timestamp measurement. This profile omits stacks and the run yielded
+no DxgKrnl events. The raw ETL is kept local because scheduler events
+cover the workstation.
+
+[ETW workstation measurements](results-row-masked-etw-windows-nvidia.json)

@@ -89,7 +89,10 @@ unsafe sealed partial class Gpu
             return handle;
         }
 
-        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries, double DrawFenceWait) Draw(Buffers buffers, uint vertices)
+        internal readonly record struct FrameClock(long FrameStart, long PresentStart, long PresentEnd, long FenceEnd);
+        internal static uint NativeThreadId => GetCurrentThreadId();
+
+        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries, double DrawFenceWait, FrameClock Clock) Draw(Buffers buffers, uint vertices)
         {
             MSG message;
             while (PeekMessageW(&message, _window, 0, 0, 1))
@@ -150,11 +153,13 @@ unsafe sealed partial class Gpu
                 Thread.Sleep(1);
                 result = _chain->Present(_syncInterval, DoNotWait);
             }
-            var presentMs = Stopwatch.GetElapsedTime(present).TotalMilliseconds;
+            var presentEnd = Stopwatch.GetTimestamp();
+            var presentMs = Stopwatch.GetElapsedTime(present, presentEnd).TotalMilliseconds;
             _gpu.Wait(_gpu.Signal());
             if (result.Value != 0)
                 throw new InvalidOperationException($"Present returned 0x{result.Value:X8}.");
-            var frameMs = Stopwatch.GetElapsedTime(start).TotalMilliseconds;
+            var fenceEnd = Stopwatch.GetTimestamp();
+            var frameMs = Stopwatch.GetElapsedTime(start, fenceEnd).TotalMilliseconds;
             var range = new D3D12_RANGE { Begin = 16, End = 32 };
             void* data = null;
             Check(_gpu._readback->Map(0, &range, &data), "map draw timestamps");
@@ -162,7 +167,7 @@ unsafe sealed partial class Gpu
             var elapsed = ticks[1] - ticks[0];
             D3D12_RANGE empty = default;
             _gpu._readback->Unmap(0, &empty);
-            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait);
+            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait, new(start, present, presentEnd, fenceEnd));
         }
 
         private static void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
