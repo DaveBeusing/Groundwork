@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0" Author="Groundwork">
+  <Profiles>
+    <SystemCollector Id="SchedulerCollector" Name="C00 Scheduler">
+      <BufferSize Value="256" />
+      <Buffers Value="256" />
+    </SystemCollector>
+    <EventCollector Id="GraphicsCollector" Name="C00 Graphics">
+      <BufferSize Value="256" />
+      <Buffers Value="256" />
+    </EventCollector>
+    <SystemProvider Id="Scheduler">
+      <Keywords>
+        <Keyword Value="ProcessThread" />
+        <Keyword Value="CSwitch" />
+        <Keyword Value="ReadyThread" />
+        <Keyword Value="Loader" />
+        <Keyword Value="SampledProfile" />
+        <Keyword Value="DPC" />
+        <Keyword Value="DPCQueue" />
+        <Keyword Value="Interrupt" />
+        <Keyword Value="InterProcessorInterrupt" />
+      </Keywords>
+      <Stacks>
+        <Stack Value="SampledProfile" />
+        <Stack Value="DpcEnqueue" />
+        <Stack Value="DpcExecute" />
+        <Stack Value="InterProcessorInterrupt" />
+      </Stacks>
+    </SystemProvider>
+    <EventProvider Id="Dxgi" Name="CA11C036-0102-4A2D-A6AD-F03CFED5D3C9" Level="5">
+      <Keywords><Keyword Value="0xf" /></Keywords>
+    </EventProvider>
+    <EventProvider Id="DxgKrnl" Name="802EC45A-1E99-4B83-9920-87C98277BA9D" Level="5" NonPagedMemory="true">
+      <Keywords><Keyword Value="0x8c01cc43" /></Keywords><CaptureStateOnStart><Keyword Value="0x8c01cc43" /></CaptureStateOnStart>
+    </EventProvider>
+    <EventProvider Id="D3D12" Name="5D8087DD-3A9B-4F56-90DF-49196CDC4F11" Level="5">
+      <Keywords><Keyword Value="0x8000000000000486" /></Keywords>
+    </EventProvider>
+    <Profile Id="C00GpuEngine.Verbose.File" Name="C00GpuEngine" Description="C00 scheduler, ISR, DPC, GPU engine scheduling and queue events" DetailLevel="Verbose" LoggingMode="File">
+      <Collectors>
+        <SystemCollectorId Value="SchedulerCollector"><SystemProviderId Value="Scheduler" /></SystemCollectorId>
+        <EventCollectorId Value="GraphicsCollector">
+          <EventProviders><EventProviderId Value="Dxgi" /><EventProviderId Value="DxgKrnl" /><EventProviderId Value="D3D12" /></EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>
