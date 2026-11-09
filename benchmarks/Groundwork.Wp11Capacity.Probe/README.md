@@ -102,3 +102,41 @@ and no depth target. Use the data to size this fixture and to plan
 production measurements with real world traversal and concurrent workers.
 
 [Workstation terrain and Present measurements](results-terrain-windows-nvidia.json)
+## Concurrent terrain route
+
+Use the same Release binary and table path with the `concurrent-terrain`
+mode.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE concurrent-terrain $tablePath 100
+```
+
+Two staged streaming jobs fill the speculative GPU and upload budgets
+and wait on the gated copy queue. Two additional speculative CPU and
+slot reservations admit two competing mesh builds during each protected
+movement, edit and recovery build. A start barrier and timestamp
+intersection verify three overlapping build intervals in every phase.
+The coordinator joins both competitors before submitting the protected
+upload. The competing outputs are discarded and their staging
+reservations stay held through recovery. Dispatch and join are included
+in the protected job wall time and separately from the individual build
+intervals.
+
+The first rendered region has a walkable platform spanning a 2:1 LOD
+boundary. The route samples ground height on the actual triangle mesh
+at no more than 0.35 world units per step and rejects missing ground or
+a height change above 0.55. The unedited mesh supports the direct route.
+The movement mesh supports the approach but rejects the uncovered edge.
+After the matching recovered mesh is presented, the edit blocks the
+direct path and a detour crosses the seam. Publication and retirement
+use the capacity harness. The route models grounded motion with sampled
+ray queries, with full character dynamics and production streaming
+outside the scope of this benchmark.
+
+The budget comparison preserves the serial test's limits. It uses the
+largest observation for each matching category, including the packed
+CPU payload of the competing jobs. The retained collision triangles,
+meshing intermediates and allocations outside the byte ledger contribute
+to process memory.
+
+[Concurrent workstation measurements](results-concurrent-terrain-windows-nvidia.json)

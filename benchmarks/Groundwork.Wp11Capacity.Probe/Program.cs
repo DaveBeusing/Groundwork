@@ -4,9 +4,9 @@ using System.Text.Json;
 
 const ulong MiB = 1024 * 1024;
 var vendor = args.Length == 0 ? 0x10DEu : uint.Parse(args[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-if (args.Length == 4 && args[1] == "terrain")
+if (args.Length == 4 && args[1] is "terrain" or "concurrent-terrain")
 {
-    Terrain.Run(vendor, args[2], int.Parse(args[3], CultureInfo.InvariantCulture));
+    Terrain.Run(vendor, args[2], int.Parse(args[3], CultureInfo.InvariantCulture), args[1] == "concurrent-terrain");
     return;
 }
 

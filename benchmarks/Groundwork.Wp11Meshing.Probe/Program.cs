@@ -460,6 +460,7 @@ sealed class Grid
         var center = new Vector3(15.71f, 16.23f, 15.83f);
         return fixture switch
         {
+            "capacity-route" => Box(p, new(16, 13, 16), new(13, 3, 10)),
             "cavity" => MathF.Max(Sphere(p, center, 11.2f), -Sphere(p, center + new Vector3(.22f, .11f, -.35f), 5.42f)),
             "overhang" => MathF.Min(Box(p, new(15.37f, 11.47f, 15.33f), new(2.65f, 6.82f, 2.71f)),
                 Box(p, new(16.23f, 18.17f, 15.91f), new(8.29f, 2.26f, 5.63f))),

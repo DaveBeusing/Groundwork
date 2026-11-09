@@ -12,7 +12,7 @@ internal static class Terrain
     private static readonly uint[] Roots = [40, 81, 82, 80, 41, 41];
     private static readonly string[] Lanes = ["old", "stream", "stream", "move", "edit", "recover"];
 
-    internal static void Run(uint vendor, string tablePath, int repetitions)
+    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent)
     {
         Require(repetitions > 0, "positive repetitions");
         var source = File.ReadAllBytes(tablePath);
@@ -24,16 +24,22 @@ internal static class Terrain
         var sizes = new Shape[Roots.Length];
         for (var i = 0; i < sizes.Length; i++)
         {
-            var (vertices, transitions) = Build(tables, i);
+            var (vertices, transitions, collisionMesh) = Build(tables, i, concurrent);
+            if (concurrent && i == 0)
+                Require(new GroundedRoute().TryTraverse(collisionMesh, new(21.3f, 15.2f)),
+                    "unedited terrain supports the original path across the seam");
             var bytes = (ulong)vertices.Length * 12;
             sizes[i] = new Shape(vertices.Length / 3, transitions, new Charge(bytes, gpu.AllocationSize(bytes + 8), gpu.AllocationSize(bytes + 8), 1));
         }
         var capacities = sizes.Select((shape, i) => (Lane: Lanes[i], shape.Charge))
             .GroupBy(x => x.Lane).ToDictionary(x => x.Key, x => x.Select(y => y.Charge).Aggregate((a, b) => a + b));
+        var workerCharges = sizes.Skip(1).Take(2).Select(shape => new Charge(shape.Charge.Cpu, 0, 0, 1)).ToArray();
+        if (concurrent)
+            capacities["stream"] += workerCharges[0] + workerCharges[1];
         var samples = new List<Trial>();
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : []);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -45,6 +51,7 @@ internal static class Terrain
         var peaks = new
         {
             retainedVertexBytes = samples.Max(x => x.VertexBytes),
+            concurrentVertexBytes = samples.Max(x => x.ConcurrentVertexBytes),
             processPeakWorkingSetBytes = process.PeakWorkingSet64,
             processPeakPrivateSampleBytes = samples.Max(x => x.PrivateBytes),
             defaultVertexAllocationBytes = samples.Max(x => x.DefaultBytes),
@@ -56,7 +63,7 @@ internal static class Terrain
         };
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions,
+            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = concurrent ? 2 : 0,
             present = "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
@@ -65,19 +72,23 @@ internal static class Terrain
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
         var timing = new Dictionary<string, double>();
         var trial = new Trial(timing);
         var world = new RouteState();
+        var concurrent = workerCharges.Length != 0;
+        var grounded = new GroundedRoute();
         var route = Stopwatch.GetTimestamp();
         try
         {
             var old = Add(0);
             var a = Add(1);
             var b = Add(2);
+            foreach (var charge in workerCharges)
+                Require(book.TryReserve("stream", charge), "admit competing CPU worker");
             var saturated = Stopwatch.GetTimestamp();
             Require(!book.TryReserve("stream", new(1, 0, 0, 0)) &&
                 !book.TryReserve("stream", new(0, 1, 0, 0)) &&
@@ -88,6 +99,13 @@ internal static class Terrain
             world.CoverageReady = true;
             Frame("movement", old);
             Require(world.TryStep() && world.Position == 1, "movement progressed with old geometry");
+            if (concurrent)
+            {
+                var collisionStart = Stopwatch.GetTimestamp();
+                Require(grounded.TryTraverse(move.CollisionMesh, new(11.3f, 15.2f)), "grounded approach");
+                Require(!grounded.TryTraverse(old.CollisionMesh, new(11.3f, 29)), "uncovered ground blocked");
+                timing["approachCollisionMs"] = Elapsed(collisionStart);
+            }
             timing["movementReadyMs"] = Elapsed(saturated);
 
             Require(!world.TryCommit(42), "second edit held");
@@ -100,14 +118,30 @@ internal static class Terrain
             Require(!world.TryAcknowledge(old.Buffers.Marker) && !world.TryStep() && !world.TryCommit(42),
                 "stale present held movement and second edit");
 
+            var heldPosition = grounded.Position;
             var recoveryStart = Stopwatch.GetTimestamp();
             var recovery = Add(5);
             Require(recovery.Vertices.AsSpan().SequenceEqual(edit.Vertices), "recovery rebuilt the committed edit geometry");
             Frame("recovery", recovery);
             Require(world.TryAcknowledge(recovery.Buffers.Marker) && world.TryStep() &&
                 world.Position == 2 && world.NextEdit == 42, "matching present resumed movement");
+            if (concurrent)
+            {
+                var collisionStart = Stopwatch.GetTimestamp();
+                Require(heldPosition == grounded.Position, "position retained through stale presentation");
+                Require(!grounded.TryTraverse(recovery.CollisionMesh, new(21.3f, 15.2f)) &&
+                    grounded.Position == heldPosition, "excavation blocks original path");
+                Require(grounded.TryTraverse(recovery.CollisionMesh, new(11.3f, 20.2f)) &&
+                    grounded.TryTraverse(recovery.CollisionMesh, new(21.3f, 20.2f)) &&
+                    grounded.TryTraverse(recovery.CollisionMesh, new(21.3f, 15.2f)), "detour crosses 2:1 seam");
+                trial.RouteSteps = grounded.Steps;
+                trial.FinalPosition = [grounded.Position.X, grounded.Position.Y, grounded.Position.Z];
+                timing["recoveryCollisionMs"] = Elapsed(collisionStart);
+            }
             timing["recoveryReadyMs"] = Elapsed(recoveryStart);
 
+            foreach (var charge in workerCharges)
+                book.Release("stream", charge);
             var retirement = Stopwatch.GetTimestamp();
             var fence = gpu.BlockRetirement(old.Buffers, a.Buffers);
             Require(!gpu.IsComplete(fence) && !book.TryReserve("stream", a.Charge), "old and cancelled resources still charged");
@@ -142,14 +176,16 @@ internal static class Terrain
             var shape = sizes[index];
             Require(book.TryReserve(lane, shape.Charge), $"admit {lane} before allocation");
             var start = Stopwatch.GetTimestamp();
-            var (vertices, transitions) = Build(tables, index);
+            var (vertices, transitions, collisionMesh) = concurrent && index >= 3
+                ? BuildWithCompetition(index, lane)
+                : Build(tables, index, concurrent);
             timing[$"{lane}{index}MeshMs"] = Elapsed(start);
             Require(vertices.Length / 3 == shape.Triangles && transitions == shape.TransitionTriangles,
                 "repeatable mesh shape and allocation");
             start = Stopwatch.GetTimestamp();
             var data = MemoryMarshal.AsBytes(vertices.AsSpan());
             var buffers = gpu.Allocate((ulong)data.Length + 8, Roots[index], data);
-            var job = new Job(lane, shape.Charge, buffers, vertices);
+            var job = new Job(lane, shape.Charge, buffers, vertices, collisionMesh);
             live.Add(job);
             if (lane == "stream")
             {
@@ -168,6 +204,51 @@ internal static class Terrain
                 job.Charge -= settled;
             }
             return job;
+        }
+
+        (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) BuildWithCompetition(int index, string lane)
+        {
+            using var start = new Barrier(3);
+            var workers = Enumerable.Range(1, 2).Select(worker => Task.Factory.StartNew(() =>
+            {
+                if (!start.SignalAndWait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("Competing meshing workers did not start.");
+                var begin = Stopwatch.GetTimestamp();
+                var (vertices, _, _) = Build(tables, worker, concurrent);
+                return (Begin: begin, End: Stopwatch.GetTimestamp(), Vertices: vertices);
+            }, CancellationToken.None, TaskCreationOptions.LongRunning, TaskScheduler.Default)).ToArray();
+            var protectedBegin = 0L;
+            var protectedEnd = 0L;
+            (Vector3[], int, Mesh) result;
+            try
+            {
+                if (!start.SignalAndWait(TimeSpan.FromSeconds(10)))
+                    throw new TimeoutException("Protected meshing did not start.");
+                protectedBegin = Stopwatch.GetTimestamp();
+                result = Build(tables, index, concurrent);
+                protectedEnd = Stopwatch.GetTimestamp();
+            }
+            finally { Task.WaitAll(workers); }
+
+            var latestStart = Math.Max(protectedBegin, workers.Max(task => task.Result.Begin));
+            var earliestEnd = Math.Min(protectedEnd, workers.Min(task => task.Result.End));
+            Require(earliestEnd > latestStart && !gpu.StreamingComplete, "three concurrent builds while streaming fence held");
+            timing[$"{lane}ThreeWorkerOverlapMs"] = Stopwatch.GetElapsedTime(latestStart, earliestEnd).TotalMilliseconds;
+            timing[$"{lane}ProtectedBuildMs"] = Stopwatch.GetElapsedTime(protectedBegin, protectedEnd).TotalMilliseconds;
+            for (var i = 0; i < workers.Length; i++)
+            {
+                var worker = workers[i].Result;
+                timing[$"{lane}CompetingBuild{i + 1}Ms"] = Stopwatch.GetElapsedTime(worker.Begin, worker.End).TotalMilliseconds;
+            }
+            var completedWorkerPayload = workers.Select((task, worker) =>
+            {
+                var bytes = (ulong)task.Result.Vertices.Length * 12;
+                Require(bytes == workerCharges[worker].Cpu, "worker payload matches CPU credit");
+                return bytes;
+            }).Aggregate((a, b) => a + b);
+            trial.ConcurrentVertexBytes = Math.Max(trial.ConcurrentVertexBytes,
+                live.Aggregate(completedWorkerPayload + (ulong)result.Item1.Length * 12, (sum, job) => sum + job.Charge.Cpu));
+            return result;
         }
 
         void Frame(string label, Job job)
@@ -205,13 +286,15 @@ internal static class Terrain
         }
     }
 
-    private static (Vector3[] Vertices, int Transitions) Build(Tables tables, int job)
+    private static (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Build(Tables tables, int job, bool concurrent)
     {
         var meshes = new Mesh[Regions];
         for (var i = 0; i < Regions; i++)
         {
             DensityEdit[] edits = job >= 4 ? [new(new Vector3(15, 16, 15), 3, false)] : [];
             var fixture = (i + (job < 4 ? job : 0)) % 2 == 0 ? "bridge" : "cavity";
+            if (concurrent && i == 0 && job is 0 or 3 or 4 or 5)
+                fixture = "capacity-route";
             var grid = new Grid(32, fixture, i % 2 == 0 ? "face" : "corner",
                 false, false, false, false, false, false, edits);
             meshes[i] = Marching.Extract(grid, tables);
@@ -233,7 +316,7 @@ internal static class Terrain
 
         var transitions = meshes.Sum(x => x.TransitionTriangles);
         Require(packed.Length > 0 && transitions > 0, "nonempty terrain and LOD transitions");
-        return (packed, transitions);
+        return (packed, transitions, meshes[0]);
     }
 
     private static double Elapsed(long timestamp) => Stopwatch.GetElapsedTime(timestamp).TotalMilliseconds;
@@ -254,17 +337,21 @@ internal static class Terrain
     private sealed record Shape(int Triangles, int TransitionTriangles, Charge Charge);
     private sealed record Stats(double P50, double P95, double P99, double Max);
 
-    private sealed class Job(string lane, Charge charge, Gpu.Buffers buffers, Vector3[] vertices)
+    private sealed class Job(string lane, Charge charge, Gpu.Buffers buffers, Vector3[] vertices, Mesh collisionMesh)
     {
         internal string Lane { get; } = lane;
         internal Charge Charge { get; set; } = charge;
         internal Gpu.Buffers Buffers { get; } = buffers;
         internal Vector3[] Vertices { get; } = vertices;
+        internal Mesh CollisionMesh { get; } = collisionMesh;
     }
 
     private sealed record Trial(Dictionary<string, double> Timing)
     {
         public ulong VertexBytes { get; set; }
+        public ulong ConcurrentVertexBytes { get; set; }
+        public int RouteSteps { get; set; }
+        public float[]? FinalPosition { get; set; }
         public ulong DefaultBytes { get; set; }
         public ulong UploadBytes { get; set; }
         public ulong ResourceBytes { get; set; }
