@@ -87,7 +87,8 @@ unsafe sealed partial class Gpu
             commands->EndQuery(_timestamps, timestamp, 0);
             var index = _chain->GetCurrentBackBufferIndex();
             Transition(commands, _targets[index], D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_RENDER_TARGET);
-            Transition(commands, buffers.Geometry, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
+            Transition(commands, buffers.Geometry, buffers.Pooled ? D3D12_RESOURCE_STATE_COMMON : D3D12_RESOURCE_STATE_COPY_SOURCE,
+                D3D12_RESOURCE_STATE_VERTEX_AND_CONSTANT_BUFFER);
             var handle = Handle(index);
             var viewport = new D3D12_VIEWPORT { Width = Width, Height = Height, MaxDepth = 1 };
             var scissor = new RECT { right = (int)Width, bottom = (int)Height };

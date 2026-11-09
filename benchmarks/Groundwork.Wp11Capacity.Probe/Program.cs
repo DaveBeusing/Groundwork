@@ -4,11 +4,12 @@ using System.Text.Json;
 
 const ulong MiB = 1024 * 1024;
 var vendor = args.Length == 0 ? 0x10DEu : uint.Parse(args[0], NumberStyles.HexNumber, CultureInfo.InvariantCulture);
-if (args.Length == 4 && args[1] is "terrain" or "concurrent-terrain" or "pooled-terrain" or "backlogged-terrain" or "reserved-terrain")
+if (args.Length == 4 && args[1] is "terrain" or "concurrent-terrain" or "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain")
 {
     Terrain.Run(vendor, args[2], int.Parse(args[3], CultureInfo.InvariantCulture), args[1] != "terrain",
-        args[1] is "pooled-terrain" or "backlogged-terrain" or "reserved-terrain",
-        args[1] is "backlogged-terrain" or "reserved-terrain", args[1] == "reserved-terrain");
+        args[1] is "pooled-terrain" or "backlogged-terrain" or "reserved-terrain" or "optimized-terrain",
+        args[1] is "backlogged-terrain" or "reserved-terrain" or "optimized-terrain",
+        args[1] is "reserved-terrain" or "optimized-terrain", args[1] == "optimized-terrain");
     return;
 }
 

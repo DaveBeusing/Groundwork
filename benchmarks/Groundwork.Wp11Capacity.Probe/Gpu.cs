@@ -143,6 +143,7 @@ unsafe sealed partial class Gpu : IDisposable
         _readback->Unmap(0, &empty);
         if (!valid)
             throw new InvalidOperationException("GPU payload marker mismatch.");
+        buffers.ConfirmCopy();
     }
 
     internal void EnqueueSpeculative(Buffers buffers)
@@ -187,13 +188,20 @@ unsafe sealed partial class Gpu : IDisposable
     private static void RecordCopy(ID3D12GraphicsCommandList* commands, Buffers buffers)
     {
         commands->CopyBufferRegion(buffers.Geometry, 0, buffers.Upload, 0, buffers.Bytes);
+        TransitionCopy(commands, buffers, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE);
+    }
+
+    private static void TransitionCopy(ID3D12GraphicsCommandList* commands, Buffers buffers,
+        D3D12_RESOURCE_STATES before, D3D12_RESOURCE_STATES after)
+    {
         var barrier = new D3D12_RESOURCE_BARRIER { Type = D3D12_RESOURCE_BARRIER_TYPE.D3D12_RESOURCE_BARRIER_TYPE_TRANSITION };
         barrier.Transition = new D3D12_RESOURCE_TRANSITION_BARRIER
         {
             pResource = buffers.Geometry,
             Subresource = uint.MaxValue,
-            StateBefore = D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST,
-            StateAfter = D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE
+            StateBefore = before,
+            StateAfter = after
         };
         commands->ResourceBarrier(1, &barrier);
     }
@@ -329,7 +337,8 @@ unsafe sealed partial class Gpu : IDisposable
         Release(_adapter);
     }
 
-    internal sealed class Buffers(ID3D12Resource* geometry, ID3D12Resource* upload, ulong bytes, uint marker, uint firstWord, uint lastWord) : IDisposable
+    internal sealed class Buffers(ID3D12Resource* geometry, ID3D12Resource* upload, ulong bytes, uint marker, uint firstWord, uint lastWord,
+        Action? copied = null, Action? returnLease = null) : IDisposable
     {
         internal ID3D12Resource* Geometry { get; } = geometry;
         internal ID3D12Resource* Upload { get; private set; } = upload;
@@ -337,8 +346,24 @@ unsafe sealed partial class Gpu : IDisposable
         internal uint Marker { get; } = marker;
         internal uint FirstWord { get; } = firstWord;
         internal uint LastWord { get; } = lastWord;
-        internal void ReleaseUpload() { Release(Upload); Upload = null; }
-        public void Dispose() { ReleaseUpload(); Release(Geometry); }
+        internal bool Pooled => returnLease is not null;
+        internal void ConfirmCopy() => copied?.Invoke();
+
+        internal void ReleaseUpload()
+        {
+            if (returnLease is null)
+                Release(Upload);
+            Upload = null;
+        }
+
+        public void Dispose()
+        {
+            ReleaseUpload();
+            if (returnLease is null)
+                Release(Geometry);
+            else
+                returnLease();
+        }
     }
 
     private static void Check(HRESULT result, string action)

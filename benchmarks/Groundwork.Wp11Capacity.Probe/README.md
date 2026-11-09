@@ -224,3 +224,30 @@ Density grids, triangle intermediates and runtime allocations contribute
 to the separately measured process memory.
 
 [Reserved-worker workstation measurements](results-reserved-terrain-windows-nvidia.json)
+
+## Optimized edit and recovery
+
+Run `optimized-terrain` with the same reserved worker, speculative
+vertex cap and full streaming queues.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE optimized-terrain $tablePath 150
+```
+
+The edited fixture has three distinct local terrain inputs for eight
+placements. The edit extracts each distinct mesh once, then packs all
+eight placements in the original order. Startup compares the packed
+vertices, transition count and collision mesh against the original
+eight independent extractions. Recovery reuses the live, committed
+generation's CPU payload. It performs a separate GPU copy, verifies the
+markers and sampled vertex words and draws from the recovery buffer.
+
+Edit and recovery use separate preallocated default-heap buffers and a
+shared persistently mapped upload buffer. The coordinator writes staging
+only when the previous copy fence and readback have completed. It returns
+default-buffer leases after use, and the next route starts after drain.
+Memory samples include the entire pool even when its buffers are idle.
+The duplicate-input optimization is specific to the identical local
+fields, edits and LOD layouts in this fixture.
+
+[Optimized workstation measurements](results-optimized-terrain-windows-nvidia.json)
