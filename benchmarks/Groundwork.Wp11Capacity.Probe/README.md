@@ -168,3 +168,31 @@ an individual worker. Queue time also includes worker wake-up and scheduling
 delay. No scheduler trace is collected.
 
 [Fixed worker pool measurements](results-pooled-terrain-windows-nvidia.json)
+
+## Sustained CPU backlog
+
+Run the same three-thread pool with a continuously full three-entry
+FIFO and with speculative GPU copies held through recovery.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE backlogged-terrain $tablePath 150
+```
+
+Each dequeue immediately refills the FIFO under the same lock. One
+protected job can wait at ingress. At the next dequeue it replaces the
+speculative refill at the tail, behind the existing queued jobs. Its
+measured wait includes ingress and FIFO time. Background jobs build
+and pack terrain continuously and discard their output after measuring
+it. The CPU queue stays full during mesh builds, upload, collision
+checks and Present. The harness stops refilling after recovery, drains
+active workers, and then opens the GPU streaming gate for retirement.
+
+Packed vertex high-water counts retained and in-flight packed arrays
+from the point of allocation through their logical use. The upper
+bound assumes all three workers can simultaneously hold the largest
+speculative output alongside the retained payload. Queued jobs reserve
+capacity but do not yet materialize vertex arrays. Working set and
+private bytes include the rest of the process. GC deltas are process
+wide and can overlap across jobs.
+
+[Sustained backlog measurements](results-backlogged-terrain-windows-nvidia.json)

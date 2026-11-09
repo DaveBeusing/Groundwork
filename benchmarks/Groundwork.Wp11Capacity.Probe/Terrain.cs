@@ -12,7 +12,7 @@ internal static class Terrain
     private static readonly uint[] Roots = [40, 81, 82, 80, 41, 41];
     private static readonly string[] Lanes = ["old", "stream", "stream", "move", "edit", "recover"];
 
-    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled)
+    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged)
     {
         Require(repetitions > 0, "positive repetitions");
         var source = File.ReadAllBytes(tablePath);
@@ -34,13 +34,16 @@ internal static class Terrain
         var capacities = sizes.Select((shape, i) => (Lane: Lanes[i], shape.Charge))
             .GroupBy(x => x.Lane).ToDictionary(x => x.Key, x => x.Select(y => y.Charge).Aggregate((a, b) => a + b));
         var workerCharges = sizes.Skip(1).Take(2).Select(shape => new Charge(shape.Charge.Cpu, 0, 0, 1)).ToArray();
+        if (backlogged)
+            workerCharges = Enumerable.Repeat(new Charge(workerCharges.Max(x => x.Cpu), 0, 0, 1),
+                MeshingPool.QueueCapacity + MeshingPool.WorkerCount).ToArray();
         if (concurrent)
-            capacities["stream"] += workerCharges[0] + workerCharges[1];
+            capacities["stream"] += workerCharges.Aggregate((a, b) => a + b);
         using var pool = pooled ? new MeshingPool() : null;
         var samples = new List<Trial>();
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -53,6 +56,7 @@ internal static class Terrain
         {
             retainedVertexBytes = samples.Max(x => x.VertexBytes),
             concurrentVertexBytes = samples.Max(x => x.ConcurrentVertexBytes),
+            backlogVertexUpperBoundBytes = samples.Max(x => x.VertexUpperBoundBytes),
             processPeakWorkingSetBytes = process.PeakWorkingSet64,
             processPeakPrivateSampleBytes = samples.Max(x => x.PrivateBytes),
             defaultVertexAllocationBytes = samples.Max(x => x.DefaultBytes),
@@ -64,8 +68,8 @@ internal static class Terrain
         };
         Console.WriteLine(JsonSerializer.Serialize(new
         {
-            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = concurrent ? 2 : 0,
-            poolWorkers = pool is null ? 0 : MeshingPool.WorkerCount,
+            adapter = gpu.Adapter, gpu.VendorId, repetitions, warmup = Warmup, regionsPerJob = Regions, competingWorkers = backlogged ? MeshingPool.WorkerCount : concurrent ? 2 : 0,
+            poolWorkers = pool is null ? 0 : MeshingPool.WorkerCount, backlogged, queueCapacity = MeshingPool.QueueCapacity,
             serverGc = System.Runtime.GCSettings.IsServerGC, gcLatencyMode = System.Runtime.GCSettings.LatencyMode.ToString(),
             present = "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
@@ -75,7 +79,7 @@ internal static class Terrain
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
@@ -85,6 +89,11 @@ internal static class Terrain
         var concurrent = workerCharges.Length != 0;
         var grounded = new GroundedRoute();
         var routeGc = GcSample.Read();
+        var background = new System.Collections.Concurrent.ConcurrentQueue<BackgroundBuild>();
+        var errors = new System.Collections.Concurrent.ConcurrentQueue<Exception>();
+        var backgroundSequence = 0;
+        long packedLive = 0;
+        long packedPeak = 0;
         var route = Stopwatch.GetTimestamp();
         try
         {
@@ -93,6 +102,12 @@ internal static class Terrain
             var b = Add(2);
             foreach (var charge in workerCharges)
                 Require(book.TryReserve("stream", charge), "admit competing CPU worker");
+            if (backlogged)
+                {
+                packedLive = (long)live.Aggregate(0UL, (sum, job) => sum + job.Charge.Cpu);
+                packedPeak = packedLive;
+                pool!.StartBacklog(BuildBackground);
+            }
             var saturated = Stopwatch.GetTimestamp();
             Require(!book.TryReserve("stream", new(1, 0, 0, 0)) &&
                 !book.TryReserve("stream", new(0, 1, 0, 0)) &&
@@ -144,6 +159,17 @@ internal static class Terrain
             }
             timing["recoveryReadyMs"] = Elapsed(recoveryStart);
 
+            if (backlogged)
+            {
+                var stop = Stopwatch.GetTimestamp();
+                pool!.StopBacklog();
+                timing["backlogDrainMs"] = Elapsed(stop);
+                if (errors.TryDequeue(out var error))
+                    throw new InvalidOperationException("Background meshing failed.", error);
+                trial.Background = background.ToArray();
+                trial.ConcurrentVertexBytes = (ulong)packedPeak;
+                Require(trial.Background.Length >= MeshingPool.WorkerCount, "background workers completed jobs");
+            }
             foreach (var charge in workerCharges)
                 book.Release("stream", charge);
             var retirement = Stopwatch.GetTimestamp();
@@ -171,6 +197,8 @@ internal static class Terrain
         }
         finally
         {
+            if (backlogged)
+                pool!.StopBacklog();
             gpu.Drain();
             foreach (var job in live)
                 job.Buffers.Dispose();
@@ -183,7 +211,8 @@ internal static class Terrain
             Require(book.TryReserve(lane, shape.Charge), $"admit {lane} before allocation");
             var start = Stopwatch.GetTimestamp();
             var (vertices, transitions, collisionMesh) = concurrent && index >= 3
-                ? pool is null ? BuildWithCompetition(index, lane) : BuildWithPool(pool, index, lane)
+                ? backlogged ? BuildWithBacklog(index, lane) :
+                    pool is null ? BuildWithCompetition(index, lane) : BuildWithPool(pool, index, lane)
                 : Build(tables, index, concurrent);
             timing[$"{lane}{index}MeshMs"] = Elapsed(start);
             Require(vertices.Length / 3 == shape.Triangles && transitions == shape.TransitionTriangles,
@@ -312,11 +341,72 @@ internal static class Terrain
             }
         }
 
+        void TrackPacked(long bytes)
+        {
+            var liveBytes = Interlocked.Add(ref packedLive, bytes);
+            var peak = Volatile.Read(ref packedPeak);
+            while (liveBytes > peak)
+            {
+                var previous = Interlocked.CompareExchange(ref packedPeak, liveBytes, peak);
+                if (previous == peak)
+                    break;
+                peak = previous;
+            }
+        }
+
+        void BuildBackground(long queued, long dequeued)
+        {
+            long payload = 0;
+            try
+            {
+                var index = 1 + (Interlocked.Increment(ref backgroundSequence) & 1);
+                var begin = Stopwatch.GetTimestamp();
+                var pause = GC.GetTotalPauseDuration();
+                var (vertices, _, _) = Build(tables, index, concurrent, bytes =>
+                {
+                    payload = bytes;
+                    TrackPacked(bytes);
+                });
+                var buildMs = Elapsed(begin);
+                Require((ulong)vertices.Length * 12 <= workerCharges[0].Cpu, "background build fits its credit");
+                background.Enqueue(new(Stopwatch.GetElapsedTime(queued, dequeued).TotalMilliseconds, buildMs,
+                    (GC.GetTotalPauseDuration() - pause).TotalMilliseconds));
+            }
+            catch (Exception error) { errors.Enqueue(error); }
+            finally { Interlocked.Add(ref packedLive, -payload); }
+        }
+
+        (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) BuildWithBacklog(int index, string lane)
+        {
+            Require(pool!.IsFull && !gpu.StreamingComplete, "CPU queue full and GPU held at submit");
+            var gc = GcSample.Read();
+            var result = pool.Submit(() =>
+            {
+                var pause = GC.GetTotalPauseDuration();
+                var allocated = GC.GetAllocatedBytesForCurrentThread();
+                var begin = Stopwatch.GetTimestamp();
+                var mesh = Build(tables, index, concurrent, TrackPacked);
+                return (Mesh: mesh, BuildMs: Elapsed(begin),
+                    GcMs: (GC.GetTotalPauseDuration() - pause).TotalMilliseconds,
+                    Allocated: GC.GetAllocatedBytesForCurrentThread() - allocated);
+            }).GetAwaiter().GetResult();
+            GcSample.Read().RecordSince(gc, timing, lane + "Dispatch");
+            Require(pool.IsFull && !gpu.StreamingComplete, "CPU queue full and GPU held at completion");
+            timing[$"{lane}ProtectedQueueMs"] = result.QueueMs;
+            timing[$"{lane}ProtectedBuildMs"] = result.Result.BuildMs;
+            timing[$"{lane}ProtectedBuildGcPauseMs"] = result.Result.GcMs;
+            timing[$"{lane}ProtectedAllocatedBytes"] = result.Result.Allocated;
+            var livePayload = live.Aggregate((ulong)result.Result.Mesh.Vertices.Length * 12, (sum, job) => sum + job.Charge.Cpu);
+            trial.VertexUpperBoundBytes = Math.Max(trial.VertexUpperBoundBytes,
+                livePayload + (ulong)MeshingPool.WorkerCount * workerCharges[0].Cpu);
+            return result.Result.Mesh;
+        }
+
         void Frame(string label, Job job)
         {
-            Require(!gpu.StreamingComplete, "streaming held before present");
+            Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held before present");
             var (present, frame, gpuDraw) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
-            Require(!gpu.StreamingComplete, "streaming held after present");
+            Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held after present");
             timing[$"{label}PresentMs"] = present;
             timing[$"{label}FrameFenceMs"] = frame;
             timing[$"{label}GpuDrawMs"] = gpuDraw;
@@ -347,7 +437,7 @@ internal static class Terrain
         }
     }
 
-    private static (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Build(Tables tables, int job, bool concurrent)
+    private static (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Build(Tables tables, int job, bool concurrent, Action<long>? packedAllocated = null)
     {
         var meshes = new Mesh[Regions];
         for (var i = 0; i < Regions; i++)
@@ -362,6 +452,7 @@ internal static class Terrain
         }
 
         var packed = new Vector3[meshes.Sum(x => x.Count) * 3];
+        packedAllocated?.Invoke(packed.LongLength * 12);
         var at = 0;
         for (var i = 0; i < meshes.Length; i++)
         {
@@ -395,6 +486,8 @@ internal static class Terrain
             throw new InvalidOperationException($"Terrain capacity assertion failed: {message}.");
     }
 
+    private sealed record BackgroundBuild(double QueueMs, double BuildMs, double GcPauseMs);
+
     private sealed record BuildMeasurement(long Entered, long Begin, long End, double GcPauseMs, long AllocatedBytes,
         (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Mesh);
 
@@ -414,6 +507,8 @@ internal static class Terrain
     {
         public ulong VertexBytes { get; set; }
         public ulong ConcurrentVertexBytes { get; set; }
+        public ulong VertexUpperBoundBytes { get; set; }
+        public BackgroundBuild[]? Background { get; set; }
         public int RouteSteps { get; set; }
         public float[]? FinalPosition { get; set; }
         public ulong DefaultBytes { get; set; }
