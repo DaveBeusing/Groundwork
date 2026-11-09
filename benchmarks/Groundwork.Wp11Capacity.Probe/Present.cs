@@ -23,6 +23,8 @@ unsafe sealed partial class Gpu
         private ID3D12RootSignature* _root;
         private ID3D12QueryHeap* _timestamps;
         private readonly ulong _timestampFrequency;
+        private readonly bool _capturePacketEnd =
+            Environment.GetEnvironmentVariable("GROUNDWORK_C00_PACKET_END_CLOCK") == "1";
         private ID3D12PipelineState* _pipeline;
         private readonly ID3D12Resource*[] _targets;
         internal ulong Bytes { get; private set; }
@@ -78,7 +80,7 @@ unsafe sealed partial class Gpu
                     Bytes += gpu._device->GetResourceAllocationInfo(0, 1, &resource).SizeInBytes;
                     gpu._device->CreateRenderTargetView(_targets[i], null, Handle(i));
                 }
-                var query = new D3D12_QUERY_HEAP_DESC { Type = D3D12_QUERY_HEAP_TYPE.D3D12_QUERY_HEAP_TYPE_TIMESTAMP, Count = 2 };
+                var query = new D3D12_QUERY_HEAP_DESC { Type = D3D12_QUERY_HEAP_TYPE.D3D12_QUERY_HEAP_TYPE_TIMESTAMP, Count = _capturePacketEnd ? 3u : 2u };
                 fixed (ID3D12QueryHeap** timestamps = &_timestamps)
                     Check(gpu._device->CreateQueryHeap(&query, __uuidof<ID3D12QueryHeap>(), (void**)timestamps), "timestamp queries");
                 ulong frequency;
@@ -100,7 +102,19 @@ unsafe sealed partial class Gpu
         }
 
         internal readonly record struct FrameClock(long FrameStart, long PresentStart, long PresentEnd, long FenceEnd,
-            long SubmitStart, long SubmitEnd, long SignalStart, long SignalEnd, ulong FenceValue, FenceWaitClock Wait);
+            long SubmitStart, long SubmitEnd, long SignalStart, long SignalEnd, ulong FenceValue, FenceWaitClock Wait,
+            PacketEndClock? PacketEnd);
+
+        internal readonly record struct ClockSample(ulong Gpu, ulong Cpu, long CallStart, long CallEnd);
+        internal readonly record struct PacketEndClock(ulong Gpu, ulong Frequency, ClockSample Before, ClockSample After);
+
+        private ClockSample CalibrateQueue()
+        {
+            ulong gpu, cpu;
+            var start = Stopwatch.GetTimestamp();
+            Check(_gpu._queue->GetClockCalibration(&gpu, &cpu), "calibrate draw queue");
+            return new(gpu, cpu, start, Stopwatch.GetTimestamp());
+        }
         internal static uint NativeThreadId => GetCurrentThreadId();
 
         internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries, double DrawFenceWait, FrameClock Clock) Draw(Buffers buffers, uint vertices, bool captureClock = false)
@@ -110,6 +124,8 @@ unsafe sealed partial class Gpu
                 DispatchMessageW(&message);
             if (Output is { } output)
                 VerifyOutput(output);
+            var capturePacketEnd = captureClock && _capturePacketEnd;
+            var calibrationBefore = capturePacketEnd ? CalibrateQueue() : default;
             var start = Stopwatch.GetTimestamp();
             var paced = _frameReady != HANDLE.NULL;
             if (paced && WaitForSingleObject(_frameReady, 5_000) != 0)
@@ -145,6 +161,12 @@ unsafe sealed partial class Gpu
             Transition(commands, _targets[index], D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_PRESENT);
             commands->EndQuery(_timestamps, timestamp, 1);
             commands->ResolveQueryData(_timestamps, timestamp, 0, 2, _gpu._readback, 16);
+            if (capturePacketEnd)
+            {
+                // The resolve of this final marker and any driver epilogue still follow it.
+                commands->EndQuery(_timestamps, timestamp, 2);
+                commands->ResolveQueryData(_timestamps, timestamp, 2, 1, _gpu._readback, 32);
+            }
             Check(commands->Close(), "close draw");
             var list = (ID3D12CommandList*)commands;
             var submitStart = captureClock ? Stopwatch.GetTimestamp() : 0;
@@ -178,14 +200,18 @@ unsafe sealed partial class Gpu
                 throw new InvalidOperationException($"Present returned 0x{result.Value:X8}.");
             var fenceEnd = Stopwatch.GetTimestamp();
             var frameMs = Stopwatch.GetElapsedTime(start, fenceEnd).TotalMilliseconds;
-            var range = new D3D12_RANGE { Begin = 16, End = 32 };
+            var calibrationAfter = capturePacketEnd ? CalibrateQueue() : default;
+            var range = new D3D12_RANGE { Begin = 16, End = capturePacketEnd ? 40u : 32u };
             void* data = null;
             Check(_gpu._readback->Map(0, &range, &data), "map draw timestamps");
             var ticks = (ulong*)((byte*)data + 16);
             var elapsed = ticks[1] - ticks[0];
+            PacketEndClock? packetEnd = capturePacketEnd
+                ? new(ticks[2], _timestampFrequency, calibrationBefore, calibrationAfter)
+                : null;
             D3D12_RANGE empty = default;
             _gpu._readback->Unmap(0, &empty);
-            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait, new(start, present, presentEnd, fenceEnd, submitStart, submitEnd, signalStart, signalEnd, fenceValue, wait));
+            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries, drawFenceWait, new(start, present, presentEnd, fenceEnd, submitStart, submitEnd, signalStart, signalEnd, fenceValue, wait, packetEnd));
         }
 
         private static void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
