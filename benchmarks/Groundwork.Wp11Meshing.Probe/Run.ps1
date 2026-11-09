@@ -207,6 +207,23 @@ try {
                     throw "Box-edge seam edit regression for $($group.brushCount) brushes in process $run."
                 }
             }
+            if (($result.cornerSeamEditGroups.brushCount -join ',') -ne '5,6,7,8') {
+                throw "Box-corner seam edit groups missing in process $run."
+            }
+            foreach ($group in $result.cornerSeamEditGroups) {
+                $groupRays = $group.geometry.collision.grid
+                $groupBand = $group.geometry.collision.'lod-band'
+                $groupSweeps = $group.geometry.movingBodies.summary
+                $targeted = if ($group.brushCount -eq 5) { 10 } else { 9 }
+                if (-not $group.atCorner -or -not $group.transitionTriangles -or $groupRays.Rays -ne 12288 -or
+                    $group.sweeps.Count -ne $targeted -or $groupRays.CrossingCountMismatches -or
+                    $groupRays.MissedHitRays -or $groupRays.UnexpectedHitRays -or
+                    $groupRays.FallbackBudgetExhaustedRays -or $groupBand.CrossingCountMismatches -or
+                    ($groupSweeps | Measure-Object sweeps -Sum).Sum -ne 32 -or
+                    ($groupSweeps | Where-Object { $_.statusDifferences -or $_.indeterminate -or $_.overTolerance })) {
+                    throw "Box-corner seam edit regression for $($group.brushCount) brushes in process $run."
+                }
+            }
             $result | Add-Member -NotePropertyName processRun -NotePropertyValue $run
             $rows += $result
             Write-Host "Ray latency and edit validation completed in process $run."

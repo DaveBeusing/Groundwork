@@ -159,7 +159,8 @@ sealed class Grid
     private readonly CollisionSphere[] _collisionCuts;
     private readonly CollisionSphere[] _openingCuts;
     internal ReadOnlySpan<CollisionSphere> OpeningCuts => _openingCuts;
-    private bool IsEdgeSeamOpening => _fixture == "seam-edge-opening";
+    private bool IsCornerSeamOpening => _fixture == "seam-corner-opening";
+    private bool IsEdgeSeamOpening => _fixture == "seam-edge-opening" || IsCornerSeamOpening;
     private bool IsFlatSeamOpening => _fixture == "seam-flat-opening" || IsEdgeSeamOpening;
     private bool IsSeamOpening => _fixture == "seam-opening" || IsFlatSeamOpening;
     internal ReadOnlySpan<CollisionSphere> CollisionCuts => _collisionCuts;
@@ -397,12 +398,15 @@ sealed class Grid
             // The bound may reach the front and, in the edge fixture,
             // the positive Y face. Exclude all other box faces.
             var touchesSide = cut.Center.Y + reach >= SeamFlatSide;
+            var touchesTop = cut.Center.Z + reach >= SeamFlatMax.Z;
             if (cut.Center.X - reach <= SeamFlatBack ||
                 cut.Center.Y - reach <= SeamFlatCenter.Y - SeamFlatExtent.Y ||
                 (touchesSide && !IsEdgeSeamOpening) ||
-                MathF.Abs(cut.Center.Z - SeamFlatCenter.Z) + reach >= SeamFlatExtent.Z)
+                cut.Center.Z - reach <= SeamFlatMin.Z || (touchesTop && !IsCornerSeamOpening) ||
+                (touchesTop && !touchesSide))
                 return null;
-            return ClippedSolid.CreatePlanar(SeamFlatFront, localEdits.ToArray(), touchesSide ? SeamFlatSide : null);
+            return ClippedSolid.CreatePlanar(SeamFlatFront, localEdits.ToArray(), touchesSide ? SeamFlatSide : null,
+                touchesTop ? SeamFlatMax.Z : null);
         }
         if (IsSeamOpening)
             return ClippedSolid.Create(SeamOpeningTerrain, localEdits.ToArray());
@@ -462,7 +466,7 @@ sealed class Grid
             "bridge" => MathF.Min(MathF.Min(Sphere(p, BridgeLeft.Center, BridgeLeft.Radius),
                 Sphere(p, BridgeRight.Center, BridgeRight.Radius)),
                 Box(p, BridgeStemCenter, BridgeStemExtent)),
-            "seam-flat-opening" or "seam-edge-opening" => Box(p, SeamFlatCenter, SeamFlatExtent),
+            "seam-flat-opening" or "seam-edge-opening" or "seam-corner-opening" => Box(p, SeamFlatCenter, SeamFlatExtent),
             "seam-opening" => Sphere(p, SeamOpeningTerrain.Center, SeamOpeningTerrain.Radius),
             "seam" => Sphere(p, center + new Vector3(-2.1f, 2.3f, 1.4f), 9.38f),
             "junction" => Sphere(p, new(11.37f, 10.8f, 11.8f), 8.15f),

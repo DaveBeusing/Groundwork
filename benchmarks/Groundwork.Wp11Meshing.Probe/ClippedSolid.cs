@@ -8,18 +8,21 @@ sealed class ClippedSolid
     private readonly DensityEdit[] _edits;
     private readonly float? _planeX;
     private readonly float? _planeY;
+    private readonly float? _planeZ;
     private readonly int _baseSurfaces;
     private readonly Edge[] _edges;
     private readonly Vector3[] _corners;
 
-    private ClippedSolid(CollisionSphere solid, DensityEdit[] edits, float? planeX = null, float? planeY = null)
+    private ClippedSolid(CollisionSphere solid, DensityEdit[] edits, float? planeX = null, float? planeY = null, float? planeZ = null)
     {
         _edits = edits;
         _planeX = planeX;
         _planeY = planeY;
-        _baseSurfaces = planeY.HasValue ? 2 : 1;
+        _planeZ = planeZ;
+        _baseSurfaces = planeZ.HasValue ? 3 : planeY.HasValue ? 2 : 1;
         var brushes = edits.Select(edit => new CollisionSphere(edit.Center, edit.Radius));
-        _surfaces = planeY.HasValue ? [default, default, .. brushes] : [solid, .. brushes];
+        _surfaces = [.. new CollisionSphere[_baseSurfaces], .. brushes];
+        _surfaces[0] = solid;
         var edges = new List<Edge>();
         var corners = new List<Vector3>();
         var candidates = new List<Vector3>(2);
@@ -28,21 +31,18 @@ sealed class ClippedSolid
         {
             if (j < _baseSurfaces)
             {
-                // The two axis-aligned planes meet along the Z direction.
-                // Sphere intersections split that line into valid segments.
+                // Two planes meet along the remaining coordinate axis.
+                var axis = 3 - i - j;
                 for (var k = _baseSurfaces; k < _surfaces.Length; k++)
                 {
                     var sphere = _surfaces[k];
-                    var x = _planeX!.Value - sphere.Center.X;
-                    var y = _planeY!.Value - sphere.Center.Y;
-                    var discriminant = sphere.Radius * sphere.Radius - x * x - y * y;
+                    var linePoint = Project(Project(sphere.Center, i, Plane(i)!.Value), j, Plane(j)!.Value);
+                    var discriminant = sphere.Radius * sphere.Radius - Vector3.DistanceSquared(linePoint, sphere.Center);
                     if (discriminant < 0)
                         continue;
-                    var span = MathF.Sqrt(discriminant);
-                    var lower = new Vector3(_planeX.Value, _planeY.Value, sphere.Center.Z - span);
-                    var upper = new Vector3(_planeX.Value, _planeY.Value, sphere.Center.Z + span);
-                    if (Valid(lower, i, j, SurfaceTolerance, k)) corners.Add(lower);
-                    if (Valid(upper, i, j, SurfaceTolerance, k)) corners.Add(upper);
+                    var span = MathF.Sqrt(discriminant) * I3.Axis(axis).Position;
+                    if (Valid(linePoint - span, i, j, SurfaceTolerance, k)) corners.Add(linePoint - span);
+                    if (Valid(linePoint + span, i, j, SurfaceTolerance, k)) corners.Add(linePoint + span);
                 }
                 continue;
             }
@@ -62,6 +62,12 @@ sealed class ClippedSolid
                         corners.Add(candidate);
             }
         }
+        if (planeX is { } x && planeY is { } y && planeZ is { } z)
+        {
+            var vertex = new Vector3(x, y, z);
+            if (Valid(vertex, 0, 1, SurfaceTolerance, 2))
+                corners.Add(vertex);
+        }
         _edges = edges.ToArray();
         _corners = corners.ToArray();
     }
@@ -71,10 +77,10 @@ sealed class ClippedSolid
             Intersect(solid, new CollisionSphere(edit.Center, edit.Radius), 0, 1).HasValue)
             ? new ClippedSolid(solid, RemoveOverwrittenAdditions(edits)) : null;
 
-    internal static ClippedSolid? CreatePlanar(float planeX, DensityEdit[] edits, float? planeY = null) =>
+    internal static ClippedSolid? CreatePlanar(float planeX, DensityEdit[] edits, float? planeY = null, float? planeZ = null) =>
         edits.Length is >= 1 and <= MaxEdits && edits.Any(edit => !edit.Add &&
             MathF.Abs(edit.Center.X - planeX) < edit.Radius)
-            ? new ClippedSolid(default, RemoveOverwrittenAdditions(edits), planeX, planeY) : null;
+            ? new ClippedSolid(default, RemoveOverwrittenAdditions(edits), planeX, planeY, planeZ) : null;
 
     private static DensityEdit[] RemoveOverwrittenAdditions(DensityEdit[] edits)
     {
@@ -111,7 +117,7 @@ sealed class ClippedSolid
         {
             if (Plane(i) is { } face)
             {
-                var projected = i == 0 ? new Vector3(face, point.Y, point.Z) : new Vector3(point.X, face, point.Z);
+                var projected = Project(point, i, face);
                 if (Valid(projected, i, -1, SurfaceTolerance))
                     distance = Math.Min(distance, Vector3.Distance(point, projected));
                 continue;
@@ -135,10 +141,11 @@ sealed class ClippedSolid
                 distance = Math.Min(distance, MathF.Sqrt(axial * axial + radial * radial));
             }
         }
-        if (_planeY is { } side)
+        for (var i = 0; i < _baseSurfaces; i++)
+        for (var j = i + 1; j < _baseSurfaces; j++)
         {
-            var projected = new Vector3(_planeX!.Value, side, point.Z);
-            if (Valid(projected, 0, 1, SurfaceTolerance))
+            var projected = Project(Project(point, i, Plane(i)!.Value), j, Plane(j)!.Value);
+            if (Valid(projected, i, j, SurfaceTolerance))
                 distance = Math.Min(distance, Vector3.Distance(point, projected));
         }
         foreach (var corner in _corners)
@@ -153,7 +160,7 @@ sealed class ClippedSolid
         {
             var surface = _surfaces[i];
             var signed = i == skipA || i == skipB || i == skipC ? 0 :
-                Plane(i) is { } face ? (i == 0 ? point.X : point.Y) - face :
+                Plane(i) is { } face ? point[i] - face :
                 Vector3.Distance(point, surface.Center) - surface.Radius;
             // Keep the edit order. A later union may restore a point in an
             // earlier subtraction. Boundary points belong to the closure.
@@ -166,17 +173,21 @@ sealed class ClippedSolid
         }
         return inside;
     }
-    private float? Plane(int index) => index == 0 ? _planeX : index == 1 ? _planeY : null;
+    private float? Plane(int index) => index switch { 0 => _planeX, 1 => _planeY, 2 => _planeZ, _ => null };
+
+    private static Vector3 Project(Vector3 point, int axis, float face)
+    {
+        point[axis] = face;
+        return point;
+    }
 
     private static Edge? IntersectPlane(float face, CollisionSphere sphere, int first, int second)
     {
-        var offset = (first == 0 ? sphere.Center.X : sphere.Center.Y) - face;
+        var offset = sphere.Center[first] - face;
         if (MathF.Abs(offset) >= sphere.Radius)
             return null;
         var radius = MathF.Sqrt(sphere.Radius * sphere.Radius - offset * offset);
-        return first == 0
-            ? new Edge(new Vector3(face, sphere.Center.Y, sphere.Center.Z), Vector3.UnitX, radius, first, second)
-            : new Edge(new Vector3(sphere.Center.X, face, sphere.Center.Z), Vector3.UnitY, radius, first, second);
+        return new Edge(Project(sphere.Center, first, face), I3.Axis(first).Position, radius, first, second);
     }
 
     private static Edge? Intersect(CollisionSphere a, CollisionSphere b, int first, int second)

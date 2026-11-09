@@ -487,3 +487,20 @@ remaining strip that the fixed-step reference missed.
 ```
 
 [Box-edge seam edit group results](results-windows-mc-edge-seam-edit-groups.json)
+
+## Spatial edits at a box corner on the 2:1 seam
+
+The corner fixture places the opening near the positive Y and Z
+faces. The bounded local query includes all three relevant planes
+when the swept ball stays clear of the other box faces. It considers
+face projections, the three edge lines, brush intersections on
+those lines and the shared vertex. The vertex is eligible only
+when it belongs to the final edited solid.
+
+The additional diagonal sweep approaches the retained vertex with
+all three coordinates outside the box. Its reference is the distance
+to that vertex minus the moving sphere radius. The same suite repeats
+the edited opening paths and compares the ray grid against ordered
+box and brush intervals.
+
+[Box-corner seam edit group results](results-windows-mc-corner-seam-edit-groups.json)
