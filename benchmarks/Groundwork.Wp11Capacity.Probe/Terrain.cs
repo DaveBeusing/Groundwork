@@ -25,7 +25,13 @@ internal static class Terrain
         using var gpu = new Gpu(vendor);
         var outputVendor = Environment.GetEnvironmentVariable("GROUNDWORK_C00_OUTPUT_VENDOR");
         var displayVendor = string.IsNullOrEmpty(outputVendor) ? (uint?)null : Convert.ToUInt32(outputVendor, 16);
-        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval, displayVendor);
+        var swapEffect = Environment.GetEnvironmentVariable("GROUNDWORK_C00_SWAP_EFFECT") switch
+        {
+            null or "discard" => false,
+            "sequential" => true,
+            _ => throw new ArgumentException("Expected swap effect discard or sequential.")
+        };
+        using var surface = new Gpu.Surface(gpu, paced, waitForDraw, syncInterval, displayVendor, swapEffect);
         using var process = Process.GetCurrentProcess();
         var sizes = new Shape[Roots.Length];
         var regionInputs = new List<RegionInput>();
@@ -116,7 +122,7 @@ internal static class Terrain
                 : "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
-            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, rowMasked, regionInputs, traceClock = traceClock ? new { pid = Environment.ProcessId, tid = Gpu.Surface.NativeThreadId, frequency = Stopwatch.Frequency } : null, trials = samples
+            capacities, peaks, timings, varied, tuned, waitForDraw, syncInterval, rowMasked, swapEffect = swapEffect ? "FLIP_SEQUENTIAL" : "FLIP_DISCARD", regionInputs, traceClock = traceClock ? new { pid = Environment.ProcessId, tid = Gpu.Surface.NativeThreadId, frequency = Stopwatch.Frequency } : null, trials = samples
         }));
     }
 

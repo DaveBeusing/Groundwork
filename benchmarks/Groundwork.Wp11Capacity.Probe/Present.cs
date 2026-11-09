@@ -27,7 +27,7 @@ unsafe sealed partial class Gpu
         private readonly ID3D12Resource*[] _targets = new ID3D12Resource*[2];
         internal ulong Bytes { get; private set; }
 
-        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null)
+        internal Surface(Gpu gpu, bool paced = false, bool waitForDraw = false, uint syncInterval = 1, uint? displayVendor = null, bool flipSequential = false)
         {
             _gpu = gpu;
             _waitForDraw = waitForDraw;
@@ -53,7 +53,7 @@ unsafe sealed partial class Gpu
                 {
                     Width = Width, Height = Height, Format = Format, BufferCount = 2, BufferUsage = 0x20,
                     SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
-                    SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                    SwapEffect = flipSequential ? DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_SEQUENTIAL : DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_DISCARD,
                     Flags = paced ? (uint)DXGI_SWAP_CHAIN_FLAG.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT : 0
                 };
                 Check(factory->CreateSwapChainForHwnd((IUnknown*)gpu._queue, _window, &desc, null, null, &initial), "create swapchain");

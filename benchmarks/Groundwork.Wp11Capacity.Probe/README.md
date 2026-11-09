@@ -433,3 +433,13 @@ inside the chosen monitor before every frame and checks the selected
 DisplayConfig path again at process completion.
 
 [External Intel scan-out ETW measurements](results-row-masked-etw-hybrid-displayport-windows-nvidia.json)
+
+## Swap-effect comparison on the hybrid output
+
+Set `GROUNDWORK_C00_SWAP_EFFECT` to `discard` or `sequential` to
+select the flip-model swap effect. The default is `discard`. The
+probe records the selected effect. The comparison uses the same
+two buffers, frame-latency handle, Present interval and flags, and
+pins the window to the same Intel DisplayPort scan-out target.
+
+[Hybrid swap-effect ETW comparison](results-row-masked-etw-hybrid-swap-effects-windows-nvidia.json)
