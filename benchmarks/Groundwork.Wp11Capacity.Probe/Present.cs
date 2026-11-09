@@ -13,6 +13,9 @@ unsafe sealed partial class Gpu
         private const DXGI_FORMAT Format = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM;
         private readonly Gpu _gpu;
         private HWND _window;
+        private HANDLE _frameReady;
+        private const uint DoNotWait = 8;
+        private const int StillDrawing = unchecked((int)0x887A000A);
         private IDXGISwapChain3* _chain;
         private ID3D12DescriptorHeap* _rtv;
         private ID3D12RootSignature* _root;
@@ -22,7 +25,7 @@ unsafe sealed partial class Gpu
         private readonly ID3D12Resource*[] _targets = new ID3D12Resource*[2];
         internal ulong Bytes { get; private set; }
 
-        internal Surface(Gpu gpu)
+        internal Surface(Gpu gpu, bool paced = false)
         {
             _gpu = gpu;
             IDXGIFactory4* factory = null;
@@ -39,11 +42,19 @@ unsafe sealed partial class Gpu
                 {
                     Width = Width, Height = Height, Format = Format, BufferCount = 2, BufferUsage = 0x20,
                     SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
-                    SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_DISCARD
+                    SwapEffect = DXGI_SWAP_EFFECT.DXGI_SWAP_EFFECT_FLIP_DISCARD,
+                    Flags = paced ? (uint)DXGI_SWAP_CHAIN_FLAG.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT : 0
                 };
                 Check(factory->CreateSwapChainForHwnd((IUnknown*)gpu._queue, _window, &desc, null, null, &initial), "create swapchain");
                 fixed (IDXGISwapChain3** chain = &_chain)
                     Check(initial->QueryInterface(__uuidof<IDXGISwapChain3>(), (void**)chain), "swapchain3");
+                if (paced)
+                {
+                    Check(_chain->SetMaximumFrameLatency(2), "set swapchain frame latency");
+                    _frameReady = _chain->GetFrameLatencyWaitableObject();
+                    if (_frameReady == HANDLE.NULL)
+                        throw new InvalidOperationException("Swapchain did not provide a frame-latency handle.");
+                }
                 var heap = new D3D12_DESCRIPTOR_HEAP_DESC { Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_RTV, NumDescriptors = 2 };
                 fixed (ID3D12DescriptorHeap** rtv = &_rtv)
                     Check(gpu._device->CreateDescriptorHeap(&heap, __uuidof<ID3D12DescriptorHeap>(), (void**)rtv), "RTV heap");
@@ -74,12 +85,16 @@ unsafe sealed partial class Gpu
             return handle;
         }
 
-        internal (double Present, double Frame, double GpuDraw) Draw(Buffers buffers, uint vertices)
+        internal (double Present, double Frame, double GpuDraw, double ReadyWait, int BusyRetries) Draw(Buffers buffers, uint vertices)
         {
             MSG message;
             while (PeekMessageW(&message, _window, 0, 0, 1))
                 DispatchMessageW(&message);
             var start = Stopwatch.GetTimestamp();
+            var paced = _frameReady != HANDLE.NULL;
+            if (paced && WaitForSingleObject(_frameReady, 5_000) != 0)
+                throw new TimeoutException("Swapchain did not become ready.");
+            var readyWait = paced ? Stopwatch.GetElapsedTime(start).TotalMilliseconds : 0;
             var commands = _gpu._commands;
             Check(_gpu._allocator->Reset(), "reset draw allocator");
             Check(commands->Reset(_gpu._allocator, _pipeline), "reset draw list");
@@ -114,7 +129,14 @@ unsafe sealed partial class Gpu
             var list = (ID3D12CommandList*)commands;
             _gpu._queue->ExecuteCommandLists(1, &list);
             var present = Stopwatch.GetTimestamp();
-            var result = _chain->Present(1, 0);
+            var result = _chain->Present(1, paced ? DoNotWait : 0);
+            var busyRetries = 0;
+            while (paced && result.Value == StillDrawing && Stopwatch.GetElapsedTime(present).TotalMilliseconds < 500)
+            {
+                busyRetries++;
+                Thread.Sleep(1);
+                result = _chain->Present(1, DoNotWait);
+            }
             var presentMs = Stopwatch.GetElapsedTime(present).TotalMilliseconds;
             _gpu.Wait(_gpu.Signal());
             if (result.Value != 0)
@@ -127,7 +149,7 @@ unsafe sealed partial class Gpu
             var elapsed = ticks[1] - ticks[0];
             D3D12_RANGE empty = default;
             _gpu._readback->Unmap(0, &empty);
-            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency);
+            return (presentMs, frameMs, elapsed * 1000d / _timestampFrequency, readyWait, busyRetries);
         }
 
         private static void Transition(ID3D12GraphicsCommandList* commands, ID3D12Resource* resource,
@@ -202,6 +224,8 @@ unsafe sealed partial class Gpu
             foreach (var target in _targets)
                 Release(target);
             Release(_rtv);
+            if (_frameReady != HANDLE.NULL)
+                CloseHandle(_frameReady);
             Release(_chain);
             if (_window != HWND.NULL)
                 DestroyWindow(_window);

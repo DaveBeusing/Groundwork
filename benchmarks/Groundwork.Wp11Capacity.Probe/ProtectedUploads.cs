@@ -9,12 +9,12 @@ unsafe sealed partial class Gpu
         private ID3D12Resource* _upload;
         private byte* _mapped;
 
-        internal ProtectedUploads(Gpu gpu, ulong editBytes, ulong recoveryBytes)
+        internal ProtectedUploads(Gpu gpu, params ulong[] slotBytes)
         {
-            _slots = [new(editBytes), new(recoveryBytes)];
+            _slots = slotBytes.Select(bytes => new Slot(bytes)).ToArray();
             try
             {
-                var uploadBytes = Math.Max(editBytes, recoveryBytes);
+                var uploadBytes = slotBytes.Max();
                 UploadBytes = gpu.AllocationSize(uploadBytes);
                 _upload = gpu.Buffer(uploadBytes, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
                 D3D12_RANGE empty = default;

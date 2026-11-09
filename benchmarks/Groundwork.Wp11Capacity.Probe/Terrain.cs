@@ -13,14 +13,14 @@ internal static class Terrain
     private static readonly uint[] Roots = [40, 81, 82, 80, 41, 41];
     private static readonly string[] Lanes = ["old", "stream", "stream", "move", "edit", "recover"];
 
-    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker, bool optimized)
+    internal static void Run(uint vendor, string tablePath, int repetitions, bool concurrent, bool pooled, bool backlogged, bool reserveWorker, bool optimized, bool paced)
     {
         Require(repetitions > 0, "positive repetitions");
         var source = File.ReadAllBytes(tablePath);
         Require(Convert.ToHexString(SHA256.HashData(source)) == TableHash, "pinned Transvoxel tables");
         var tables = new Tables(System.Text.Encoding.UTF8.GetString(source));
         using var gpu = new Gpu(vendor);
-        using var surface = new Gpu.Surface(gpu);
+        using var surface = new Gpu.Surface(gpu, paced);
         using var process = Process.GetCurrentProcess();
         var sizes = new Shape[Roots.Length];
         for (var i = 0; i < sizes.Length; i++)
@@ -29,11 +29,11 @@ internal static class Terrain
             if (concurrent && i == 0)
                 Require(new GroundedRoute().TryTraverse(collisionMesh, new(21.3f, 15.2f)),
                     "unedited terrain supports the original path across the seam");
-            if (optimized && i == 4)
+            if (paced || optimized && i == 4)
             {
                 var candidate = Build(tables, i, concurrent, shareEqualRegions: true);
                 Require(candidate.Vertices.AsSpan().SequenceEqual(vertices) && candidate.Transitions == transitions &&
-                    candidate.CollisionMesh.SequenceEqual(collisionMesh), "edit optimization preserves exact output");
+                    candidate.CollisionMesh.SequenceEqual(collisionMesh), "shared mesh extraction preserves exact output");
             }
             var bytes = (ulong)vertices.Length * 12;
             sizes[i] = new Shape(vertices.Length / 3, transitions, new Charge(bytes, gpu.AllocationSize(bytes + 8), gpu.AllocationSize(bytes + 8), 1));
@@ -56,11 +56,14 @@ internal static class Terrain
         if (concurrent)
             capacities["stream"] += workerCharges.Aggregate((a, b) => a + b);
         using var pool = pooled ? new MeshingPool(reserveWorker) : null;
-        using var protectedUploads = optimized ? new Gpu.ProtectedUploads(gpu, sizes[4].Charge.Cpu + 8, sizes[5].Charge.Cpu + 8) : null;
+        var firstPooledIndex = paced ? 3 : 4;
+        using var protectedUploads = optimized
+            ? new Gpu.ProtectedUploads(gpu, sizes.Skip(firstPooledIndex).Select(shape => shape.Charge.Cpu + 8).ToArray())
+            : null;
         var samples = new List<Trial>();
         for (var i = -Warmup; i < repetitions; i++)
         {
-            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads);
+            var trial = RunRoute(gpu, surface, process, tables, sizes, capacities, concurrent ? workerCharges : [], pool, backlogged, activeSpeculativeBudget, protectedUploads, paced, firstPooledIndex);
             if (i >= 0)
                 samples.Add(trial);
         }
@@ -91,7 +94,8 @@ internal static class Terrain
             activeSpeculativeBudgetBytes = activeSpeculativeBudget,
             poolWorkers = pool is null ? 0 : MeshingPool.WorkerCount, backlogged, queueCapacity = MeshingPool.QueueCapacity,
             serverGc = System.Runtime.GCSettings.IsServerGC, gcLatencyMode = System.Runtime.GCSettings.LatencyMode.ToString(),
-            present = "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
+            present = paced ? "visible HWND, 640x480, two RGBA8 buffers, frame-latency wait then Present(1, DO_NOT_WAIT), S_OK"
+                : "visible HWND, 640x480, two RGBA8 buffers, Present(1, 0), S_OK",
             tableSha256 = TableHash, swapchainAllocationBytes = surface.Bytes, readbackAllocationBytes = gpu.ReadbackBytes,
             shapes = sizes.Select((shape, i) => new { lane = Lanes[i], root = Roots[i], shape }),
             capacities, peaks, timings, trials = samples
@@ -99,7 +103,7 @@ internal static class Terrain
     }
 
     private static Trial RunRoute(Gpu gpu, Gpu.Surface surface, Process process, Tables tables,
-        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads)
+        Shape[] sizes, Dictionary<string, Charge> capacities, Charge[] workerCharges, MeshingPool? pool, bool backlogged, ulong activeSpeculativeBudget, Gpu.ProtectedUploads? protectedUploads, bool paced, int firstPooledIndex)
     {
         var book = new Ledger(capacities);
         var live = new List<Job>();
@@ -246,14 +250,14 @@ internal static class Terrain
                 : concurrent && index >= 3
                 ? backlogged ? BuildWithBacklog(index, lane) :
                     pool is null ? BuildWithCompetition(index, lane) : BuildWithPool(pool, index, lane)
-                : Build(tables, index, concurrent);
+                : Build(tables, index, concurrent, shareEqualRegions: paced);
             timing[$"{lane}{index}MeshMs"] = Elapsed(start);
             Require(vertices.Length / 3 == shape.Triangles && transitions == shape.TransitionTriangles,
                 "repeatable mesh shape and allocation");
             start = Stopwatch.GetTimestamp();
             var data = MemoryMarshal.AsBytes(vertices.AsSpan());
-            var buffers = protectedUploads is not null && index >= 4
-                ? protectedUploads.Stage(index - 4, Roots[index], data)
+            var buffers = protectedUploads is not null && index >= firstPooledIndex
+                ? protectedUploads.Stage(index - firstPooledIndex, Roots[index], data)
                 : gpu.Allocate((ulong)data.Length + 8, Roots[index], data);
             var job = new Job(lane, charge, buffers, vertices, collisionMesh);
             live.Add(job);
@@ -410,7 +414,7 @@ internal static class Terrain
                         "speculative allocation fits its acquired credit");
                     payload = bytes;
                     TrackPacked(bytes);
-                });
+                }, shareEqualRegions: paced);
                 var buildMs = Elapsed(begin);
                 Require(vertices.LongLength * 12 == payload, "background packed output matches credit accounting");
                 background.Enqueue(new(Stopwatch.GetElapsedTime(queued, dequeued).TotalMilliseconds, buildMs,
@@ -437,7 +441,7 @@ internal static class Terrain
                 {
                     Require((ulong)bytes <= sizes[index].Charge.Cpu, "protected allocation fits its acquired credit");
                     TrackPacked(bytes);
-                }, shareEqualRegions: protectedUploads is not null && index == 4);
+                }, shareEqualRegions: paced || protectedUploads is not null && index == 4);
                 return (Mesh: mesh, BuildMs: Elapsed(begin),
                     GcMs: (GC.GetTotalPauseDuration() - pause).TotalMilliseconds,
                     Allocated: GC.GetAllocatedBytesForCurrentThread() - allocated);
@@ -458,11 +462,16 @@ internal static class Terrain
         void Frame(string label, Job job)
         {
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held before present");
-            var (present, frame, gpuDraw) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
+            var (present, frame, gpuDraw, readyWait, retries) = surface.Draw(job.Buffers, (uint)job.Vertices.Length);
             Require(!gpu.StreamingComplete && (!backlogged || pool!.IsFull), "streaming held after present");
             timing[$"{label}PresentMs"] = present;
             timing[$"{label}FrameFenceMs"] = frame;
             timing[$"{label}GpuDrawMs"] = gpuDraw;
+            if (paced)
+            {
+                timing[$"{label}ReadyWaitMs"] = readyWait;
+                timing[$"{label}PresentRetries"] = retries;
+            }
             Sample();
         }
 
@@ -484,7 +493,7 @@ internal static class Terrain
             var actualUpload = charge.Upload;
             if (protectedUploads is not null)
             {
-                var leased = live.Where(job => job.Lane is "edit" or "recover")
+                var leased = live.Where(job => job.Buffers.Pooled)
                     .Aggregate(default(Charge), (sum, job) => sum + job.Charge);
                 actualGpu += protectedUploads.GeometryBytes - leased.Gpu;
                 actualUpload += protectedUploads.UploadBytes - leased.Upload;
@@ -502,22 +511,26 @@ internal static class Terrain
     private static (Vector3[] Vertices, int Transitions, Mesh CollisionMesh) Build(Tables tables, int job, bool concurrent, Action<long>? packedAllocated = null, bool shareEqualRegions = false)
     {
         var meshes = new Mesh[Regions];
+        var shared = shareEqualRegions ? new Dictionary<(string Fixture, string Layout), Mesh>() : null;
+        DensityEdit[] edits = job >= 4 ? [new(new Vector3(15, 16, 15), 3, false)] : [];
         for (var i = 0; i < Regions; i++)
         {
-            DensityEdit[] edits = job >= 4 ? [new(new Vector3(15, 16, 15), 3, false)] : [];
+
             var fixture = (i + (job < 4 ? job : 0)) % 2 == 0 ? "bridge" : "cavity";
             if (concurrent && i == 0 && job is 0 or 3 or 4 or 5)
                 fixture = "capacity-route";
-            // The edited fixture repeats the same local density, brush and LOD
-            // within each parity; only the packed placement differs.
-            if (shareEqualRegions && i >= 3)
+            // Every region in this job uses the same local brush. Placement
+            // is applied after extraction and is never part of the cache.
+            var layout = i % 2 == 0 ? "face" : "corner";
+            var key = (fixture, layout);
+            if (shared is not null && shared.TryGetValue(key, out var existing))
             {
-                meshes[i] = meshes[i % 2 == 0 ? 2 : 1];
+                meshes[i] = existing;
                 continue;
             }
-            var grid = new Grid(32, fixture, i % 2 == 0 ? "face" : "corner",
-                false, false, false, false, false, false, edits);
+            var grid = new Grid(32, fixture, layout, false, false, false, false, false, false, edits);
             meshes[i] = Marching.Extract(grid, tables);
+            shared?.Add(key, meshes[i]);
         }
 
         var vertexCount = checked(meshes.Sum(x => x.Count) * 3);

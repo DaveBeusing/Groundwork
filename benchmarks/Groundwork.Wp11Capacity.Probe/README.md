@@ -251,3 +251,27 @@ The duplicate-input optimization is specific to the identical local
 fields, edits and LOD layouts in this fixture.
 
 [Optimized workstation measurements](results-optimized-terrain-windows-nvidia.json)
+
+## Shared extraction and paced Present
+
+Use `paced-terrain` to extend the optimized route to movement, initial
+staging and speculative CPU jobs.
+
+```powershell
+dotnet artifacts/bin/Groundwork.Wp11Capacity.Probe/release/Groundwork.Wp11Capacity.Probe.dll 10DE paced-terrain $tablePath 150
+```
+
+Jobs extract each unique local fixture and LOD layout once and still pack
+all eight placements. The startup check compares the output of every job
+with independent extraction for each placement. CPU streaming still
+continuously builds terrain. Movement uses a separate preallocated default
+buffer and the same fenced upload staging as edit and recovery.
+
+The flip chain waits for the DXGI frame-latency handle before recording
+and calls Present with sync interval 1 and DO_NOT_WAIT. If DXGI reports
+WAS_STILL_DRAWING, the harness retries the same frame within a bounded
+interval. Present wall time includes every retry and retry wait. The time
+from frame start through queue fence includes the readiness wait. The
+readiness time and retry count are also recorded separately.
+
+[Shared extraction and paced Present measurements](results-paced-terrain-windows-nvidia.json)
