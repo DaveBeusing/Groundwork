@@ -15,20 +15,22 @@ public sealed class PlanetVolumeMesh
     private readonly VolumeTriangle[] _triangles;
 
     internal PlanetVolumeMesh(PlanetDescriptor descriptor, LatticeCoordinate origin, ulong revision,
-        byte lodMask, VolumeTriangle[] triangles)
+        byte lodMask, string planIdentity, VolumeTriangle[] triangles)
     {
         Descriptor = descriptor;
         Origin = origin;
         TerrainRevision = revision;
         LodMask = lodMask;
+        PlanIdentity = planIdentity;
         _triangles = triangles;
     }
 
-    public const uint MesherVersion = 1;
+    public const uint MesherVersion = 2;
     public PlanetDescriptor Descriptor { get; }
     public LatticeCoordinate Origin { get; }
     public ulong TerrainRevision { get; }
     public byte LodMask { get; }
+    public string PlanIdentity { get; }
     public ReadOnlySpan<VolumeTriangle> Triangles => _triangles;
 }
 
@@ -43,78 +45,71 @@ public static class PlanetVolumeMesher
     private static readonly int[] FaceBits = [0, 1, 2, 5, 8, 7, 6, 3, 4];
 
     /// <summary>
-    /// Counts output before allocation and returns null if the triangle payload quota is insufficient.
-    /// Inputs must contain all eight bricks in a complete neighborhood, in any order, at stride 1 or 2.
-    /// Fine requests are closed to their bounding Cartesian subcube to avoid concave transition junctions.
-    /// Unresolved outward-normal inversions trigger a full-neighborhood refinement or fail closed.
-    /// LodMask reports the resulting strides. The caller retains leases until this operation returns.
-    /// External region boundaries require separate coverage and halo qualification before streaming use.
+    /// Builds a standalone eight-brick mesh. Use a shared VolumeMeshPlan for neighboring outputs.
     /// </summary>
     public static PlanetVolumeMesh? Build(ReadOnlySpan<VolumeMeshInput> inputs, ulong terrainRevision, long payloadLimit)
     {
         ArgumentOutOfRangeException.ThrowIfZero(terrainRevision);
         ArgumentOutOfRangeException.ThrowIfNegative(payloadLimit);
-        if (inputs.Length != 8)
-            throw new ArgumentException("A complete eight-brick neighborhood is required.", nameof(inputs));
-
-        var minX = long.MaxValue;
-        var minY = long.MaxValue;
-        var minZ = long.MaxValue;
-        PlanetDescriptor? descriptor = null;
-        foreach (var input in inputs)
-        {
-            ArgumentNullException.ThrowIfNull(input.Brick);
-            if (input.Stride is not (1 or 2))
-                throw new ArgumentOutOfRangeException(nameof(inputs), "Only strides 1 and 2 are supported.");
-            descriptor ??= input.Brick.Descriptor;
-            if (descriptor != input.Brick.Descriptor)
-                throw new ArgumentException("All bricks must share the exact source descriptor.", nameof(inputs));
-            _ = input.Brick.ReadDensity(0, 0, 0);
-            minX = Math.Min(minX, input.Brick.Key.X);
-            minY = Math.Min(minY, input.Brick.Key.Y);
-            minZ = Math.Min(minZ, input.Brick.Key.Z);
-        }
-
-        Span<int> order = stackalloc int[8];
-        order.Fill(-1);
-        byte mask = 0;
-        for (var i = 0; i < inputs.Length; i++)
-        {
-            var key = inputs[i].Brick.Key;
-            var x = checked(key.X - minX);
-            var y = checked(key.Y - minY);
-            var z = checked(key.Z - minZ);
-            if (x > 1 || y > 1 || z > 1)
-                throw new ArgumentException("Bricks must form one contiguous two-brick cube.", nameof(inputs));
-            var slot = (int)(x + 2 * y + 4 * z);
-            if (order[slot] != -1)
-                throw new ArgumentException("Duplicate brick.", nameof(inputs));
-            order[slot] = i;
-            if (inputs[i].Stride == 2)
-                mask |= (byte)(1 << slot);
-        }
-
-        mask = CloseRefinement(mask);
-        var count = Extract(inputs, order, mask, null, out var inverted);
-        if (inverted && mask != 0)
-        {
-            mask = 0;
-            count = Extract(inputs, order, mask, null, out inverted);
-        }
-        if (inverted)
-            throw new InvalidOperationException("The sampled field cannot produce consistently outward triangles at this resolution.");
-        if (checked((long)count * TrianglePayloadBytes) > payloadLimit)
-            return null;
-
-        var triangles = new VolumeTriangle[count];
-        var written = Extract(inputs, order, mask, triangles, out var changedOrientation);
-        if (written != count || changedOrientation)
-            throw new InvalidOperationException("Input changed between mesh passes.");
-        return new PlanetVolumeMesh(descriptor!, new LatticeBrick(minX, minY, minZ).Vertex(0, 0, 0),
-            terrainRevision, mask, triangles);
+        using var plan = VolumeMeshPlan.Borrow(inputs, terrainRevision);
+        return Build(plan, plan.Minimum, payloadLimit);
     }
 
-    private static int Extract(ReadOnlySpan<VolumeMeshInput> inputs, ReadOnlySpan<int> order, byte mask, VolumeTriangle[]? output, out bool inverted)
+    /// <summary>
+    /// Independently extracts an aligned eight-brick neighborhood using the plan's common LODs
+    /// and density halo. Plan identity must match for meshes admitted together.
+    /// Counts triangles before allocation. Returns null if their payload exceeds the limit.
+    /// </summary>
+    public static PlanetVolumeMesh? Build(VolumeMeshPlan plan, LatticeBrick minimum, long payloadLimit)
+    {
+        ArgumentNullException.ThrowIfNull(plan);
+        ArgumentOutOfRangeException.ThrowIfNegative(payloadLimit);
+        plan.Enter();
+        try
+        {
+            var region = plan.RegionIndex(minimum);
+            var count = Extract(plan, region, null, out var inverted);
+            if (inverted)
+                throw new InvalidOperationException("Plan geometry no longer matches its sealed layout.");
+            if (checked((long)count * TrianglePayloadBytes) > payloadLimit)
+                return null;
+
+            var triangles = new VolumeTriangle[count];
+            var written = Extract(plan, region, triangles, out inverted);
+            if (written != count || inverted)
+                throw new InvalidOperationException("Input changed between mesh passes.");
+
+            byte mask = 0;
+            for (var slot = 0; slot < 8; slot++)
+            {
+                var c = Corner(slot);
+                var index = region + (int)c.X + (int)c.Y * plan.Width + (int)c.Z * plan.Width * plan.Height;
+                if (plan.Stride(index) == 2)
+                    mask |= (byte)(1 << slot);
+            }
+            return new PlanetVolumeMesh(plan.Descriptor, minimum.Vertex(0, 0, 0), plan.TerrainRevision,
+                mask, plan.Identity, triangles);
+        }
+        finally
+        {
+            plan.Exit();
+        }
+    }
+
+    internal static bool HasInvertedTriangles(VolumeMeshPlan plan)
+    {
+        for (var z = 0; z < plan.Depth; z += 2)
+        for (var y = 0; y < plan.Height; y += 2)
+        for (var x = 0; x < plan.Width; x += 2)
+        {
+            _ = Extract(plan, (z * plan.Height + y) * plan.Width + x, null, out var inverted);
+            if (inverted)
+                return true;
+        }
+        return false;
+    }
+
+    private static int Extract(VolumeMeshPlan plan, int region, VolumeTriangle[]? output, out bool inverted)
     {
         inverted = false;
         var count = 0;
@@ -122,10 +117,13 @@ public static class PlanetVolumeMesher
         Span<Vector3> positions = stackalloc Vector3[13];
         Span<Vector3> samplePositions = stackalloc Vector3[13];
         Span<VolumeVertex> vertices = stackalloc VolumeVertex[12];
+        var anchor = plan.BrickPosition(region);
         for (var slot = 0; slot < 8; slot++)
         {
-            var origin = Corner(slot) * 32;
-            var step = (mask & (1 << slot)) == 0 ? 1 : 2;
+            var corner = Corner(slot);
+            var brickIndex = region + (int)corner.X + (int)corner.Y * plan.Width + (int)corner.Z * plan.Width * plan.Height;
+            var origin = plan.BrickPosition(brickIndex);
+            var step = plan.Stride(brickIndex);
             for (var z = 0; z < 32; z += step)
             for (var y = 0; y < 32; y += step)
             for (var x = 0; x < 32; x += step)
@@ -135,23 +133,24 @@ public static class PlanetVolumeMesher
                 {
                     var point = origin + new Vector3(x, y, z) + Corner(i) * step;
                     samplePositions[i] = point;
-                    positions[i] = step == 1 ? FinePosition(point, slot, mask) : point;
-                    density[i] = Read(point, inputs, order);
+                    positions[i] = step == 1 ? FinePosition(point, brickIndex, plan) : point;
+                    density[i] = plan.Read(point);
                     if (density[i] < 0)
                         code |= 1 << i;
                 }
 
                 count = Emit(TransvoxelTables.RegularCells[TransvoxelTables.RegularClass[code]],
                     TransvoxelTables.RegularVertices[code], density, positions, samplePositions,
-                    false, vertices, inputs, order, output, count, ref inverted);
+                    false, vertices, plan, anchor, output, count, ref inverted);
             }
 
             if (step != 1)
                 continue;
             for (var axis = 0; axis < 3; axis++)
+            for (var direction = -1; direction <= 1; direction += 2)
             {
-                var direction = ((slot >> axis) & 1) == 0 ? 1 : -1;
-                if ((mask & (1 << (slot ^ (1 << axis)))) == 0)
+                var neighbor = plan.Neighbor(brickIndex, axis, direction);
+                if (neighbor < 0 || plan.Stride(neighbor) != 2)
                     continue;
                 var normal = Axis(axis);
                 var u = Axis((axis + 1) % 3);
@@ -164,14 +163,14 @@ public static class PlanetVolumeMesher
                     for (var i = 0; i < 9; i++)
                     {
                         samplePositions[i] = point + u * (i % 3) + v * (i / 3);
-                        positions[i] = FinePosition(samplePositions[i], slot, mask);
-                        density[i] = Read(samplePositions[i], inputs, order);
+                        positions[i] = FinePosition(samplePositions[i], brickIndex, plan);
+                        density[i] = plan.Read(samplePositions[i]);
                     }
                     for (var i = 0; i < 4; i++)
                     {
                         samplePositions[9 + i] = point + u * ((i & 1) * 2) + v * ((i >> 1) * 2);
                         positions[9 + i] = samplePositions[9 + i];
-                        density[9 + i] = Read(samplePositions[9 + i], inputs, order);
+                        density[9 + i] = plan.Read(samplePositions[9 + i]);
                     }
                     var code = 0;
                     for (var i = 0; i < FaceBits.Length; i++)
@@ -180,7 +179,7 @@ public static class PlanetVolumeMesher
                     var cellClass = TransvoxelTables.TransitionClass[code];
                     count = Emit(TransvoxelTables.TransitionCells[cellClass & 127],
                         TransvoxelTables.TransitionVertices[code], density, positions, samplePositions,
-                        ((cellClass & 128) != 0) == (direction > 0), vertices, inputs, order, output, count, ref inverted);
+                        ((cellClass & 128) != 0) == (direction > 0), vertices, plan, anchor, output, count, ref inverted);
                 }
             }
         }
@@ -189,7 +188,7 @@ public static class PlanetVolumeMesher
 
     private static int Emit(byte[] cell, byte[] edges, ReadOnlySpan<long> density,
         ReadOnlySpan<Vector3> positions, ReadOnlySpan<Vector3> samples, bool reverse,
-        Span<VolumeVertex> vertices, ReadOnlySpan<VolumeMeshInput> inputs, ReadOnlySpan<int> order,
+        Span<VolumeVertex> vertices, VolumeMeshPlan plan, Vector3 anchor,
         VolumeTriangle[]? output, int count, ref bool inverted)
     {
         for (var i = 0; i < (cell[0] >> 4); i++)
@@ -205,17 +204,21 @@ public static class PlanetVolumeMesher
 
             // Keep exact-zero vertices off cell corners with a fixed 1/65536-cell symbolic offset.
             var weight = (int)Int128.Clamp((numerator * Quantization + denominator / 2) / denominator, 1, Quantization - 1);
-            var position = positions[a] + (positions[b] - positions[a]) * (weight / (float)Quantization);
-            var normal = Vector3.Lerp(Gradient(samples[a], inputs, order), Gradient(samples[b], inputs, order),
+            var position = Vector3.Zero;
+            for (var axis = 0; axis < 3; axis++)
+            {
+                // Canonical Q17 arithmetic precedes the neighborhood-relative float conversion.
+                var ticks = (long)(positions[a][axis] * 2) * Quantization +
+                    (long)((positions[b][axis] - positions[a][axis]) * 2) * weight;
+                position[axis] = (ticks - (long)anchor[axis] * (2 * Quantization)) / (float)(2 * Quantization);
+            }
+            var normal = Vector3.Lerp(plan.Gradient(samples[a]), plan.Gradient(samples[b]),
                 weight / (float)Quantization);
             if (normal.LengthSquared() > 0)
                 normal /= (float)Math.Sqrt((double)normal.X * normal.X + (double)normal.Y * normal.Y + (double)normal.Z * normal.Z);
             ushort material = 0;
             if (output is not null)
-            {
-
-                material = Material(samples[a], inputs, order);
-            }
+                material = plan.Material(samples[a]);
             vertices[i] = new VolumeVertex(position, normal, material);
         }
 
@@ -235,79 +238,22 @@ public static class PlanetVolumeMesher
         return count;
     }
 
-    // Close fine requests to one Cartesian subcube. This removes concave/checkerboard
-    // junctions before extraction, while retaining Transvoxel on its convex boundary.
-    private static byte CloseRefinement(byte mask)
-    {
-        if (mask == 255)
-            return mask;
-        var low = new Vector3(1);
-        var high = Vector3.Zero;
-        for (var slot = 0; slot < 8; slot++)
-        {
-            if ((mask & (1 << slot)) != 0)
-                continue;
-            low = Vector3.Min(low, Corner(slot));
-            high = Vector3.Max(high, Corner(slot));
-        }
-        for (var slot = 0; slot < 8; slot++)
-        {
-            var point = Corner(slot);
-            if (point.X >= low.X && point.X <= high.X &&
-                point.Y >= low.Y && point.Y <= high.Y &&
-                point.Z >= low.Z && point.Z <= high.Z)
-                mask = (byte)(mask & ~(1 << slot));
-        }
-        return mask;
-    }
-
-    private static Vector3 FinePosition(Vector3 position, int slot, byte mask)
+    private static Vector3 FinePosition(Vector3 position, int brickIndex, VolumeMeshPlan plan)
     {
         var result = position;
+        var origin = plan.BrickPosition(brickIndex);
         for (var axis = 0; axis < 3; axis++)
+        for (var direction = -1; direction <= 1; direction += 2)
         {
-            if (position[axis] == 32 && (mask & (1 << (slot ^ (1 << axis)))) != 0)
-                result -= Axis(axis) * (((slot >> axis) & 1) == 0 ? 0.5f : -0.5f);
+            var boundary = origin[axis] + (direction > 0 ? 32 : 0);
+            if (position[axis] != boundary)
+                continue;
+            var neighbor = plan.Neighbor(brickIndex, axis, direction);
+            if (neighbor >= 0 && plan.Stride(neighbor) == 2)
+                result -= Axis(axis) * (0.5f * direction);
         }
         return result;
     }
-
-    private static Vector3 Gradient(Vector3 point, ReadOnlySpan<VolumeMeshInput> inputs, ReadOnlySpan<int> order)
-    {
-        var result = Vector3.Zero;
-        for (var axis = 0; axis < 3; axis++)
-        {
-            var low = point;
-            var high = point;
-            low[axis] = Math.Max(0, point[axis] - 1);
-            high[axis] = Math.Min(64, point[axis] + 1);
-            result[axis] = (float)(((double)Read(high, inputs, order) - Read(low, inputs, order)) / (high[axis] - low[axis]));
-        }
-        return result;
-    }
-
-    private static long Read(Vector3 point, ReadOnlySpan<VolumeMeshInput> inputs, ReadOnlySpan<int> order)
-    {
-        var slot = Slot(point, out var local);
-        return inputs[order[slot]].Brick.ReadDensity((int)local.X, (int)local.Y, (int)local.Z);
-    }
-
-    private static ushort Material(Vector3 point, ReadOnlySpan<VolumeMeshInput> inputs, ReadOnlySpan<int> order)
-    {
-        point = Vector3.Min(point, new Vector3(63));
-        var slot = Slot(point, out var local);
-        return inputs[order[slot]].Brick.ReadMaterial((int)local.X, (int)local.Y, (int)local.Z);
-    }
-
-    private static int Slot(Vector3 point, out Vector3 local)
-    {
-        var x = point.X >= 32 ? 1 : 0;
-        var y = point.Y >= 32 ? 1 : 0;
-        var z = point.Z >= 32 ? 1 : 0;
-        local = point - new Vector3(x, y, z) * 32;
-        return x + 2 * y + 4 * z;
-    }
-
     private static Vector3 Corner(int i) => new(i & 1, (i >> 1) & 1, (i >> 2) & 1);
     private static Vector3 Axis(int axis) => axis switch
     {
