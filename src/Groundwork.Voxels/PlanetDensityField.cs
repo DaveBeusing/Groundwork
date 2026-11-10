@@ -13,7 +13,7 @@ public readonly record struct PlanetLandform(int ContinentMask, long BaseElevati
 /// Version 1 planet terrain. Density is sampled at 3D lattice vertices. Materials are sampled
 /// independently at owned cell keys and never determine solidity.
 /// </summary>
-public sealed class PlanetDensityField
+public sealed class PlanetDensityField : IPlanetBrickSource
 {
     public const uint GeneratorVersion = 1;
     public const uint TerrainSchemaVersion = 1;
