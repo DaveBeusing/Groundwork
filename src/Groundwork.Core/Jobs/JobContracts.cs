@@ -361,7 +361,21 @@ public readonly record struct BatchDisposition(BatchId Batch, BatchDispositionKi
 public enum BatchDispositionKind : byte { Commit = 1, Defer, Reject }
 public sealed record BarrierPublicationDraft(
     CandidateSet Candidates, IWorldStateRoot NextRoot, ulong ExpectedSafetyGeneration,
-    ImmutableArray<BatchDisposition> Dispositions);
+    ImmutableArray<BatchDisposition> Dispositions, RootChangePermit? RootChange)
+{
+    public BarrierPublicationDraft(CandidateSet candidates, IWorldStateRoot nextRoot, ulong expectedSafetyGeneration,
+        ImmutableArray<BatchDisposition> dispositions)
+        : this(candidates, nextRoot, expectedSafetyGeneration, dispositions, null) { }
+
+    public void Deconstruct(out CandidateSet candidates, out IWorldStateRoot nextRoot,
+        out ulong expectedSafetyGeneration, out ImmutableArray<BatchDisposition> dispositions)
+    {
+        candidates = Candidates;
+        nextRoot = NextRoot;
+        expectedSafetyGeneration = ExpectedSafetyGeneration;
+        dispositions = Dispositions;
+    }
+}
 
 public sealed class PreparedBarrierPublication
 {
@@ -425,6 +439,7 @@ public sealed class WorldPublicationPorts
 {
     internal WorldPublicationPorts(WorldPublicationAuthority authority)
     {
+        RootChanges = authority.RootChanges;
         Execution = new JobExecutionPort(authority);
         Phases = new JobPhasePort(authority);
         Capture = new JobCapturePort(authority);
@@ -438,6 +453,7 @@ public sealed class WorldPublicationPorts
         Borrow = new BorrowBarrierPort(authority);
     }
 
+    public IRootChangeAuthority RootChanges { get; }
     public IJobExecutionAuthority Execution { get; }
     public IJobPhaseControl Phases { get; }
     public IJobCaptureAuthority Capture { get; }

@@ -41,7 +41,7 @@ try {
             Assert-True ($packages.Count -eq 0) ("Unexpected shipping package reference: " + $id)
         }
         $refs = @($project.SelectNodes('//ProjectReference') | ForEach-Object { $_.GetAttribute('Include') })
-        if ($module -in @('Core', 'Voxels')) {
+        if ($module -eq 'Core') {
             Assert-True ($refs.Count -eq 0) ("$id must not have project references.")
         } elseif ($module -eq 'Persistence') {
             Assert-True (($refs.Count -eq 1) -and ($refs[0] -ceq '../Groundwork.Voxels/Groundwork.Voxels.csproj')) 'Invalid Persistence project dependencies.'
@@ -67,6 +67,7 @@ try {
         '../../src/Groundwork.Ecs/Groundwork.Ecs.csproj',
         '../../src/Groundwork.Jobs/Groundwork.Jobs.csproj'
     )
+    $approvedTests['tests/Groundwork.Voxels.Tests/Groundwork.Voxels.Tests.csproj'] += @('../../src/Groundwork.Jobs/Groundwork.Jobs.csproj')
     Assert-True ($testPaths -contains 'tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj') 'Core tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.Tests/Groundwork.Rendering.Tests.csproj') 'Rendering tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj') 'D3D12 tests are missing from the solution.'

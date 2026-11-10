@@ -182,7 +182,9 @@ internal sealed partial class WorldPublicationAuthority
                 ordered.Add(disposition);
             }
 
-            if (changed && !commits)
+            if ((_rootChange is not null || draft.RootChange is not null) && !ValidRootChange(draft))
+                return new(BarrierPreparationStatus.InvalidCandidate, null);
+            if (changed && !commits && !ValidRootChange(draft))
                 return new(BarrierPreparationStatus.InvalidCandidate, null);
 
             _prepared = new PreparedBarrierPublication(draft with { Dispositions = ordered.MoveToImmutable() }, changed);
@@ -215,12 +217,14 @@ internal sealed partial class WorldPublicationAuthority
                 return new(BarrierStatus.Stopped, null);
             }
 
-            bool rejectOnly = false;
+            bool cancelledBatch = false;
+            bool rejectOnly = publication.Draft.RootChange is not null && !ValidRootChange(publication.Draft);
             for (int index = 0; index < _selected.Count; index++)
             {
                 var batch = _selected[index];
                 var generation = _jobs[batch.Permit.Job].CancellationRequested ? 1UL : 0UL;
-                rejectOnly |= generation != publication.Draft.Candidates.Batches[index].CancellationGeneration;
+                cancelledBatch |= generation != publication.Draft.Candidates.Batches[index].CancellationGeneration;
+                rejectOnly |= cancelledBatch;
             }
 
             bool changesWorld = publication.ChangesWorld && !rejectOnly;
@@ -237,6 +241,11 @@ internal sealed partial class WorldPublicationAuthority
                 changesWorld ? _stamp.Revision + 1 : _stamp.Revision);
             if (changesWorld)
                 _root = publication.Draft.NextRoot;
+            if (changesWorld && publication.Draft.RootChange is { } rootChange)
+            {
+                rootChange.FinalizedStamp = stamp;
+                rootChange.State = RootChangeStatus.Committed;
+            }
             _stamp = stamp;
             for (int index = 0; index < _selected.Count; index++)
             {
@@ -267,7 +276,7 @@ internal sealed partial class WorldPublicationAuthority
             ClearBarrier();
             _lastPhase = 0;
             RefreshJobs();
-            if (rejectOnly)
+            if (rejectOnly && cancelledBatch)
             {
                 var phase = request.Kind == BarrierKind.BeginTick ? TickPhase.BeginTick : TickPhase.CommitResults;
                 var context = new FaultContext(stamp.World, stamp.Tick, phase, null, null, null);
@@ -358,6 +367,9 @@ internal sealed partial class WorldPublicationAuthority
 
     private void ClearBarrier()
     {
+        if (_rootChange is { State: RootChangeStatus.Pending } permit)
+            permit.State = RootChangeStatus.Revoked;
+        _rootChange = null;
         _drain = null;
         _selected = null;
         _candidates = null;

@@ -95,14 +95,27 @@ public sealed class SaveSlotProcessTests
             Process? writer = null;
             try
             {
-                while (!File.Exists(barrier))
+                string? writerText = null;
+                while (writerText is null)
                 {
                     if (child.HasExited)
                         throw new AssertFailedException($"Writer exited before {stage}.{Environment.NewLine}{await output}{Environment.NewLine}{await errors}");
-                    await Task.Delay(20, watchdog.Token);
+                    if (File.Exists(barrier))
+                    {
+                        try
+                        {
+                            writerText = File.ReadAllText(barrier);
+                        }
+                        catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+                        {
+                            // The rename may expose the marker before its Windows handle is released.
+                        }
+                    }
+                    if (writerText is null)
+                        await Task.Delay(20, watchdog.Token);
                 }
 
-                var writerId = int.Parse(File.ReadAllText(barrier), CultureInfo.InvariantCulture);
+                var writerId = int.Parse(writerText, CultureInfo.InvariantCulture);
                 writer = Process.GetProcessById(writerId);
                 // Open the handle before termination so a recycled PID cannot affect the wait.
                 _ = writer.SafeHandle;
