@@ -50,7 +50,7 @@ A player can start a new world from an exact seed and generator version, walk th
 ### R05 – Streaming and bounded scheduling
 
 - Select local volumetric detail by view distance and required collision/support, and remote spherical coarse representation by LOD; maintain a support halo that covers admitted player motion and edit operations.
-- Bound active/staged tiles, workers, queues, retained readers, CPU mesh and GPU allocations including retiring resources. Explicit initial guardrail defaults for a reference Windows desktop: up to 4 generation jobs, 2 meshing jobs, 1 replaceable staged generation, no unbounded waiting queue; 512 MiB total terrain CPU payload and 256 MiB native terrain geometry. These are **design ceilings to validate and revise by measured evidence before implementation approval**, not performance claims.
+- Bound active/staged tiles, workers, queues, retained readers, CPU mesh and GPU allocations including retiring resources. Explicit initial guardrail defaults for a reference Windows desktop: up to 4 generation jobs, 2 meshing jobs, 1 replaceable staged generation, no unbounded waiting queue; 512 MiB total terrain CPU payload and 256 MiB native terrain geometry. These are bounded planning defaults. C00-4 assigns production sizing and qualification to Q01/Q02.
 - Camera/intent changes supersede obsolete candidates without abandoning owned work; stale results are rejected. Under pressure, keep last coherent terrain and report backpressure; never spin, allocate without quota, or publish unsupported movement.
 - Generation and meshing execute off 60 Hz simulation tick and UI/render owners. Cancellation, pause, terminal stop, GPU retirement, device removal and failed task paths release resources only when safe.
 
@@ -78,7 +78,7 @@ A player can start a new world from an exact seed and generator version, walk th
 
 - Diagnostics expose seed, generator/schema version, planet identifier, camera origin, tiles and meshes active/staged/retained, queue admission, generated/meshed bytes, memory high-water, terrain generation time, LOD and collision coverage holds. No unbounded logs on hot paths.
 - Tests: golden sample hashes across deterministic fixtures, serial/parallel and repeated runs; extreme coordinate precision; all twelve cube edges and eight cube corners; mixed-LOD transitions and cavity/overhang; edit/unload/reload/save/restart; cancellation and stale work; low-memory quota rejection; writer termination; WARP readback and NVIDIA debug live-object shutdown.
-- Benchmark reproducibly on a documented 8-core/32-GiB class Windows machine plus optional workstation. Record adapter/driver, Windows/runtime/SDK, seed, route, generator version, CPU/GPU memory, generation/meshing latency distributions, waits, queue peaks, p50/p95/p99 frame times, draw calls and sample count. Hard performance acceptance thresholds are set from baseline evidence in the architecture review prior to sign-off; no invented FPS claim.
+- Benchmark reproducibly on a documented 8-core/32-GiB class Windows machine plus optional workstation. Record adapter/driver, Windows/runtime/SDK, seed, route, generator version, CPU/GPU memory, generation/meshing latency distributions, waits, queue peaks, p50/p95/p99 frame times, draw calls and sample count. Q01 sets justified production thresholds from that baseline. Q02 qualifies them before W05, G00 and production cutover, as specified in C00-4.
 - Keep 60-Hz fixed simulation deterministic under the same player input and authoritative admission journal. Timing measurements are not semantic inputs.
 
 ## WP11-C00 architecture clarifications — review candidate (2026-11-08)
@@ -91,7 +91,7 @@ The owner confirmed three **WP11-C00 architecture directions** for independent r
 
 1. **Canonical volumetric addresses:** A single planet-centred signed Int64 Cartesian lattice owns all density vertices, cells, edit identities and brick keys. Cube-sphere faces, render LOD and rebased float origins never own or alter persistent voxel identities. A 32-cell brick and 1 m finest-cell reference are **initial tunable parameters**, not permanent gameplay resolution limits.
 2. **Collision Coverage Admission:** Streaming anticipates the swept movement envelope, velocity and stopping distance. Never treat unknown collision coverage as empty. If a movement or terrain interaction needs missing or non-admitted coherent mesh/collision coverage, hold or reject **only that affected action** at the last valid state, while independent simulation systems continue at their fixed tick. Do not accrue and later burst-replay movement deltas. In orbit, use appropriate broad-phase/body/vehicle collision representations, escalating to surface volume coverage before atmospheric descent, touchdown or proximity contact.
-3. **Meshing reference candidate:** Use a pluggable meshing interface and **Marching Cubes with validated Transvoxel-style mixed-LOD transitions as the first reference implementation/prototype**. Develop a constrained Dual Contouring / Surface Nets comparison on identical deterministic adversarial fixtures. The production algorithm, seam policy and hard memory/latency budgets remain **unselected and unmeasured** until the comparative C00 gate is completed.
+3. **Meshing baseline:** C00-4 selects Marching Cubes with Transvoxel transitions behind a replaceable interface. The reduced Dual Contouring comparison and remaining production gates are recorded there.
 
 For canonical edits, assign **material identifiers to uniquely owned cells** and **geometry-defining signed density to globally identified lattice vertices**. Any occupancy/solid-empty query is derived from the authoritative density field; independent cell occupancy cannot contradict it. A brush is a deterministic ordered transaction with a canonical bounding set, matching material changes and one expected world revision. Recompute/invalidate every neighbouring brick that samples changed density, including edges/corners and LOD dependents. Never save a duplicate authoritative edit under a cube-face or render-LOD key.
 
@@ -335,51 +335,25 @@ support while standing, running/jumping while digging, unknown swept coverage,
 and first eligible gravity tick. Assert each gate, pose/contact, tick,
 checkpoint cut, in-flight ownership and final release.
 
-### C00-4 — Meshing and performance-budget decision gate (R04/R05/R09, B01/Q01)
+### C00-4 — Mesher selection and qualification gates (R04/R05/R09)
 
-The **owner-approved first reference candidate** is Marching Cubes with validated Transvoxel-style transitions, behind a replaceable meshing interface. It is **not yet the selected production algorithm**. The production surface algorithm and mixed-resolution transition mechanism are an **explicit measured C00 decision**, not an implicit promise. Compare at least **(a) Marching Cubes with a validated crack-free mixed-resolution transition such as Transvoxel-style transition cells**, and **(b) a dual-contouring/surface-nets family with explicit adaptive boundary topology**. An alternative is valid if equivalent seam/winding and cavity evidence is provided. Document topology consistency, material/normal interpolation, thin structures, sharp features, difficult mixed-LOD corners, cube-chart edges, deterministic vertex ordering, memory traffic and CPU meshing cost. A naive independent per-brick triangulation without boundary stitching cannot pass.
+**Architecture acceptance (C00).** Select Marching Cubes with Transvoxel transitions as the replaceable B01 implementation baseline. The nine common Workstation fixtures compare it with Dual Contouring and cover local geometry and mixed-LOD cases. The saturated terrain prototype and reservation ledger support the bounded design and protected progress model. Freeze that evidence, its scope and the downstream criteria below at the reviewed head. The C00 campaign is closed. Full chart-boundary and production capacity evidence is NOT MEASURED at C00 and is required at the assigned downstream gates. C00 acceptance permits implementation after the required reviews, checks and explicit owner sign-off. It confers no downstream qualification. See the [decision record](../adr/wp11-c00-meshing-and-streaming-proposal.md).
 
-Provisional ceilings from R05 — 4 generating jobs, 2 meshing jobs, 1 staged generation, 512 MiB CPU terrain and 256 MiB GPU geometry — are **planning limits only**. Before C00 acceptance, choose documented reference hardware and scene seeds, benchmark both candidates or a defensible reduced prototype, publish actual high-water allocation and p50/p95/p99 times, and freeze explicit acceptance ceilings with justification. Count CPU active, pending, leased, obsolete and retiring buffers and GPU upload, active, candidate and retirement buffers; keep the workload bounded and reject reservations before allocation. A measurement not run must be marked `NOT MEASURED` and is a remaining C00 gate, not estimated proof. Geometry and memory budget tuning may change the 32-cell/1 m reference after measurements without a backward compatibility obligation.
+| Gate | Owner and required evidence | Blocking condition |
+| --- | --- | --- |
+| Chart identity | A01 (#79) must cover all 12 cube-chart edges and eight corners in both traversal directions, including mixed LOD and rebases. Adjacent charts must resolve shared authoritative samples to the same checked Int64 keys and values. | A01 acceptance and release of its accepted contract to dependents require passing fixtures. |
+| Render seams | B01 (#82) must demonstrate deterministic, watertight mixed-LOD meshes across all chart edges and corners, including thin features, cavities, overhangs and intersecting transitions. Check canonical shared samples, winding, normals, material continuity and deterministic ordering. | B01 acceptance requires passing identity and seam checks. |
+| Collision and combined seam qualification | C02 (#84) must check rays and finite sweeps across chart boundaries, including edits and rebases, against the shared density authority and matching publication identity. Unknown or mismatched coverage holds the affected action. Q02 (#89) must rerun the cross-module cases and verify WARP color/depth at seams. | C02 acceptance requires collision parity and hold checks. Q02 acceptance, W05 qualification and G00 handover require the combined result. |
+| Capacity implementation | C01 (#83) owns admission and the resource ledger. It must exercise atomic reservation, complete accounting, denied admission at each limit and ±1 byte/slot, cancellation and protected progress against a bounded test configuration. C03 (#85) must demonstrate old/new geometry, upload and retirement charges held through safe settlement, including failed signals and device loss. | C01/C03 acceptance requires their respective correctness evidence. Production ceilings are qualified by Q01 after both paths are available. |
+| Production capacity | Q01 (#88), with C01/C03, must measure and freeze justified per-resource ceilings on the documented R09 8-core/32-GiB class. Include measured high-water by ownership state, separate budgets for required movement, first edit and recovery, speculative remainder, and concurrent baseline. Q02 must verify the resulting limits on a reproducible admissible route under full CPU queue and blocked GPU streaming, with old geometry and reader leases retained, including exhaustion and safe retirement. | Q01 final acceptance requires the measured ceilings and a demonstrated admissible route. Q02 final acceptance requires Q01 evidence and cross-module validation against those ceilings. No W05 qualification, G00 handover or production cutover without both. |
 
-C00 owns the reduced pre-approval comparison and capacity prototype.
-It has no dependency on the production B01/Q01/Q02 packages. Freeze
-the prototype evidence before opening those production gates. Q01 and
-Q02 subsequently qualify the implementation with the frozen criteria.
+**Protected progress credits.** The world coordinator atomically reserves the complete resource vector before dispatch. Include job and queue slots, leases, CPU bytes including density, triangle scratch, retained results and masking/recovery space, and GPU upload, active, candidate and retiring resources. Unavailable credit denies the whole reservation with journaled Backpressure before allocation. No waiting or retrying inside a resource or authority critical section.
 
-**Protected progress credits.** The world coordinator admits a complete
-resource vector before dispatch. It atomically reserves job/queue and lease
-slots, CPU peak including retained results, upload bytes, resident old and
-new GPU geometry, retirement slots/bytes, and temporary space for the
-mask and recovery. Any unavailable credit denies the entire reservation
-with explicit Backpressure before allocation. This outcome is journaled.
-No actor waits or retries in a resource or authority critical section.
+The baseline plus disjoint movement, first-unresolved-edit and recovery envelopes and the speculative remainder must fit the configured total in every dimension. Speculation and later intents may not borrow protected credits. Recovery capacity must remain available while the edit retains old and new geometry. A worker reservation grants execution capacity only. The C00 fixture used one protected worker, two speculative workers and a three-slot speculative FIFO. These are fixture settings distinct from the provisional R05 configuration and resource envelopes. Higher priority never bypasses sealed edit order. If reservation fails, reject before cutover or hold the affected action on the coherent root.
 
-Partition the bounded total into disjoint protected envelopes for the
-first unresolved edit, required movement coverage, and view recovery,
-plus a speculative remainder. Their sum and active/retained baseline
-must fit the measured ceilings. Later intents and streaming speculation
-cannot borrow protected credits, including when the corresponding path
-is idle. Recovery has its own capacity even if the edit still holds old
-and new geometry. If a valid worst-case envelope cannot be reserved,
-reject before cutover, or keep the affected action held on the existing
-coherent root. Budget sizing and an admissible reference route must be
-demonstrated before C00 approval. Higher priority never bypasses the
-sealed edit order.
+Account for each allocation exactly once through prepare, upload, publication, cancellation and retirement. A transfer is acknowledged before the prior owner releases its charge. Worker completion does not release retained results, leases or native credits. Cancellation keeps credits charged until settlement. At deadline, report incomplete cleanup and preserve unsettled custody. Resume on confirmed credit release or bounded disposition. An exhausted recovery path stays masked/held or stops safely.
 
-Account for every allocation exactly once throughout prepare, upload,
-publication, cancellation and retirement. A transfer is acknowledged
-before the prior owner releases its charge. A worker-slot release does
-not free its result, lease or GPU charge. Cancelled speculative work
-retains its credits until real settlement. Resume on confirmed credit
-release or a recorded bounded disposition, never a polling retry loop.
-At deadline, report incomplete cleanup and keep unsettled credits
-charged. An exhausted protected recovery path stays masked/held or
-stops safely. Q01/Q02 must test full speculative load, head and recovery
-progress with old geometry retained, and per-transition balances at
-each limit and ±1 byte/slot. The provisional numeric values are not
-measurements.
-
-**Required evidence:** enclosed cavity, overhang, thin bridge, multiple intersecting LOD transition edges, face corners and deliberately saturated streaming; repeatable machine+build+seed and allocation logs. Approval of a preferred candidate is contingent on these artifacts.
+**Fence reference measurement.** On the documented direct NVIDIA Workstation fixture at 60 Hz with HAGS, Limit 2 and ALLOW_TEARING, apply nearest-rank p99 ≤ 11 ms and maximum ≤ 16 ms to all measured frames and Recovery separately. Exclude warm-up. Measure from frame start through return from the fence wait, including any intervening swapchain/DWM wait, and count frames above 11 ms. Report Busy/retries, failed signals and unconfirmed settlement separately. Failed or unconfirmed work cannot count as a successful latency sample. Q01 must record attempt and completion counts and establish its production thresholds for the qualified presentation mode from R09 measurements.
 
 ### C00-5 — Explicit new-save namespace and incompatibility safety (R07, D02/W03)
 
@@ -457,7 +431,7 @@ and restoration of a coherent ungrounded checkpoint.
 
 ## Independent-review and execution gate for these clarifications
 
-Treat this section as an **author-proposed contract** to be scrutinized, not as independent findings. Independent roles L3A-ECS (identity/ownership), L3B-JOBS (determinism/scheduling/bounds), L2-SIM (presentation admission/tick semantics) and L5-FAULTS (save/GPU/fail-closed) each review the same final frozen commit, then a separate *subsequent* integration reviewer reconciles their signed reports. The proposed concrete choices are reversible if reviews or measurements reveal a superior architecture. No implementation PR may treat the provisional numeric budgets or unselected mesher as already qualified.
+Treat this section as an **author-proposed contract** to be scrutinized, not as independent findings. Independent roles L3A-ECS (identity/ownership), L3B-JOBS (determinism/scheduling/bounds), L2-SIM (presentation admission/tick semantics) and L5-FAULTS (save/GPU/fail-closed) each review the same final frozen commit, then a separate *subsequent* integration reviewer reconciles their signed reports. The proposed concrete choices are reversible if reviews or measurements reveal a superior architecture. Implementation PRs must distinguish the selected mesher baseline and provisional budgets from downstream qualification under C00-4.
 
 ## Scope boundaries
 
@@ -486,12 +460,12 @@ Treat this section as an **author-proposed contract** to be scrutinized, not as 
 - **W05** (WYU): installed alpha playtest and user-facing verification.
 - **G00** (Groundwork): cross-repository final integration and handover.
 
-Dependencies: C00 → A01 → A02/A03 → B01. A01/A03 → C01; B01/C01 → C03; A03/C01/B01 → C02; A03/B01/C01 → D01 → D02; A02/W01 → W02 with B01/C01/C02/C03; D01/D02/W02 → W03; C02/C03/W02 → W04; W03/W04 → W05; all lanes → Q02 and G00. Q01 begins alongside C01 and must complete before G00.
+Dependencies: C00 → A01 → A02/A03 → B01. C01 depends on A01, A03 and the B01 contract. B01/C01 → C03; A03/C01/B01 → C02; A03/B01/C01 → D01 → D02. W01 depends on C00 and the A01/A02 contracts. W02 depends on W01, A01–A03 and B01/C01–C03. D01/D02/W02 → W03; C02/C03/W02 → W04, with W03 for the save test. Q01 starts alongside C01 and needs C01/C03 for final capacity acceptance. A01–A03/B01/C01–C03/D01–D02 and Q01 → Q02. W03/W04/Q02 → W05. Q01/Q02/W05 → G00.
 
 ## Cross-repository governance
 
 - Strict scoped PRs targeting master; no direct default-branch writes. No more than four concurrent specialist agents per ADR-0007. The four isolated specialist reviews, sequential integration review, configured checks and **explicit final owner sign-off of the reviewed head SHA** remain necessary. Proposed architecture/issues are not owner acceptance or tests passed.
-- Mark architecture, code, tests and handover as separate deliverables. Do not merge WP11 implementation before architecture acceptance and validated baseline budgets. A changed contract must receive review before dependents merge.
+- Mark architecture, code, tests and handover as separate deliverables. Architecture acceptance precedes implementation. Each downstream package must meet its C00-4 gate before acceptance, and production cutover requires Q01/Q02 qualification. A changed contract must receive review before dependents merge.
 - Separate Groundwork and WYU CI, exact immutable package provenance and NuGet locks; no GitHub-only runtime version identity. Existing source SemVer in Directory.Build.props remains stable unless explicitly approved for a breaking major/minor release.
 - Issue and PR reports must state baselines, paths/ownership, tests actually run, known limitations, failure behavior and acceptance evidence.
 
@@ -516,4 +490,4 @@ These are **mandatory acceptance requirements**, not claims that tests have alre
 7. **Reproducible delivery:** green Windows CI, exact reviewed GitHub commits and package digests, NVIDIA D3D12 Debug Layer/DRED, zero live GPU child objects, resource budgets and benchmark metadata recorded.
 8. **Process:** architecture approved, specialist/integration reviews documented, open P0/P1 fixed, owner accepts final verified head, and handover references each accepted issue.
 
-**Owner decision:** The clean-break WP11 direction and planning scope were approved on 2026-11-08 and recorded in PR #77 / issue #78. This is not final post-review acceptance of a frozen SHA. Meshing algorithm selection, benchmark-derived resource ceilings, independent specialist/integration review, configured checks and final owner acceptance remain outstanding before implementation.
+**Owner decision:** The clean-break WP11 direction and planning scope were approved on 2026-11-08 and recorded in PR #77 / issue #78. This is not final post-review acceptance of a frozen SHA. Independent specialist and integration review, configured checks and final owner acceptance remain outstanding before implementation. Production resource ceilings and chart-boundary qualification follow C00-4.

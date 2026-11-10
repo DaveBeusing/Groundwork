@@ -29,7 +29,7 @@
 
 ## Mandatory execution sequence
 
-1. **Architecture gate**: [Groundwork #78](https://github.com/DaveBeusing/Groundwork/issues/78) freezes generation data model, coordinate encoding, meshing algorithm, budget and measurable targets, save incompatibility behavior, and review/owner sign-off on final proposal SHA.
+1. **Architecture gate**: [Groundwork #78](https://github.com/DaveBeusing/Groundwork/issues/78) freezes generation data model, coordinate encoding, meshing baseline, prototype evidence, downstream capacity and seam gates, save incompatibility behavior, and review/owner sign-off on final proposal SHA.
 2. **Generative kernel**: [Groundwork #79](https://github.com/DaveBeusing/Groundwork/issues/79), [Groundwork #80](https://github.com/DaveBeusing/Groundwork/issues/80) and [Groundwork #81](https://github.com/DaveBeusing/Groundwork/issues/81) establish deterministic volume data and addresses. [WYU #28](https://github.com/DaveBeusing/wyu/issues/28) creates WYU-specific reference planet recipes as soon as the contracts are accepted.
 3. **Geometry and runtime**: [Groundwork #82](https://github.com/DaveBeusing/Groundwork/issues/82) then [Groundwork #83](https://github.com/DaveBeusing/Groundwork/issues/83), [Groundwork #84](https://github.com/DaveBeusing/Groundwork/issues/84) and [Groundwork #85](https://github.com/DaveBeusing/Groundwork/issues/85) establish mesh, streaming, collision and presentation. [Groundwork #88](https://github.com/DaveBeusing/Groundwork/issues/88) provides measurements alongside those PRs.
 4. **New playable planet**: [WYU #29](https://github.com/DaveBeusing/wyu/issues/29) integrates generated terrain into the client; no mandatory compatibility facade for old WP08/09 APIs.
@@ -52,5 +52,7 @@
 - **Persistent interactive world accepted:** Game route from a selected seed, terrain edit and unload/reload, exit/save/Continue from fresh process, exact world/pose and edit result.
 - **Flight accepted:** New-world takeoff, orbit and touchdown using the same generator lineage and edits; trace repeatability and proper restart.
 - **Release evidence accepted:** Green Windows CI for both repos, WARP and NVIDIA D3D12 Debug Layer/DRED evidence, zero live GPU child objects on clean exit, package hashes and explicit owner acceptance of reviewed heads.
+
+**Qualification dependencies.** C00-4 assigns chart identity to A01, render seams to B01 and collision seams to C02. C01 and C03 must demonstrate bounded admission and settlement. Q01 starts alongside C01 and needs C01/C03 before freezing production limits. Q02 validates the integrated route and seams against Q01 limits. Q02 precedes W05. Q01/Q02/W05 precede G00, and Q01/Q02 qualification precedes production cutover.
 
 All issue URLs above are real issue records created for this plan. The planning contract and issue titles are proposals, not implementation results.
