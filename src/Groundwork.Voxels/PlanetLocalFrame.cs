@@ -49,6 +49,22 @@ public readonly record struct PlanetLocalFrame
 
     public PlanetVector ToPlanet(Vector3 local)
     {
+        return ToPlanetDouble(new PlanetVector(local.X, local.Y, local.Z));
+    }
+
+    /// <summary>Translates an authoritative double position into this frame without a float conversion.</summary>
+    public PlanetVector ToLocalDouble(PlanetVector position)
+    {
+        EnsureInitialized();
+        var result = Offset(position);
+        if (!IsFinite(result))
+            throw new ArgumentOutOfRangeException(nameof(position), "Position must translate to finite coordinates.");
+        return result;
+    }
+
+    /// <summary>Reconstructs a planet position from a double local position. Render floats are not authoritative.</summary>
+    public PlanetVector ToPlanetDouble(PlanetVector local)
+    {
         EnsureInitialized();
         var result = new PlanetVector(Origin.X + local.X, Origin.Y + local.Y, Origin.Z + local.Z);
         if (!IsFinite(result))
