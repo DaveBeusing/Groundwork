@@ -47,7 +47,7 @@
 
 ## Acceptance checkpoints
 
-- **Contract accepted:** No unresolved fundamental model or algorithm ambiguity, benchmark thresholds approved from measured evidence, all required reviews and owner sign-off.
+- **Contract accepted:** No unresolved fundamental model or algorithm ambiguity, C00 reference thresholds and downstream qualification criteria approved, all required reviews and owner sign-off.
 - **Procedural engine accepted:** Stable seed/version, deterministic 3D density, sparse storage, 6,400 km numeric support, crack-free mesh, safe collision/publication, bounded workload and robust device settlement.
 - **Persistent interactive world accepted:** Game route from a selected seed, terrain edit and unload/reload, exit/save/Continue from fresh process, exact world/pose and edit result.
 - **Flight accepted:** New-world takeoff, orbit and touchdown using the same generator lineage and edits; trace repeatability and proper restart.

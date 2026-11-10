@@ -36,7 +36,7 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 - **WP11-C:** bounded generation/meshing jobs, streaming, collision, coherent D3D12 presentation, instrumentation and budgets.
 - **WP11-D:** deterministic terrain editing, new save/recovery schema, WYU playable/flight integration and clean Windows handover.
 
-The [WP11 architecture proposal](architecture/wp11-procedural-planet-contract.md) and [implementation issue map](wp11-issues.md) define scope, ownership, requirement identifiers, issue links, dependency DAG, exclusions and acceptance. WP11 work remains **unapproved** until architecture review, measured resource baseline and owner acceptance of the contract. WP12 expands underground geology/caves and WP13 addresses biomes/vegetation.
+The [WP11 architecture proposal](architecture/wp11-procedural-planet-contract.md) and [implementation issue map](wp11-issues.md) define scope, ownership, requirement identifiers, issue links, dependency DAG, exclusions and acceptance. WP11 work remains **unapproved** until architecture review and explicit owner acceptance of the frozen contract. C00-4 assigns chart-boundary qualification and production capacity limits to the named downstream acceptance gates. WP12 expands underground geology/caves and WP13 addresses biomes/vegetation.
 
 ## After WP10
 

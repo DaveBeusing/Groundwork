@@ -10,7 +10,7 @@ All four independent reviewers must challenge — rather than assume correctness
 
 - **Identity and edits:** Unique planet-centred signed Int64 Cartesian coordinates for volume cells and density vertices; material edits target cells, sculpting targets vertices; deterministic multi-brick invalidation and no duplicate authoritative keys at cube-face/LOD joins. The 32-cell / 1 m finest-resolution parameters are tunable.
 - **Collision coverage:** Predictive movement-envelope streaming and fail-closed unknown coverage. Hold/reject only the affected action at the last valid state while independent fixed-step systems continue; do not replay accumulated movement after a coverage hold. Admitted mesh/collision/origin stay coherent via the recorded publication barrier. Review orbit/approach/touchdown collision handoff.
-- **Meshing benchmark:** Marching Cubes + validated Transvoxel-style transition cells is the **first reference**, not final production approval. Compare independently against a constrained Dual Contouring/Surface Nets candidate on the same adversarial fixtures. Document memory, geometry/collision consistency and performance for both; budgets remain provisional and unmeasured.
+- **Meshing benchmark:** C00-4 selects Marching Cubes with Transvoxel transitions as the replaceable implementation baseline. Review the existing comparative evidence and the explicit chart, seam and capacity gates. Production budgets and qualification belong to Q01/Q02.
 
 Focused checks:
 - **L3A-ECS:** negative floor-division, brick boundary ownership, vertex/cell edit distinctions, duplicated seam writes, invalidation including corners and LOD dependencies.
@@ -96,7 +96,7 @@ Inspect and challenge:
 - Strict no-silent-overwrite of old alpha saves; one-world lineage, atomic alternating NTFS commits, flush/verify semantics, lock, retry idempotency, interrupted writer, two writers and lost acknowledgments.
 - CPU/GPU lease retention when stage/upload/present/retire fails, Signal failure, late worker during stop and device removal sentinel; do not release without proof.
 - Structured bounded diagnostics, logging faults, exposure of exact version/seed without sensitive data, and reliable cleanup if OS/UI/disk becomes unavailable.
-- Whether benchmarks and final performance/resource gates are actually specified/measurable before implementation (avoid treating provisional ceilings as measured).
+- Whether C00 reference evidence is scoped correctly and the downstream production gates are measurable, assigned and ordered without a dependency cycle.
 
 **Required deliverable:** fault matrix with expected state/ownership after each injected failure, P0/P1 blockers, untested platform areas and verdict.
 
@@ -104,7 +104,7 @@ Inspect and challenge:
 
 Do **not** start until all four isolated specialist reports are recorded against the same frozen candidate revision. Integrator reads all reports, maps each finding to fixed / accepted-with-rationale / deferred-with-owned-issue / blocking, verifies consistent module boundaries and no new contradictions, and proposes required contract patches and re-review scope. It must not override an unresolved P0/P1.
 
-Before closing C00: record benchmark-derived limits and selection evidence for meshing/LOD; obtain separately recorded explicit owner acceptance of the final head SHA; satisfy actual GitHub checks/protections; then merge and log merge SHA. Merely granting a general architecture direction approval does not equal final reviewed-head sign-off.
+Before closing C00: record the C00 reference limits, selection evidence and downstream gates in C00-4; obtain separately recorded explicit owner acceptance of the final head SHA; satisfy actual GitHub checks/protections; then merge and log merge SHA. Merely granting a general architecture direction approval does not equal final reviewed-head sign-off.
 
 ## Completion checklist
 
@@ -115,6 +115,6 @@ Before closing C00: record benchmark-derived limits and selection evidence for m
 - [ ] Launch isolated L5-FAULTS review; preserve report identity.
 - [ ] Run *subsequent* integration review and close blockers.
 - [ ] Re-review material changes on the new SHA.
-- [ ] Record measured meshing/streaming/resource budgets and decisions.
+- [ ] Record measured C00 evidence and the downstream gates for chart boundaries and production resource limits.
 - [ ] Obtain owner acceptance of the final reviewed head SHA.
 - [ ] Merge PR #77 only when permitted by configured checks and governance.
