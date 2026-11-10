@@ -14,6 +14,9 @@ public sealed partial class JobScheduler : IJobScheduler
     private readonly TimeProvider _clock;
     private readonly FrozenDictionary<JobHandlerId, JobHandler> _handlers;
     private readonly JobSchedulerLimits _limits;
+    private readonly FrozenSet<JobHandlerId> _protectedHandlers;
+    private readonly int _reservedWorkers;
+    private readonly int _reservedQueue;
     private readonly List<Entry> _pending = [];
     private readonly Dictionary<JobId, Work> _running = [];
     private readonly TaskCompletionSource _quiesced = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -36,6 +39,11 @@ public sealed partial class JobScheduler : IJobScheduler
     public JobScheduler(WorldId world, JobSchedulerLimits limits, IJobExecutionAuthority authority,
         IJobInputSource inputs, IRuntimeOwnership ownership, IFaultReporter faults, TimeProvider clock,
         IReadOnlyDictionary<JobHandlerId, JobHandler> handlers)
+        : this(world, limits, authority, inputs, ownership, faults, clock, handlers, null) { }
+
+    public JobScheduler(WorldId world, JobSchedulerLimits limits, IJobExecutionAuthority authority,
+        IJobInputSource inputs, IRuntimeOwnership ownership, IFaultReporter faults, TimeProvider clock,
+        IReadOnlyDictionary<JobHandlerId, JobHandler> handlers, JobDispatchReservation? reservation)
     {
         ArgumentNullException.ThrowIfNull(authority);
         ArgumentNullException.ThrowIfNull(inputs);
@@ -58,6 +66,13 @@ public sealed partial class JobScheduler : IJobScheduler
         _inputs = inputs;
         _clock = clock;
         _handlers = handlers.ToFrozenDictionary();
+        if (reservation is not null && (reservation.Workers < 1 || reservation.Workers > limits.Workers ||
+            reservation.QueueSlots < 1 || reservation.QueueSlots > limits.QueuedJobs ||
+            reservation.ProtectedHandlers.IsDefaultOrEmpty || reservation.ProtectedHandlers.Any(id => !handlers.ContainsKey(id))))
+            throw new ArgumentOutOfRangeException(nameof(reservation));
+        _protectedHandlers = (reservation?.ProtectedHandlers ?? []).ToFrozenSet();
+        _reservedWorkers = reservation?.Workers ?? 0;
+        _reservedQueue = reservation?.QueueSlots ?? 0;
     }
 
     public WorldId World { get; }
@@ -75,7 +90,8 @@ public sealed partial class JobScheduler : IJobScheduler
             if (submission.Source.World != World || phase.Stamp.World != World ||
                 !_handlers.ContainsKey(submission.Handler))
                 return Reject(JobAdmissionStatus.InvalidDescriptor);
-            if (_admitting || _dispatching || _pending.Count >= _limits.QueuedJobs)
+            if (_admitting || _dispatching || _pending.Count >= _limits.QueuedJobs ||
+                !_protectedHandlers.Contains(submission.Handler) && _pending.Count(e => !e.Protected) >= _limits.QueuedJobs - _reservedQueue)
                 return Reject(JobAdmissionStatus.CapacityExceeded);
 
             _admitting = true;
@@ -106,7 +122,7 @@ public sealed partial class JobScheduler : IJobScheduler
             }
 
             var entry = new Entry(handle, submission.Source, submission.ResultKind, submission.InputKind != JobInputKind.None,
-                _handlers[submission.Handler], admittedAt);
+                _handlers[submission.Handler], admittedAt, _protectedHandlers.Contains(submission.Handler));
             lock (_gate)
             {
                 if (!_closed)
@@ -289,7 +305,8 @@ public sealed partial class JobScheduler : IJobScheduler
             lock (_gate)
             {
                 // The current probe occupies one dictionary slot but does not represent a worker yet.
-                if (_closed || _running.Count > _limits.Workers)
+                if (_closed || _running.Count > _limits.Workers ||
+                    !entry.Protected && _running.Values.Count(w => !w.Entry.Protected) > _limits.Workers - _reservedWorkers)
                     return;
             }
 

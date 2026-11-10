@@ -8,6 +8,7 @@
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="WorkPackage" Value="WP03" />
+    <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
     <None Update="Transvoxel.LICENSE.txt" Pack="true" PackagePath="licenses/Transvoxel.LICENSE.txt" />
   </ItemGroup>
 </Project>

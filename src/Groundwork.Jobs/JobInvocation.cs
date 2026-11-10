@@ -6,6 +6,9 @@ namespace Groundwork.Jobs;
 
 public readonly record struct JobSchedulerLimits(int QueuedJobs, int Workers);
 
+/// <summary>Disjoint dispatch headroom for protected handlers, even while speculative work is blocked.</summary>
+public sealed record JobDispatchReservation(int Workers, int QueueSlots, ImmutableArray<JobHandlerId> ProtectedHandlers);
+
 public readonly record struct JobSchedulerMetrics(
     long Accepted, long Rejected, int Queued, int OccupiedWorkerSlots, long Started,
     long Succeeded, long Cancelled, long Faulted, long QueueWaitTicks, long WorkerBusyTicks,
@@ -294,7 +297,7 @@ public sealed partial class JobScheduler
     }
 
     private sealed class Entry(IJobHandle handle, SourceKey source, JobResultKind kind, bool needsCapture,
-        JobHandler handler, long admittedAt)
+        JobHandler handler, long admittedAt, bool isProtected)
         : IJobExecutionHandle
     {
         private readonly object _gate = new();
@@ -307,6 +310,7 @@ public sealed partial class JobScheduler
         internal SourceKey Source { get; } = source;
         internal JobResultKind Kind { get; } = kind;
         internal bool NeedsCapture { get; } = needsCapture;
+        internal bool Protected { get; } = isProtected;
         internal JobHandler Handler { get; } = handler;
         internal long AdmittedAt { get; } = admittedAt;
 

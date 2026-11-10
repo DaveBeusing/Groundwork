@@ -24,7 +24,10 @@
         }
       },
       "groundwork.voxels": {
-        "type": "Project"
+        "type": "Project",
+        "dependencies": {
+          "Groundwork.Core": "[0.1.0, )"
+        }
       }
     }
   }
