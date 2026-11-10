@@ -1,0 +1,21 @@
+# WP11-C00 meshing and streaming decision proposal
+
+Status: proposed for architecture review in [draft PR #77](https://github.com/DaveBeusing/Groundwork/pull/77). This addendum supplies decision evidence for C00-4. The owner closed the C00 measurement campaign on 2026-11-10. The architecture gate still requires review and explicit acceptance of the resulting head.
+
+## Meshing and collision
+
+Propose Marching Cubes with Transvoxel transitions as the B01 implementation baseline behind a replaceable meshing interface. In the nine shared Workstation fixtures it had lower median extraction time and managed allocations than the tested Dual Contouring candidate. In the eight-region pressure fixture, p50/p95/p99 were 9.23/10.65/11.11 ms versus 28.73/41.33/42.69 ms. Dual Contouring remains a useful comparison for sharp features and thin structures. [Comparative evidence](https://github.com/DaveBeusing/Groundwork/issues/78#issuecomment-6727821654).
+
+Render and collision derive from the same immutable density revision and may use separate bounded representations. A render-mesh hit or miss alone cannot certify coverage for thin features, edits or LOD seams. B01 and C02 must qualify deterministic shared boundaries, winding and normals, material continuity, mixed-LOD corners and cube-chart edges, and collision parity against the density authority. Preserve local refinement and bounded query work with fail-closed admission when matching coverage is unavailable. The edited cuboid and up-to-eight-brush fixtures support the design but do not establish general planetary collision correctness. [Geometry and collision evidence](https://github.com/DaveBeusing/Groundwork/issues/78#issuecomment-6735512096).
+
+## Capacity and latency
+
+Use a fixed bounded meshing pool with a reserved protected worker and capped speculative vertex storage. Reserve CPU and GPU credits before allocation. Charge staged, leased, obsolete and retiring geometry until ownership ends and any required fence completes. Keep old coherent coverage while streaming is saturated, and preserve protected movement, first-edit and recovery paths under the contract's admission rules. [Saturated terrain route and resource evidence](https://github.com/DaveBeusing/Groundwork/issues/78#issuecomment-6737895324).
+
+For the reproducible C00 Workstation fixture, propose a Frame Fence gate of nearest-rank p99 ≤ 11 ms and maximum ≤ 16 ms. Apply it to the aggregate and Recovery separately. The direct NVIDIA 60 Hz/HAGS/Limit-2/ALLOW_TEARING repeat used a full CPU queue and blocked GPU streaming. Across 14,400 frames the p99/max were 5.7139/6.6131 ms. The 4,800 Recovery frames measured 5.8125/6.1200 ms. Both populations had zero frames above 11 ms. This is a reference measurement for this fixture and presentation mode. Production presentation policy and qualification on the 8-core/32-GiB class remain separate. The C00 measurements also leave the 512 MiB CPU terrain / 256 MiB native geometry ceilings as planning guardrails pending production ownership and residency evidence. [Final repeat and trace configuration](https://github.com/DaveBeusing/Groundwork/issues/78#issuecomment-6778821188).
+
+The earlier movement Present outliers involved NVIDIA work items queued by a WDF timer. The caller that armed the timer is unknown. Neither outlier recurred in the repeat. Keep the diagnosis open for recurrence that breaches the budget. The completed campaign schedules no further runs. [Scheduler and power evidence](https://github.com/DaveBeusing/Groundwork/issues/78#issuecomment-6778250835).
+
+## Review and implementation handoff
+
+Review this proposal against C00-4 and R04/R05/R09, including the scope of the performance limits and the conditions assigned to B01, C02, C03 and Q01/Q02. Record affected reviews, subsequent integration and owner acceptance on the final head under ADR-0007. A01 ([#79](https://github.com/DaveBeusing/Groundwork/issues/79)) is the first implementation package after the architecture gate.
