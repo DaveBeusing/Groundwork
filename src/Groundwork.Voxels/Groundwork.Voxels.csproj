@@ -8,5 +8,6 @@
   </PropertyGroup>
   <ItemGroup>
     <AssemblyMetadata Include="WorkPackage" Value="WP03" />
+    <None Update="Transvoxel.LICENSE.txt" Pack="true" PackagePath="licenses/Transvoxel.LICENSE.txt" />
   </ItemGroup>
 </Project>
