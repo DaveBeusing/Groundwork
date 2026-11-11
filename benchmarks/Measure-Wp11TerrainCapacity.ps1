@@ -3,6 +3,7 @@
 param(
     [ValidateRange(1, 30)][int] $Samples = 5,
     [switch] $Desktop,
+    [switch] $Combined,
     [Parameter(Mandatory)][string] $OutputDirectory
 )
 
@@ -21,6 +22,13 @@ if ($Desktop) {
     $fixtures['Rendering.D3D12'] = 'FullyQualifiedName~VolumePresentRetainsGenerationUntilFenceAndRejectsStaleView'
 }
 
+if ($Combined) {
+    if ($Desktop) { throw 'Choose either -Desktop or -Combined.' }
+    $fixtures = [ordered]@{
+        'Rendering.D3D12' = 'FullyQualifiedName~VolumeUploadRemainsBlockedWhileProtectedTerrainWorkRunsOnFullCpuQueue'
+    }
+}
+$expectedRows = if ($Combined) { 2 } else { 6 }
 Push-Location -LiteralPath $root
 try {
     $env:GROUNDWORK_Q01_MEASURE = '1'
@@ -44,7 +52,8 @@ try {
         memoryBytes = $memory
         gpu = $gpu
         samples = $Samples
-        desktop = [bool]$Desktop
+        desktop = [bool]($Desktop -or $Combined)
+        combined = [bool]$Combined
     } | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $target 'metadata.json')
 
     foreach ($fixture in $fixtures.Keys) {
@@ -58,7 +67,7 @@ try {
             $rows = @(Get-Content -LiteralPath $log | ForEach-Object {
                 if ($_ -match '^\s*Q01 (\{.*\})\s*$') { $Matches[1] | ConvertFrom-Json }
             })
-            if ($rows.Count -ne 6 -or @($rows | Group-Object route, phase).Count -ne 6) { throw "Unexpected observation count in $log." }
+            if ($rows.Count -ne $expectedRows -or @($rows | Group-Object route, phase).Count -ne $expectedRows) { throw "Unexpected observation count in $log." }
             if ($sample -eq 0) { continue }
             foreach ($row in $rows) {
                 $row | Add-Member -NotePropertyName sample -NotePropertyValue $sample

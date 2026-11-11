@@ -160,6 +160,12 @@
       "groundwork.core": {
         "type": "Project"
       },
+      "groundwork.jobs": {
+        "type": "Project",
+        "dependencies": {
+          "Groundwork.Core": "[0.1.0, )"
+        }
+      },
       "groundwork.platform.windows": {
         "type": "Project",
         "dependencies": {
