@@ -88,7 +88,7 @@ public sealed partial class PresentationSmokeTests
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(50));
         var token = timeout.Token;
-        using var run = new VolumeRun();
+        using var run = new VolumeRun(readers: 2);
         var runtime = run.Fixture.Runtime;
         var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
         var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
@@ -208,7 +208,7 @@ public sealed partial class PresentationSmokeTests
         using var returnSignal = new ManualResetEventSlim();
         using var remove = new ManualResetEventSlim();
         var token = timeout.Token;
-        using var run = new VolumeRun();
+        using var run = new VolumeRun(readers: 1);
         var runtime = run.Fixture.Runtime;
         var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
         var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
@@ -343,7 +343,7 @@ public sealed partial class PresentationSmokeTests
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
 
-        internal VolumeRun()
+        internal VolumeRun(int readers = 8)
         {
             World = Fixture.OpenWorld();
             var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
@@ -354,7 +354,7 @@ public sealed partial class PresentationSmokeTests
             var baseline = _unit.Retained + _unit.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
             Terrain = new(World, descriptor, new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
-                baseline, _unit, _unit, _unit, _unit, 12, 8, 128));
+                baseline, _unit, _unit, _unit, _unit, 12, readers, 128));
         }
 
         internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null)

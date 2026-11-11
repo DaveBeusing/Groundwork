@@ -18,7 +18,8 @@ frames and camera updates.
 3. Submit the committed generation via `TrySubmitVolumeTerrain`. The camera is
    supplied in authoritative planet coordinates and carries the exact view and
    origin identity. The provider installs the already prepared immutable triangle
-   streams and takes ownership of the C01 frame registration.
+   streams. Its staged reader transfers to the frame registration without consuming
+   another lease slot.
    It checks the current registration at GPU installation and draw admission.
 4. Core can reopen coverage only at a later `BeginTick` after the provider has
    acknowledged the registered frame. The acknowledgement follows successful

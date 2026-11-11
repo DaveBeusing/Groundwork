@@ -341,26 +341,50 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
-    public VolumeFrameRegistration? TryRegisterFrame(ulong generation, VolumeViewIdentity view, ulong frame) =>
-        TryRegisterFrame(generation, view, frame, null);
-
-    public VolumeFrameRegistration? TryRegisterFrame(ulong generation, VolumeViewIdentity view, ulong frame,
-        VolumeRendererAuthority? renderer)
+    public VolumeFrameRegistration? TryRegisterFrame(ulong generation, VolumeViewIdentity view, ulong frame)
     {
         lock (_gate)
         {
             Refresh();
-            if (_stopped || !PresentationEpochOpen || !OwnsPresentation(renderer) || _active is not { } active || active.Id != generation || active.View != view || view != _view || !IsCurrentRoot(active) ||
-                frame <= _lastFrame || !HasJournalSpace())
+            if (_active is not { } active || active.Id != generation || active.View != view ||
+                !CanRegisterFrame(active, frame, null))
                 return null;
             var lease = Acquire(active);
-            if (lease is null)
-                return null;
-            var registration = new VolumeFrameRegistration(this, active, lease, frame);
-            _lastFrame = frame;
-            Record(VolumeEventKind.Registered, generation);
-            return registration;
+            return lease is null ? null : RegisterFrame(active, frame, lease);
         }
+    }
+
+    /// <summary>Transfers the provider's private reader into its committed frame without another reader credit.</summary>
+    public VolumeFrameRegistration? TryRegisterPreparedFrame(VolumeRendererAuthority renderer,
+        VolumeStreamingLease prepared, ulong frame)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(prepared);
+        return prepared.TransferToFrame(this, renderer, frame);
+    }
+
+    internal VolumeFrameRegistration? RegisterRetainedFrame(VolumeGeneration generation,
+        VolumeRendererAuthority renderer, ulong frame)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            if (!CanRegisterFrame(generation, frame, renderer))
+                return null;
+            return RegisterFrame(generation, frame, new VolumeStreamingLease(this, generation));
+        }
+    }
+
+    private bool CanRegisterFrame(VolumeGeneration generation, ulong frame, VolumeRendererAuthority? renderer) =>
+        !_stopped && PresentationEpochOpen && OwnsPresentation(renderer) && generation == _active &&
+        generation.View == _view && IsCurrentRoot(generation) && frame > _lastFrame && HasJournalSpace();
+
+    private VolumeFrameRegistration RegisterFrame(VolumeGeneration generation, ulong frame, VolumeStreamingLease lease)
+    {
+        var registration = new VolumeFrameRegistration(this, generation, lease, frame);
+        _lastFrame = frame;
+        Record(VolumeEventKind.Registered, generation.Id);
+        return registration;
     }
 
     /// <summary>Rechecks a provider's retained registration at installation and submission.</summary>

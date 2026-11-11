@@ -251,6 +251,20 @@ public sealed class VolumeStreamingLease : IDisposable
         }
     }
 
+    internal VolumeFrameRegistration? TransferToFrame(VolumeStreamingCoordinator owner,
+        VolumeRendererAuthority renderer, ulong frame)
+    {
+        lock (_gate)
+        {
+            if (_owner != owner || _generation is not { } generation)
+                return null;
+            var registration = owner.RegisterRetainedFrame(generation, renderer, frame);
+            if (registration is not null)
+                _generation = null; // The registration now owns the existing reader charge.
+            return registration;
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
