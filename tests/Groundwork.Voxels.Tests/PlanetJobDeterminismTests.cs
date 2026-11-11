@@ -108,6 +108,9 @@ public sealed class PlanetJobDeterminismTests
                 {
                     await scheduler.DispatchReadyAsync(phase, token);
                     await AssertSucceeded(handles[index]!, token);
+                    // A completed handle can still own its worker slot until cleanup settles.
+                    while (scheduler.ReadMetrics().OccupiedWorkerSlots != 0)
+                        await Task.Delay(1, token);
                 }
             }
 
