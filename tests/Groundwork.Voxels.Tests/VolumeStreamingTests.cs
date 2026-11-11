@@ -10,6 +10,8 @@ public sealed class VolumeStreamingTests
     [TestMethod]
     public async Task ProtectedPathsProgressUnderFullSpeculationWhileOldGeometryIsRetained()
     {
+        var measure = Environment.GetEnvironmentVariable("GROUNDWORK_Q01_MEASURE") == "1";
+        var phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
         using var run = new Run();
         using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1);
         Assert.IsTrue(initial.Execute());
@@ -19,8 +21,10 @@ public sealed class VolumeStreamingTests
         Assert.IsGreaterThan(0, old.Meshes.ToArray().Sum(m => m.Triangles.Length));
         using var oldFrame = await run.Open(initial.Generation);
 
+        Sample("baseline");
         using var speculation = run.Stage(VolumeWorkClass.Speculative, 1, 1);
         Assert.AreEqual(VolumeAdmission.Backpressure, run.TryStage(VolumeWorkClass.Speculative, 1, 1, out _));
+        Sample("speculative-full");
         using var edit = run.Stage(VolumeWorkClass.FirstEdit, 1, 2);
         Assert.IsTrue(edit.Execute());
         await run.Publish(edit);
@@ -29,6 +33,7 @@ public sealed class VolumeStreamingTests
         Assert.IsTrue(run.Coordinator.Statistics.MovementHeld);
         Assert.IsFalse(run.Coordinator.HasAdmittedCoverage(default));
 
+        Sample("first-edit-retained");
         using var recovery = run.Stage(VolumeWorkClass.Recovery, 2, 2);
         Assert.IsTrue(recovery.Execute());
         await run.Publish(recovery);
@@ -43,6 +48,7 @@ public sealed class VolumeStreamingTests
         Assert.AreEqual(1, run.Coordinator.Statistics.Used.DensityJobs);
         Assert.IsTrue(run.Coordinator.Statistics.Peak.Fits(run.Limits.Total));
 
+        Sample("recovery-retained");
         var retained = run.Coordinator.Statistics.Used.CpuBytes;
         oldFrame.Dispose();
         Assert.AreEqual(retained, run.Coordinator.Statistics.Used.CpuBytes);
@@ -51,6 +57,35 @@ public sealed class VolumeStreamingTests
         editFrame.Dispose();
         speculation.Dispose();
         Assert.AreEqual(0, run.Coordinator.Statistics.Used.DensityJobs);
+        Sample("settled");
+
+        static object ResourceVector(VolumeResources resources) => new
+        {
+            resources.CpuBytes, resources.NativeBytes, resources.UploadBytes, resources.RetirementBytes,
+            resources.DensityJobs, resources.MeshJobs, resources.QueueSlots, resources.LeaseSlots, resources.RetirementSlots,
+        };
+        void Sample(string phase)
+        {
+            if (!measure)
+                return;
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var stats = run.Coordinator.Statistics;
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            Console.WriteLine("Q01 " + System.Text.Json.JsonSerializer.Serialize(new
+            {
+                route = "coordinator",
+                phase,
+                elapsedMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart, now).TotalMilliseconds,
+                used = ResourceVector(stats.Used),
+                peak = ResourceVector(stats.Peak),
+                stats.Readers,
+                stats.Generations,
+                stats.MovementHeld,
+                process.WorkingSet64,
+                process.PrivateMemorySize64,
+            }));
+            phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        }
     }
 
     [TestMethod]
@@ -263,10 +298,20 @@ public sealed class VolumeStreamingTests
             await entered.Task.WaitAsync(TimeSpan.FromSeconds(15));
             using var queued = Submit(speculative, 2);
             Assert.AreEqual(JobAdmissionStatus.CapacityExceeded, scheduler.TrySubmit(Submission(speculative, 3), phase).Status);
+            var protectedStart = System.Diagnostics.Stopwatch.GetTimestamp();
             using var progress = Submit(protectedHandler, 4);
             await scheduler.DispatchReadyAsync(phase, CancellationToken.None);
             Assert.AreEqual(JobExecutionStatus.Succeeded,
                 (await progress.ExecutionCompletion.WaitAsync(TimeSpan.FromSeconds(15))).Status);
+            if (Environment.GetEnvironmentVariable("GROUNDWORK_Q01_MEASURE") == "1")
+                Console.WriteLine("Q01 " + System.Text.Json.JsonSerializer.Serialize(new
+                {
+                    route = "scheduler",
+                    phase = "protected-while-speculation-full",
+                    elapsedMs = System.Diagnostics.Stopwatch.GetElapsedTime(protectedStart).TotalMilliseconds,
+                    blockedSpeculative = 1,
+                    queuedSpeculative = 1,
+                }));
             Assert.IsFalse(first.ExecutionCompletion.IsCompleted);
             Assert.IsFalse(queued.ExecutionCompletion.IsCompleted);
             Assert.IsNull(run.Coordinator.TryRead());
