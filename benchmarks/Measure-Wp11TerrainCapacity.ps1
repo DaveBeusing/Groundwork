@@ -39,7 +39,7 @@ try {
         sourceModified = $dirty.Count -ne 0
         windows = [Environment]::OSVersion.Version.ToString()
         sdk = $sdk
-        runtime = @(dotnet --list-runtimes)
+        installedRuntimes = @(dotnet --list-runtimes | ForEach-Object { ($_ -split ' \[', 2)[0] })
         cpu = $cpu
         memoryBytes = $memory
         gpu = $gpu
