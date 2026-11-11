@@ -148,10 +148,12 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             if (_stopped || !PresentationEpochOpen || !OwnsPresentation(renderer) ||
-                renderer is not null && frame == 0 || _movementOpen || view != _view ||
-                !Record(VolumeEventKind.Accepted, 0, frame: frame == 0 ? null : frame))
+                renderer is not null && frame == 0 || _movementOpen || view != _view)
                 return false;
-            _maskReadyTick = _world.Publication.Committed.Read().Stamp.Tick;
+            var ready = _world.Publication.Committed.Read().Stamp;
+            if (!Record(VolumeEventKind.Accepted, 0, frame: frame == 0 ? null : frame, stamp: ready))
+                return false;
+            _maskReadyTick = ready.Tick;
             _maskReady = true;
             return true;
         }
@@ -221,8 +223,9 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             entry.Outstanding = false;
             _used[(int)entry.Envelope] -= entry.Resources - entry.Resources.Retained;
             entry.Resources = entry.Resources.Retained;
+            var ready = _world.Publication.Committed.Read().Stamp;
             if (_stopped || entry.Cancelled || entry.View != _view || entry.SourceRevision != CurrentRevision() ||
-                artifacts is null || !Record(VolumeEventKind.WorkReady, entry.Id, terrainRevision: entry.TargetRevision))
+                artifacts is null || !Record(VolumeEventKind.WorkReady, entry.Id, terrainRevision: entry.TargetRevision, stamp: ready))
             {
                 artifacts?.Dispose();
                 entry.Cancelled = true;
@@ -232,7 +235,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 return false;
             }
             if (entry.Edit is not null)
-                entry.EditReadyTick = _world.Publication.Committed.Read().Stamp.Tick;
+                entry.EditReadyTick = ready.Tick;
             entry.Overlay = overlay;
             entry.Artifacts = artifacts;
             entry.Info = new VolumePublicationInfo(entry.Id, entry.TargetRevision, entry.View, entry.Selection.Minimum,
@@ -273,7 +276,12 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             var entry = FindPresentationCandidate(info.Generation);
             if (!OwnsPresentation(renderer) || entry is null || entry.Info != info)
                 return false;
-            entry.NativeReadyTick ??= _world.Publication.Committed.Read().Stamp.Tick;
+            if (entry.Edit is not { } edit || entry.NativeReadyTick.HasValue)
+                return true;
+            var ready = _world.Publication.Committed.Read().Stamp;
+            if (!Record(VolumeEventKind.NativeReady, entry.Id, terrainRevision: entry.TargetRevision, edit: edit, stamp: ready))
+                return false;
+            entry.NativeReadyTick = ready.Tick;
             return true;
         }
     }
@@ -662,12 +670,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
 
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
-        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null, VolumeBrushIntent? edit = null, VolumeEditStatus? editStatus = null)
+        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null, VolumeBrushIntent? edit = null, VolumeEditStatus? editStatus = null,
+        BarrierStamp? stamp = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
-        _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, _world.Publication.Committed.Read().Stamp,
+        _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, stamp ?? _world.Publication.Committed.Read().Stamp,
             view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus);
         _journalPermits[index] = permit;
         return true;

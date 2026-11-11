@@ -395,8 +395,12 @@ public sealed partial class PresentationSmokeTests
             gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(editedRegion);
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(VolumeCameraAt(next, 32, 4), 2, out frame));
             var after = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
-            Assert.IsLessThan(1f, after.DepthAt(80, 48));
-            Assert.IsLessThan(after.DepthAt(80, 48), before.DepthAt(80, 48));
+            for (var y = 45; y <= 51; y++)
+            for (var x = 75; x <= 85; x++)
+            {
+                Assert.IsLessThan(1f, after.DepthAt(x, y));
+                Assert.IsLessThan(after.DepthAt(x, y), before.DepthAt(x, y));
+            }
         }
         finally
         {
@@ -482,6 +486,17 @@ public sealed partial class PresentationSmokeTests
                 Assert.IsTrue(work.Execute(token));
                 Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
                 await AwaitStatus(renderer, state => state.LastPresentedSequence == 3 && renderer.IsVolumeTerrainReady(work.Generation), token);
+                var nativeReady = false;
+                while (Terrain.TryReadEvent(out var evidence))
+                {
+                    if (evidence.Kind != VolumeEventKind.NativeReady)
+                        continue;
+                    Assert.AreEqual(edit, evidence.Edit);
+                    Assert.AreEqual(next, evidence.View);
+                    Assert.AreEqual(begin, evidence.Stamp);
+                    nativeReady = true;
+                }
+                Assert.IsTrue(nativeReady);
                 var sealedCut = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
                 Assert.IsNull(renderer.TryPrepareVolumePublication(work.Generation, sealedCut, [], out _));
                 var unchanged = World.Publication.Finalization.TryFinalize(CoreRuntimeFixture.Prepare(World, sealedCut, []));

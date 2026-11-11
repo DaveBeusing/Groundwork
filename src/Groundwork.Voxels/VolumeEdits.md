@@ -36,7 +36,8 @@ uses the same committed global overlay.
 Use the existing C03 native staging and mask protocol before preparing
 CommitResults. The earliest eligible cut is strictly later than worker,
 mask, and native readiness. Work that becomes ready during a tick cannot
-enter that tick's already sealed Core candidates. Core publishes the overlay, complete mesh and collision generation
+enter that tick's already sealed Core candidates. Each readiness event uses
+the same sampled Core stamp for journal evidence and cut eligibility. Core publishes the overlay, complete mesh and collision generation
 in one root. Movement remains held until the provider retires the corresponding
 frame and a later BeginTick admits it. An edit is terrain-only. Gameplay effects
 and checkpoint storage are separate work packages.
