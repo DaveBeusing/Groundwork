@@ -41,6 +41,17 @@ public sealed class FixedStepSimulation : ISimulationDriver
         RuntimeWakeSignal wake,
         SimulationOptions? options = null,
         WorldId? faultWorld = null)
+        : this(context, input, pipeline, safety, wake, options, faultWorld, completedTick: 0) { }
+
+    public FixedStepSimulation(
+        EngineModuleContext context,
+        IInputSource input,
+        ITickPipeline pipeline,
+        IRuntimeSafetyState safety,
+        RuntimeWakeSignal wake,
+        SimulationOptions? options,
+        WorldId? faultWorld,
+        ulong completedTick)
     {
         ArgumentNullException.ThrowIfNull(context);
         ArgumentNullException.ThrowIfNull(context.Clock);
@@ -83,6 +94,8 @@ public sealed class FixedStepSimulation : ISimulationDriver
         _baseStep = new FixedStep(1, options.BaseRateHz);
         _gameplayStep = new FixedStep(1, options.GameplayRateHz);
         _gameplayInterval = options.BaseRateHz / options.GameplayRateHz;
+        ArgumentOutOfRangeException.ThrowIfEqual(completedTick, ulong.MaxValue);
+        _completedTick = completedTick;
         _stepLimit = options.MaxStepsPerIteration;
     }
 

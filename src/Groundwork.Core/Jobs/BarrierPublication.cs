@@ -247,6 +247,7 @@ internal sealed partial class WorldPublicationAuthority
                 rootChange.State = RootChangeStatus.Committed;
             }
             _stamp = stamp;
+            BindCut(stamp);
             for (int index = 0; index < _selected.Count; index++)
             {
                 var batch = _selected[index];

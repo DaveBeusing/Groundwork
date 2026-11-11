@@ -26,5 +26,5 @@ public sealed record SaveSlotResult(SaveSlotStatus Status, SaveCheckpoint? Check
 
 internal enum SaveWriteStage
 {
-    BeforeWrite, PartialHeader, PartialBody, PartialFooter, BeforeFlush, AfterFlush, BeforePublish, AfterPublish, BeforeAcknowledge,
+    BeforeWrite, PartialHeader, PartialBody, PartialFooter, BeforeFlush, AfterFlush, BeforePublish, AfterPublish, BeforeAcknowledge, PartialIntent, AfterIntent,
 }

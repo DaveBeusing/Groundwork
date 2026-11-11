@@ -54,6 +54,45 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         Digest = hash.GetHashAndReset();
     }
 
+    internal static VolumeEditOverlay Restore(IPlanetBrickSource baseline, int limit, ReadOnlySpan<byte> bytes,
+        Func<ushort, bool> supportsMaterial)
+    {
+        if (bytes.Length < 8)
+            throw new InvalidDataException("Missing overlay counts.");
+        var densities = BinaryPrimitives.ReadInt32LittleEndian(bytes);
+        var materials = BinaryPrimitives.ReadInt32LittleEndian(bytes[4..]);
+        if (densities < 0 || materials < 0 || (long)densities + materials > limit ||
+            bytes.Length != 8 + 32 * (densities + materials))
+            throw new InvalidDataException("Invalid overlay bounds.");
+        var density = RestoreRows(baseline, bytes[8..], densities, null);
+        var material = RestoreRows(baseline, bytes[(8 + 32 * densities)..], materials, supportsMaterial);
+        return new VolumeEditOverlay(baseline, density, densities, material, materials);
+    }
+
+    private static Row[] RestoreRows(IPlanetBrickSource baseline, ReadOnlySpan<byte> bytes, int count,
+        Func<ushort, bool>? supportsMaterial)
+    {
+        var rows = new Row[count];
+        for (var i = 0; i < count; i++)
+        {
+            var row = bytes[(32 * i)..];
+            var key = new LatticeCoordinate(BinaryPrimitives.ReadInt64LittleEndian(row),
+                BinaryPrimitives.ReadInt64LittleEndian(row[8..]), BinaryPrimitives.ReadInt64LittleEndian(row[16..]));
+            var value = BinaryPrimitives.ReadInt64LittleEndian(row[24..]);
+            if (!InRange(key.X) || !InRange(key.Y) || !InRange(key.Z) ||
+                i > 0 && Compare(rows[i - 1].Key, key) >= 0)
+                throw new InvalidDataException("Invalid overlay sample key.");
+            if (supportsMaterial is null ? value is not (-128 or 128) || value == baseline.SampleDensity(key) :
+                value is < 1 or > ushort.MaxValue || !supportsMaterial((ushort)value) || value == baseline.SampleMaterial(key))
+                throw new InvalidDataException("Invalid overlay sample value.");
+            rows[i] = new Row(key, value);
+        }
+        return rows;
+
+        static bool InRange(long value) =>
+            value >= -PlanetDensityField.MaximumCoordinate && value <= PlanetDensityField.MaximumCoordinate;
+    }
+
     public PlanetDescriptor Descriptor => _baseline.Descriptor;
     internal byte[] Digest { get; }
     internal int Count => _densityCount + _materialCount;

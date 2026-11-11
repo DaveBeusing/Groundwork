@@ -437,8 +437,10 @@ public interface IObserverSnapshotSource
 
 public sealed class WorldPublicationPorts
 {
+    private readonly WorldPublicationAuthority _authority;
     internal WorldPublicationPorts(WorldPublicationAuthority authority)
     {
+        _authority = authority;
         RootChanges = authority.RootChanges;
         Execution = new JobExecutionPort(authority);
         Phases = new JobPhasePort(authority);
@@ -452,6 +454,8 @@ public sealed class WorldPublicationPorts
         Committed = new CommittedWorldPort(authority);
         Borrow = new BorrowBarrierPort(authority);
     }
+
+    public CommittedCut? TryReserveCommitResultsCut(ulong tick) => _authority.ReserveCut(tick);
 
     public IRootChangeAuthority RootChanges { get; }
     public IJobExecutionAuthority Execution { get; }
