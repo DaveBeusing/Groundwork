@@ -14,13 +14,27 @@ public sealed partial class D3D12Renderer
 {
     private readonly VolumeStreamingCoordinator? _volume;
     private readonly ulong _volumeEpoch;
+    private readonly VolumeRendererAuthority? _volumeAuthority;
     private readonly Lock _volumeGate = new();
+    private bool _volumePacking;
+    private VolumeStage? _volumeStage;
     private VolumeFrameRegistration? _volumeStaged;
     private VolumeFrameRegistration? _volumeInstalled;
     private VolumeMask? _volumeMask;
+    private VolumeMask? _volumeConfirmedMask;
     private bool _volumeClosed;
+    private bool VolumeAdmissionOpen => !_volumeClosed && _meshRuntimeFence is { IsOpen: true };
 
     private sealed record VolumeMask(VolumeViewIdentity View, ulong Sequence);
+
+    private sealed class VolumeStage(VolumeStreamingLease lease, RenderMeshRegion region, long nativeLimit)
+    {
+        public VolumeStreamingLease Lease { get; } = lease;
+        public RenderMeshRegion Region { get; } = region;
+        public long NativeLimit { get; } = nativeLimit;
+        // Only the render owner creates, transfers or disposes this handle.
+        public GpuDevice.MeshGeometry? Native { get; set; }
+    }
 
     /// <summary>Creates the WP11 provider for a single streaming authority and renderer epoch.</summary>
     public static D3D12Renderer CreateWithVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
@@ -35,6 +49,8 @@ public sealed partial class D3D12Renderer
     {
         ArgumentNullException.ThrowIfNull(terrain);
         ArgumentOutOfRangeException.ThrowIfZero(rendererEpoch);
+        _volumeAuthority = terrain.TryBindRenderer(rendererEpoch)
+            ?? throw new InvalidOperationException("The renderer epoch must be fresh, held and exclusively bound.");
         _volume = terrain;
         _volumeEpoch = rendererEpoch;
         _retirementHooks = hooks;
@@ -48,7 +64,7 @@ public sealed partial class D3D12Renderer
         RenderSubmissionResult result;
         lock (_volumeGate)
         {
-            if (_volumeClosed)
+            if (!VolumeAdmissionOpen)
                 return RenderSubmissionResult.Closed;
             if (_volume is null || view.RendererEpoch != _volumeEpoch || !_volume.CanRequestMask(view))
                 return RenderSubmissionResult.InvalidFrame;
@@ -64,7 +80,68 @@ public sealed partial class D3D12Renderer
         return result;
     }
 
-    /// <summary>Checks presentation capacity before preparing the Core terrain swap.</summary>
+    /// <summary>Reserves and packs one private candidate, then schedules its native preparation.</summary>
+    public MeshReplacementSubmissionResult TryStageVolumeTerrain(ulong generation)
+    {
+        VolumeStreamingLease? lease;
+        VolumeResources credits;
+        long packingBytes;
+        lock (_volumeGate)
+        {
+            if (!VolumeAdmissionOpen)
+                return MeshReplacementSubmissionResult.Closed;
+            if (_volume is null || Read().Lifecycle != RendererLifecycle.Running)
+                return MeshReplacementSubmissionResult.NotRunning;
+            if (_volumePacking || _volumeStage is not null || _volumeStaged is not null)
+                return MeshReplacementSubmissionResult.Backpressure;
+            lease = _volume.TryAcquirePreparedGeometry(_volumeAuthority!, generation, out credits, out packingBytes);
+            if (lease is null)
+                return MeshReplacementSubmissionResult.StaleGeneration;
+            _volumePacking = true;
+        }
+
+        try
+        {
+            if (lease.Info.View.RendererEpoch != _volumeEpoch)
+                return MeshReplacementSubmissionResult.StaleGeneration;
+
+            var nativeLimit = NativeLimit(credits);
+            var region = PackVolumeTerrain(lease.Meshes, lease.Info.View.Frame, nativeLimit, packingBytes);
+            if (region is null)
+                return MeshReplacementSubmissionResult.Backpressure;
+            lock (_volumeGate)
+            {
+                if (!VolumeAdmissionOpen || !_volume.IsCurrentPresentationCandidate(lease.Info))
+                    return MeshReplacementSubmissionResult.StaleGeneration;
+                _volumeStage = new(lease, region, nativeLimit);
+                lease = null;
+            }
+
+            Wake();
+            return MeshReplacementSubmissionResult.Accepted;
+        }
+        catch (ArgumentException)
+        {
+            // A valid lattice need not fit a particular float render origin.
+            return MeshReplacementSubmissionResult.InvalidRegion;
+        }
+        finally
+        {
+            lease?.Dispose();
+            lock (_volumeGate)
+                _volumePacking = false;
+        }
+    }
+
+    /// <summary>Reports whether the owner has actually allocated and filled the private GPU buffer.</summary>
+    public bool IsVolumeTerrainReady(ulong generation)
+    {
+        lock (_volumeGate)
+            return VolumeAdmissionOpen && _volumeStage is { Native: not null } stage &&
+                stage.Lease.Info.Generation == generation && _volume!.IsCurrentPresentationCandidate(stage.Lease.Info);
+    }
+
+    /// <summary>Prepares the Core swap after native preparation and a retired mask for that exact view.</summary>
     public PreparedBarrierPublication? TryPrepareVolumePublication(ulong generation, CandidateSet candidates,
         ImmutableArray<BatchDisposition> dispositions, out MeshReplacementSubmissionResult result,
         IWorldStateRoot? composedState = null)
@@ -73,61 +150,48 @@ public sealed partial class D3D12Renderer
         lock (_volumeGate)
         {
             result = MeshReplacementSubmissionResult.Closed;
-            if (_volumeClosed || _volume is null)
+            if (!VolumeAdmissionOpen || _volume is null)
                 return null;
-            result = MeshReplacementSubmissionResult.NotRunning;
-            if (Read().Lifecycle != RendererLifecycle.Running)
+            result = MeshReplacementSubmissionResult.Backpressure;
+            if (!IsVolumeTerrainReady(generation) || _volumeConfirmedMask?.View != _volumeStage!.Lease.Info.View)
                 return null;
-            result = MeshReplacementSubmissionResult.StaleGeneration;
-            if (!_volume.TryReadPreparedGeometry(generation, out var info, out var triangles, out var credits) ||
-                info.View.RendererEpoch != _volumeEpoch)
-                return null;
-            if (!FitsVolumeGeometry(triangles, NativeLimit(credits)))
-            {
-                result = MeshReplacementSubmissionResult.Backpressure;
-                return null;
-            }
 
-            var prepared = _volume.TryPreparePublication(generation, candidates, dispositions, composedState);
+            result = MeshReplacementSubmissionResult.StaleGeneration;
+            var prepared = _volume.TryPreparePublication(generation, candidates, dispositions, composedState, _volumeAuthority);
             if (prepared is not null)
                 result = MeshReplacementSubmissionResult.Accepted;
             return prepared;
         }
     }
 
-    /// <summary>Queues a committed mesh and its exact camera together. The provider owns the registration.</summary>
+    /// <summary>Queues the prepared, committed generation and exact camera together.</summary>
     public MeshReplacementSubmissionResult TrySubmitVolumeTerrain(ulong generation, ulong sequence, in VolumeCamera camera)
     {
         MeshReplacementSubmissionResult result;
         lock (_volumeGate)
         {
-            if (_volumeClosed)
+            if (!VolumeAdmissionOpen)
                 return MeshReplacementSubmissionResult.Closed;
             if (_volume is null || camera.View.RendererEpoch != _volumeEpoch ||
                 !TryCreateVolumeFrame(camera, sequence, out var frame))
                 return MeshReplacementSubmissionResult.InvalidRegion;
             if (Read().Lifecycle != RendererLifecycle.Running)
                 return MeshReplacementSubmissionResult.NotRunning;
-            if (_volumeStaged is not null)
-                return MeshReplacementSubmissionResult.Backpressure;
             if (_volumeInstalled?.Info.Generation == generation)
                 return MeshReplacementSubmissionResult.DuplicateGeneration;
-            if (sequence <= Read().LastAcceptedSequence)
+            if (_volumeStaged is not null)
+                return MeshReplacementSubmissionResult.Backpressure;
+            if (_volumeStage is not { Native: not null } stage || stage.Lease.Info.Generation != generation ||
+                stage.Lease.Info.View != camera.View || sequence <= Read().LastAcceptedSequence)
                 return MeshReplacementSubmissionResult.StaleGeneration;
 
-            var registration = _volume.TryRegisterFrame(generation, camera.View, sequence);
+            var registration = _volume.TryRegisterFrame(generation, camera.View, sequence, _volumeAuthority);
             if (registration is null)
                 return MeshReplacementSubmissionResult.StaleGeneration;
             try
             {
-                var region = PackVolumeTerrain(registration.Meshes, camera.View.Frame, NativeLimit(registration.Resources));
-                if (region is null)
-                    return MeshReplacementSubmissionResult.Backpressure;
-                if (!_volume.IsCurrentFrame(registration))
-                    return MeshReplacementSubmissionResult.StaleGeneration;
-
                 Volatile.Write(ref _volumeStaged, registration);
-                result = _admission.MeshRegionReplacement!.TrySubmitPairedRegion(generation, region, frame);
+                result = _admission.MeshRegionReplacement!.TrySubmitPairedRegion(generation, stage.Region, frame);
                 if (result == MeshReplacementSubmissionResult.Accepted)
                     registration = null;
             }
@@ -152,7 +216,7 @@ public sealed partial class D3D12Renderer
         RenderSubmissionResult result;
         lock (_volumeGate)
         {
-            if (_volumeClosed)
+            if (!VolumeAdmissionOpen)
                 return RenderSubmissionResult.Closed;
             if (_volume is null || _volumeInstalled is not { } installed || installed.Info.Generation != generation ||
                 installed.Info.View != camera.View || !_volume.IsCurrentFrame(installed) ||
@@ -202,7 +266,7 @@ public sealed partial class D3D12Renderer
     }
 
     internal static RenderMeshRegion? PackVolumeTerrain(ReadOnlySpan<PlanetVolumeMesh> meshes,
-        PlanetLocalFrame origin, long nativeLimit)
+        PlanetLocalFrame origin, long nativeLimit, long packingBytes = long.MaxValue)
     {
         var count = 0;
         foreach (var mesh in meshes)
@@ -212,7 +276,10 @@ public sealed partial class D3D12Renderer
             count += mesh.Triangles.Length;
         }
 
-        if (!FitsVolumeGeometry(count, nativeLimit))
+        // Immutable positions, indices, colors plus peak scratch for a batch.
+        var packedBytes = (long)count * 3 * (12 + sizeof(uint) * 2);
+        var scratchBytes = (long)Math.Min(count, VolumeTrianglesPerMesh) * 3 * (12 + sizeof(uint) * 2);
+        if (!FitsVolumeGeometry(count, nativeLimit) || packedBytes + scratchBytes > packingBytes)
             return null;
 
         var instances = new RenderMeshInstance[Math.Max(1, (count + VolumeTrianglesPerMesh - 1) / VolumeTrianglesPerMesh)];
@@ -264,22 +331,108 @@ public sealed partial class D3D12Renderer
     private bool CanInstallVolume(ulong generation) => _volume is null ||
         Volatile.Read(ref _volumeStaged) is { } staged && staged.Info.Generation == generation && _volume.IsCurrentFrame(staged);
 
+    private bool ServiceVolumeStage(GpuDevice gpu, RendererWatchdog watchdog, ref RendererStage stage)
+    {
+        VolumeStage? stale = null;
+        VolumeStage? candidate = null;
+        lock (_volumeGate)
+        {
+            if (_volumeStage is { } pending)
+            {
+                if (!VolumeAdmissionOpen)
+                    CloseVolumeAdmission();
+                if (!VolumeAdmissionOpen || !_volume!.IsCurrentPresentationCandidate(pending.Lease.Info))
+                    stale = DetachVolumeStage();
+                else if (pending.Native is null)
+                    candidate = pending;
+            }
+        }
+        DisposeVolumeStage(stale);
+        if (candidate is null)
+            return true;
+
+        stage = RendererStage.MeshReplacement;
+        if (!watchdog.Begin(stage, null, _operationTimeout))
+            return false;
+        var prepared = gpu.PrepareMeshGeometry(candidate.Region, candidate.NativeLimit);
+        if (!watchdog.Complete())
+        {
+            prepared.Dispose();
+            return false;
+        }
+        lock (_volumeGate)
+        {
+            if (VolumeAdmissionOpen && _volume!.IsCurrentPresentationCandidate(candidate.Lease.Info))
+            {
+                candidate.Native = prepared;
+                return true;
+            }
+            if (!VolumeAdmissionOpen)
+                CloseVolumeAdmission();
+            stale = DetachVolumeStage();
+        }
+        prepared.Dispose();
+        DisposeVolumeStage(stale);
+        return true;
+    }
+
+    private GpuDevice.MeshGeometry? GetVolumeNativeCandidate(ulong generation)
+    {
+        lock (_volumeGate)
+            return _volumeStage is { } stage && stage.Lease.Info.Generation == generation ? stage.Native : null;
+    }
+
+    private VolumeStage? DetachVolumeStage()
+    {
+        var stage = _volumeStage;
+        _volumeStage = null;
+        return stage;
+    }
+
+    private static void DisposeVolumeStage(VolumeStage? stage)
+    {
+        if (stage is null)
+            return;
+        stage.Native?.Dispose();
+        stage.Lease.Dispose();
+    }
+
     private void SettleVolumeCandidate(ulong generation, bool installed, bool retry)
     {
         if (_volume is null || retry)
             return;
+        VolumeStage? released = null;
         lock (_volumeGate)
         {
-            if (_volumeStaged is not { } staged || staged.Info.Generation != generation)
-                return;
-            Volatile.Write(ref _volumeStaged, null);
-            if (installed)
+            if (_volumeStage is { } stage && stage.Lease.Info.Generation == generation)
             {
-                _volumeInstalled?.Dispose();
-                _volumeInstalled = staged;
+                if (installed)
+                    stage.Native = null; // The GPU's active slot owns it now.
+                released = DetachVolumeStage();
             }
-            else
-                staged.Dispose();
+            if (_volumeStaged is { } staged && staged.Info.Generation == generation)
+            {
+                Volatile.Write(ref _volumeStaged, null);
+                if (installed)
+                {
+                    _volumeInstalled?.Dispose();
+                    _volumeInstalled = staged;
+                }
+                else
+                    staged.Dispose();
+            }
+        }
+        DisposeVolumeStage(released);
+    }
+
+    private bool AuthorizeVolumeDraw(in RenderFrame frame)
+    {
+        if (_volume is null)
+            return true;
+        lock (_volumeGate)
+        {
+            return CanDrawVolume(frame) && (!frame.Scene.HasValue ||
+                frame.Sequence == _volumeInstalled!.Frame || _volume.AuthorizeCameraFrame(_volumeInstalled, frame.Sequence));
         }
     }
 
@@ -289,7 +442,7 @@ public sealed partial class D3D12Renderer
             return true;
         lock (_volumeGate)
         {
-            return !_volumeClosed && _meshRuntimeFence is { IsOpen: true } && (frame.Scene.HasValue
+            return VolumeAdmissionOpen && (frame.Scene.HasValue
                 ? _volumeInstalled is { } installed && _volume.IsCurrentFrame(installed)
                 : _volumeMask is { } mask && mask.Sequence == frame.Sequence && mask.View == _volume.View);
         }
@@ -311,8 +464,11 @@ public sealed partial class D3D12Renderer
             else
             {
                 var mask = _volumeMask!;
-                if (_volume!.ConfirmMask(mask.View))
+                if (_volume!.ConfirmMask(mask.View, _volumeAuthority, mask.Sequence))
+                {
+                    _volumeConfirmedMask = mask;
                     _admission.RecordPresented(frame.Sequence);
+                }
             }
         }
     }
@@ -328,6 +484,14 @@ public sealed partial class D3D12Renderer
             _volumeClosed = true;
             _volume.InvalidateRenderer(_volumeEpoch);
         }
+    }
+
+    private void ReleasePrivateVolumeCustody()
+    {
+        VolumeStage? stage;
+        lock (_volumeGate)
+            stage = DetachVolumeStage();
+        DisposeVolumeStage(stage);
     }
 
     private void ReleaseVolumeCustody()

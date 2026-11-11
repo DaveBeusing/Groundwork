@@ -43,8 +43,10 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, 1, out var frame));
             var before = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
             var hits = new VolumeRayHit[4];
-            Assert.AreEqual(2, first.Raycast(new(32, 0, -4), new(32, 0, 12), hits).Count);
+            Assert.AreEqual(2, first.Raycast(new(32, 32, -4), new(32, 32, 12), hits).Count);
             Assert.IsTrue(hits[0].IsTransition, "The floor readback is centered on actual transition geometry.");
+            Assert.AreEqual(PlanetFace.PositiveY, PlanetCoordinates.Project(new(31, 32, 0)).Face);
+            Assert.AreEqual(PlanetFace.PositiveX, PlanetCoordinates.Project(new(33, 32, 0)).Face);
             AssertVolumeFloor(before);
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera with { Forward = Vector3.UnitZ }, 1, out var roofFrame));
             AssertVolumeFloor(GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, roofFrame));
@@ -92,9 +94,18 @@ public sealed partial class PresentationSmokeTests
         var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
         var observed = new TaskCompletionSource<GpuDevice>(TaskCreationOptions.RunContinuationsAsynchronously);
         var hold = 1;
+        var holdNext = 0;
+        var nextObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         var hooks = new GpuRetirementTestHooks(CompletedValue: (gpu, completed) =>
         {
-            if (Volatile.Read(ref hold) == 0 || completed == ulong.MaxValue)
+            if (completed == ulong.MaxValue)
+                return completed;
+            if (Volatile.Read(ref holdNext) != 0 && completed >= 8)
+            {
+                nextObserved.TrySetResult();
+                return 6;
+            }
+            if (Volatile.Read(ref hold) == 0)
                 return completed;
             if (completed >= 4)
                 observed.TrySetResult(gpu);
@@ -117,6 +128,8 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(diagnostics.DredEnabled);
 
             var view = run.Terrain.View;
+            Assert.IsFalse(run.Terrain.ConfirmMask(view), "The bound renderer owns mask evidence.");
+            Assert.IsNull(run.Terrain.TryBindRenderer(1));
             Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(view, 1, Vector4.Zero));
             await AwaitStatus(renderer, s => s.LastPresentedSequence == 1, token);
             await run.Publish(1, cut: false, renderer);
@@ -131,7 +144,8 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(MeshReplacementSubmissionResult.DuplicateGeneration,
                 renderer.TrySubmitVolumeTerrain(generation, 3, VolumeCameraAt(view, 32, 4)));
 
-            var next = run.Terrain.ChangeView(PlanetLocalFrame.Create(default), 1);
+            Assert.IsTrue(view.Frame.TryRebase(new PlanetVector(32, 0, 0), out var rebased));
+            var next = run.Terrain.ChangeView(rebased, 1);
             Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, 3, Vector4.Zero));
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame, renderer.TrySubmitVolumeCamera(generation, 4, VolumeCameraAt(view, 32, 4)));
             Assert.AreEqual(1UL, renderer.Read().LastPresentedSequence);
@@ -147,11 +161,24 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             await run.Publish(2, cut: true, renderer);
             generation = ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Terrain.Generation;
+            Volatile.Write(ref holdNext, 1);
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
                 renderer.TrySubmitVolumeTerrain(generation, 4, VolumeCameraAt(next, 32, 4)));
+            await nextObserved.Task.WaitAsync(token);
+            var alreadyFinalized = await run.BeginHeldTick();
+            Volatile.Write(ref holdNext, 0);
             await AwaitStatus(renderer, s => s.LastPresentedSequence == 4, token);
+            Assert.IsFalse(run.Terrain.BeginTick(alreadyFinalized), "An ACK cannot release a previously finalized tick.");
+            await run.FinishHeldTick();
             await run.OpenMovement();
             Assert.IsFalse(run.Terrain.Statistics.MovementHeld);
+            Assert.AreEqual(RenderSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeCamera(generation, 5, VolumeCameraAt(next, 32, 6)));
+            await AwaitStatus(renderer, s => s.LastPresentedSequence == 5, token);
+            var registeredCamera = false;
+            while (run.Terrain.TryReadEvent(out var record))
+                registeredCamera |= record.Kind == VolumeEventKind.Registered && record.Frame == 5;
+            Assert.IsTrue(registeredCamera);
             Assert.AreEqual(1, run.Terrain.Statistics.Readers);
             Assert.IsTrue(PostMessage(hwnd, 0x0010, 0, 0)); // WM_CLOSE
             await AwaitStatus(renderer, s => s.Lifecycle == RendererLifecycle.Stopped, token);
@@ -164,13 +191,18 @@ public sealed partial class PresentationSmokeTests
         finally
         {
             Volatile.Write(ref hold, 0);
+            Volatile.Write(ref holdNext, 0);
             runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
         }
     }
 
     [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
-    public async Task VolumeFailedPresentSignalRetainsRegistrationUntilConfirmedRemoval()
+    [DataRow(0)] // Watchdog expiry with an unobserved fence.
+    [DataRow(3)] // Draw Signal.
+    [DataRow(4)] // Present Signal.
+    [DataRow(5)] // Hard Present HRESULT.
+    public async Task VolumeFaultRetainsRegistrationUntilConfirmedRemoval(int failurePoint)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
         using var returnSignal = new ManualResetEventSlim();
@@ -183,27 +215,37 @@ public sealed partial class PresentationSmokeTests
         var reached = new TaskCompletionSource<GpuDevice>(TaskCreationOptions.RunContinuationsAsynchronously);
         var held = new TaskCompletionSource<int>(TaskCreationOptions.RunContinuationsAsynchronously);
         var removed = 0;
+        var presents = 0;
+        const int injectedFailure = unchecked((int)0x80004005);
         var hooks = new GpuRetirementTestHooks(SignalFailure: (gpu, value) =>
         {
-            if (value != 4)
+            if (failurePoint is not (3 or 4) || value != (ulong)failurePoint)
                 return null;
             reached.TrySetResult(gpu);
             if (!returnSignal.Wait(TimeSpan.FromSeconds(10)))
                 throw new TimeoutException("The test did not release the Present signal.");
-            return unchecked((int)0x80004005);
+            return injectedFailure;
         }, CompletedValue: (gpu, completed) =>
         {
+            if (failurePoint == 0 && completed >= 4)
+                reached.TrySetResult(gpu);
             if (!reached.Task.IsCompleted)
                 return completed;
             held.TrySetResult(gpu.RemovedReason);
             if (remove.IsSet && removed == 0)
                 removed = RemoveWarpRetirementDevice(gpu);
             return ulong.MaxValue;
+        }, PresentFailure: gpu =>
+        {
+            if (failurePoint != 5 || ++presents != 2)
+                return null;
+            reached.TrySetResult(gpu);
+            return injectedFailure;
         });
         await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork volume fault {Guid.NewGuid():N}", 360, 280, 32),
             runtime.UiWake, runtime.RuntimeOwnership);
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1, QualificationDiagnostics,
-            true, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(15), hooks);
+            true, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(failurePoint == 0 ? 1 : 15), hooks);
         try
         {
             await window.InitializeAsync(context, token);
@@ -224,13 +266,28 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(0, await held.Task.WaitAsync(token), "A synthetic fence sentinel is not device removal.");
             while (renderer.Read().FirstFault is null)
                 await Task.Delay(10, token);
-            Assert.AreEqual(new RenderFaultSummary((uint)RendererStage.Present, unchecked((int)0x80004005), null, 2),
-                renderer.Read().FirstFault);
+            var expectedStage = failurePoint switch
+            {
+                0 => RendererStage.Retire,
+                3 => RendererStage.Submit,
+                _ => RendererStage.Present
+            };
+            var fault = renderer.Read().FirstFault!.Value;
+            Assert.AreEqual((uint)expectedStage, fault.Stage);
+            Assert.AreEqual(2UL, fault.FrameSequence);
+            Assert.AreEqual(failurePoint == 0 ? new TimeoutException().HResult : injectedFailure, fault.ErrorCode);
             Assert.AreEqual(1UL, renderer.Read().LastPresentedSequence);
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual(1, run.Terrain.Statistics.Readers);
             Assert.AreEqual(1, gpu.LiveMeshBuffers);
 
+            if (failurePoint == 0)
+            {
+                runtime.StopControl.RequestStop(HostStopReason.RuntimeFault);
+                run.Fixture.Clock.Advance(TimeSpan.FromSeconds(15));
+                await Assert.ThrowsAsync<IncompleteCleanupException>(() => renderer.StopAsync(token).AsTask());
+                Assert.AreEqual(1, run.Terrain.Statistics.Readers);
+            }
             remove.Set();
             while (renderer.Read().Lifecycle != RendererLifecycle.Stopped)
                 await Task.Delay(10, token);
@@ -241,7 +298,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(diagnostics.DredEnabled);
             Assert.IsNotNull(diagnostics.DeviceRemoval);
             Assert.AreEqual(removed, diagnostics.DeviceRemoval.Reason);
-            Console.WriteLine($"Volume Present signal failed; registration retained through sentinel and released after WARP removal 0x{removed:X8}.");
+            Console.WriteLine($"Volume fault at {expectedStage}; registration retained through sentinel and released after WARP removal 0x{removed:X8}.");
         }
         finally
         {
@@ -251,8 +308,17 @@ public sealed partial class PresentationSmokeTests
         }
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task InvalidatedRendererCannotCommitAfterLossOrReopenItsEpoch(bool swapFirst)
+    {
+        using var run = new VolumeRun();
+        await run.VerifyInvalidationOrder(swapFirst);
+    }
+
     private static VolumeCamera VolumeCameraAt(VolumeViewIdentity view, double x, double z) =>
-        new(view, new(x, 0, z), -Vector3.UnitZ, Vector3.UnitY, MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
+        new(view, new(x, 32, z), -Vector3.UnitZ, Vector3.UnitY, MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
 
     private static void AssertVolumeFloor(OffscreenFrame image)
     {
@@ -282,7 +348,7 @@ public sealed partial class PresentationSmokeTests
             World = Fixture.OpenWorld();
             var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
                 new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
-            _selection = VolumeStreamingSelection.Select(descriptor, default, new PlanetVector(-1, 0, 0));
+            _selection = VolumeStreamingSelection.Select(descriptor, new PlanetVector(0, 32, 0), new PlanetVector(-1, 0, 0));
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, MeshBytes),
                 NativeBytes, NativeBytes, NativeBytes, 1, 1, 1, 64, 1);
             var baseline = _unit.Retained + _unit.Retained;
@@ -301,14 +367,72 @@ public sealed partial class PresentationSmokeTests
                 Assert.IsTrue(work.Execute());
                 await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++_tick, BarrierKind.BeginTick);
                 var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
-                var prepared = renderer is null
-                    ? Terrain.TryPreparePublication(work.Generation, candidates, [])
-                    : renderer.TryPrepareVolumePublication(work.Generation, candidates, [], out _);
+                PreparedBarrierPublication? prepared;
+                if (renderer is null)
+                    prepared = Terrain.TryPreparePublication(work.Generation, candidates, []);
+                else
+                {
+                    Assert.IsNull(renderer.TryPrepareVolumePublication(work.Generation, candidates, [], out var premature));
+                    Assert.AreEqual(MeshReplacementSubmissionResult.Backpressure, premature);
+                    Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
+                    using var readyDeadline = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+                    await AwaitStatus(renderer, _ => renderer.IsVolumeTerrainReady(work.Generation), readyDeadline.Token);
+                    prepared = renderer.TryPrepareVolumePublication(work.Generation, candidates, [], out var result);
+                    Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, result);
+                }
                 Assert.IsNotNull(prepared);
                 var outcome = World.Publication.Finalization.TryFinalize(prepared);
                 Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
                 CoreRuntimeFixture.PublishObserver(World, outcome.Stamp!.Value, (int)_tick);
             }
+        }
+
+        internal async Task VerifyInvalidationOrder(bool swapFirst)
+        {
+            var authority = Terrain.TryBindRenderer(1);
+            Assert.IsNotNull(authority);
+            var view = Terrain.View;
+            Assert.IsFalse(Terrain.ConfirmMask(view));
+            Assert.IsTrue(Terrain.ConfirmMask(view, authority, 1));
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection, 0, 1,
+                MeshBytes, _unit, new VolumeFixtureSource(_selection.Descriptor, false), out var work));
+            Assert.IsNotNull(work);
+            using (work)
+            {
+                Assert.IsTrue(work.Execute());
+                using var reader = Terrain.TryAcquirePreparedGeometry(authority, work.Generation, out _, out _);
+                Assert.IsNotNull(reader);
+                var entry = World.Publication.Committed.Read().Root;
+                await BeginHeldTick();
+                var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
+                Assert.IsNull(Terrain.TryPreparePublication(work.Generation, candidates, []));
+                var prepared = Terrain.TryPreparePublication(work.Generation, candidates, [], null, authority);
+                Assert.IsNotNull(prepared);
+                if (!swapFirst)
+                    Terrain.InvalidateRenderer(1);
+                var outcome = World.Publication.Finalization.TryFinalize(prepared);
+                if (swapFirst)
+                    Terrain.InvalidateRenderer(1);
+                Assert.AreEqual(swapFirst ? BarrierStatus.Committed : BarrierStatus.Unchanged, outcome.Status);
+                Assert.AreEqual(!swapFirst, ReferenceEquals(entry, World.Publication.Committed.Read().Root));
+                Assert.IsFalse(Terrain.IsCurrentPresentationCandidate(reader.Info));
+                Assert.IsFalse(Terrain.ConfirmMask(Terrain.View, authority, 2));
+                Assert.IsNull(Terrain.TryBindRenderer(1));
+                Assert.IsTrue(Terrain.Statistics.MovementHeld);
+                var next = Terrain.ChangeView(view.Frame, 2);
+                var replacement = Terrain.TryBindRenderer(2);
+                Assert.IsNotNull(replacement);
+                Assert.IsTrue(Terrain.ConfirmMask(next, replacement, 3));
+            }
+        }
+
+        internal Task<BarrierStamp> BeginHeldTick() =>
+            CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++_tick, BarrierKind.BeginTick);
+
+        internal async Task FinishHeldTick()
+        {
+            var commit = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, _tick, BarrierKind.CommitResults);
+            CoreRuntimeFixture.PublishObserver(World, commit, (int)_tick);
         }
 
         internal async Task OpenMovement()

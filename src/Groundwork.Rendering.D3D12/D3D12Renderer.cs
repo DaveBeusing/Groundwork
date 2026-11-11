@@ -289,13 +289,13 @@ public sealed partial class D3D12Renderer : IRenderer
         if (Interlocked.CompareExchange(ref _primary, ExceptionDispatchInfo.Capture(error), null) is not null)
             return;
 
+        CloseVolumeAdmission();
         lock (_lifecycle)
         {
             _admission.RecordTerminalFault(new RenderFaultSummary((uint)stage, error.HResult, removedReason, sequence));
             _wake?.Set();
         }
 
-        CloseVolumeAdmission();
         _ready.TrySetResult();
         try
         {

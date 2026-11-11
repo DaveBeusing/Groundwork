@@ -119,6 +119,9 @@ public sealed partial class D3D12Renderer
                 }
             }
 
+            if (!ServiceVolumeStage(gpu, watchdog, ref stage))
+                break;
+
             if (!IsDrawable(snapshot))
             {
                 SetSurface(RenderSurfaceState.Suspended, chain);
@@ -285,9 +288,9 @@ public sealed partial class D3D12Renderer
             if (!gpu.IsIdle)
                 throw new InvalidOperationException("Cannot replace geometry before GPU retirement.");
 
-            var staged = Volatile.Read(ref _volumeStaged);
-            prepared = gpu.PrepareMeshGeometry(candidate.Region,
-                staged is null ? long.MaxValue : NativeLimit(staged.Resources));
+            prepared = _volume is null ? gpu.PrepareMeshGeometry(candidate.Region) : GetVolumeNativeCandidate(candidate.Generation);
+            if (prepared is null)
+                return false;
             _beforeMeshInstallation?.Invoke(gpu);
             installed = meshes.TryInstall<GpuDevice.MeshGeometry?>(candidate, ref gpu.ActiveMeshGeometry, ref prepared,
                 () => CanCommitMesh(target, operation.Snapshot, watchdog) && CanInstallVolume(candidate.Generation));
@@ -300,7 +303,8 @@ public sealed partial class D3D12Renderer
         {
             // On success this is the retired old handle. Otherwise this is
             // private, unsubmitted geometry. Neither needs a new queue signal.
-            prepared?.Dispose();
+            if (_volume is null || installed)
+                prepared?.Dispose();
             meshes.ReleaseCandidate(candidate, retry);
             SettleVolumeCandidate(candidate.Generation, installed, retry);
         }
@@ -345,6 +349,7 @@ public sealed partial class D3D12Renderer
             watchdog.Dispose();
             chain?.Dispose();
             target?.Dispose();
+            ReleasePrivateVolumeCustody();
             gpu?.Dispose();
             ReleaseVolumeCustody();
             if (gpu?.FinalDebugSummary is { } debugMessages)
@@ -388,7 +393,7 @@ public sealed partial class D3D12Renderer
     {
         using var operation = TryBegin(target);
         return operation is not null && Matches(operation.Snapshot, chain) && watchdog.TryAdvance(RendererStage.Submit) &&
-            CanDrawVolume(frame) && gpu.TryRender(chain.CurrentBuffer, frame);
+            AuthorizeVolumeDraw(frame) && gpu.TryRender(chain.CurrentBuffer, frame);
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,
