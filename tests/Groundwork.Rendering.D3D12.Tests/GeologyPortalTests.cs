@@ -71,6 +71,13 @@ public sealed partial class PresentationSmokeTests
             }
             Assert.AreEqual(VolumeQueryStatus.Clear, before.Sweep(new(start, start with { Z = 27 }, 0.5), new(10, 0, 0)).Status);
             Assert.AreEqual(VolumeQueryStatus.Clear, before.Sweep(new(end, end with { Z = 27 }, 0.5), new(-10, 0, 0)).Status);
+            var chartStart = new PlanetVector(34, 35, 30);
+            var chartEnd = new PlanetVector(36, 35, 30);
+            Assert.AreEqual(PlanetFace.PositiveY, PlanetCoordinates.Project(chartStart).Face);
+            Assert.AreEqual(PlanetFace.PositiveX, PlanetCoordinates.Project(chartEnd).Face);
+            Assert.AreEqual(VolumeQueryStatus.Clear,
+                before.Sweep(new(chartStart, chartStart with { Z = 31 }, 0.5), new(2, 0, 0)).Status);
+            AssertGeologyNeighborhoodNormals(before);
             Assert.AreEqual(VolumeQueryStatus.CoverageUnavailable,
                 before.Sweep(new(start, start, 0.5), new(0, 0, 55)).Status);
 
@@ -91,6 +98,9 @@ public sealed partial class PresentationSmokeTests
             Assert.IsNotNull(after);
             Assert.AreEqual(1UL, before.Info.TerrainRevision);
             Assert.AreEqual(2UL, after.Info.TerrainRevision);
+            Assert.AreEqual(VolumeQueryStatus.Clear,
+                after.Sweep(new(chartEnd, chartEnd with { Z = 31 }, 0.5), new(-2, 0, 0)).Status);
+            AssertGeologyNeighborhoodNormals(after);
             Assert.AreEqual(VolumeQueryStatus.Contact, after.Sweep(new(start, start with { Z = 27 }, 0.5), new(10, 0, 0)).Status);
             var hits = new VolumeRayHit[8];
             Assert.AreEqual(VolumeQueryStatus.Contact, after.Raycast(start, end, hits).Status);
@@ -142,5 +152,45 @@ public sealed partial class PresentationSmokeTests
 
         VolumeCamera Camera(VolumeViewIdentity identity) =>
             new(identity, start, Vector3.UnitX, Vector3.UnitZ, MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
+    }
+
+    private static void AssertGeologyNeighborhoodNormals(VolumeStreamingLease lease)
+    {
+        var smooth = new Dictionary<(double X, double Y, double Z), (int Mesh, Vector3 Normal)>();
+        var shared = 0;
+        var creases = 0;
+        var index = 0;
+        foreach (var mesh in lease.Meshes)
+        {
+            foreach (var triangle in mesh.Triangles)
+            {
+                var face = Vector3.Normalize(Vector3.Cross(triangle.B.Position - triangle.A.Position,
+                    triangle.C.Position - triangle.A.Position));
+                Assert.IsGreaterThan(0f, Vector3.Dot(face, triangle.A.Normal + triangle.B.Normal + triangle.C.Normal));
+                if (triangle.IsTransition)
+                    continue;
+                if (triangle.A.Normal == face && triangle.B.Normal == face && triangle.C.Normal == face)
+                {
+                    creases++;
+                    continue;
+                }
+                Compare(triangle.A);
+                Compare(triangle.B);
+                Compare(triangle.C);
+            }
+            index++;
+
+            void Compare(VolumeVertex vertex)
+            {
+                var key = (mesh.Origin.X + (double)vertex.Position.X, mesh.Origin.Y + (double)vertex.Position.Y,
+                    mesh.Origin.Z + (double)vertex.Position.Z);
+                if (smooth.TryAdd(key, (index, vertex.Normal)) || smooth[key].Mesh == index)
+                    return;
+                Assert.IsLessThan(0.00001f, Vector3.Distance(smooth[key].Normal, vertex.Normal));
+                shared++;
+            }
+        }
+        Assert.IsGreaterThan(0, shared, "The fixture must share smooth vertices between separate mesh outputs.");
+        Console.WriteLine($"Matched {shared} smooth vertices across output neighborhoods and validated {creases} oriented face normals.");
     }
 }

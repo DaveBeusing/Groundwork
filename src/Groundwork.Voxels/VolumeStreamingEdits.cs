@@ -273,7 +273,7 @@ public sealed partial class VolumeStreamingCoordinator
     }
 
     private void ResolveEdit(VolumeBrushIntent intent, VolumeEditStatus status, BarrierStamp? stamp = null,
-        bool recordOutcome = true)
+        bool recordOutcome = true, VolumeOreInventoryConflict? oreConflict = null)
     {
         var index = FindEditHead();
         if (index < 0 || _edits![index].Intent != intent)
@@ -281,7 +281,7 @@ public sealed partial class VolumeStreamingCoordinator
         if (status != VolumeEditStatus.Committed)
         {
             if (!_stopped && recordOutcome &&
-                !Record(VolumeEventKind.EditRejected, 0, edit: intent, editStatus: status))
+                !Record(VolumeEventKind.EditRejected, 0, edit: intent, editStatus: status, oreConflict: oreConflict))
                 return;
             _edits[index] = new(intent, status, stamp);
             return;

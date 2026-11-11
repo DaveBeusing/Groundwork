@@ -7,7 +7,11 @@ public enum VolumeAdmission { Accepted, Backpressure, Stale, Closed, Invalid }
 public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected, EditQueued, EditRejected, NativeReady, CheckpointReserved, CheckpointDenied, CheckpointCaptured }
 public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result);
 public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKind Kind, ulong Generation, BarrierStamp? Stamp,
-    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null);
+    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null)
+{
+    public VolumeOreInventoryConflict? OreInventoryConflict { get; init; }
+}
+public readonly record struct VolumeOreInventoryConflict(BatchId Batch, ComponentTarget Inventory, ResourceKey? Scope);
 public readonly record struct VolumePublicationInfo(ulong Generation, ulong TerrainRevision,
     VolumeViewIdentity View, LatticeBrick Minimum, int Width, string PlanIdentity);
 public readonly record struct VolumeStreamingStatistics(VolumeResources Used, VolumeResources Peak,

@@ -352,17 +352,24 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 return null;
             if (entry.OreDepletion.Deposits > 0)
             {
-                if (candidates.Request.Entry != committed.Stamp || dispositions.IsDefault)
+                if (candidates.Request.Entry != committed.Stamp || dispositions.IsDefault ||
+                    dispositions.Length != candidates.Batches.Length)
                     return null;
                 var before = currentState as IVolumeOreInventoryState;
                 var composed = state as IVolumeOreInventoryState;
+                VolumeOreInventoryConflict? conflict = null;
                 var inventory = before is not null && composed is not null &&
-                    before.OreInventoryRevision == composed.OreInventoryRevision
+                    before.OreInventoryRevision == composed.OreInventoryRevision &&
+                    before.OreInventoryTarget == composed.OreInventoryTarget &&
+                    before.OreInventoryTarget.Entity.World == current.World &&
+                    before.OreInventoryTarget.Entity.Generation != 0 && before.OreInventoryTarget.Component.Value != 0 &&
+                    !HasOreInventoryConflict(candidates, dispositions, before.OreInventoryTarget, out conflict)
                     ? composed.StageOreDepletion(entry.OreDepletion) as IVolumeOreInventoryState : null;
                 if (inventory is null || inventory.World != current.World ||
-                    inventory.OreInventoryRevision <= composed!.OreInventoryRevision)
+                    inventory.OreInventoryRevision <= composed!.OreInventoryRevision ||
+                    inventory.OreInventoryTarget != composed.OreInventoryTarget)
                 {
-                    Cancel(entry);
+                    Cancel(entry, conflict);
                     return null;
                 }
                 state = inventory;
@@ -390,6 +397,55 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             UpdatePeak();
             return prepared;
         }
+    }
+
+    private static bool HasOreInventoryConflict(CandidateSet candidates, ImmutableArray<BatchDisposition> dispositions,
+        ComponentTarget inventory, out VolumeOreInventoryConflict? conflict)
+    {
+        conflict = null;
+        var kinds = new Dictionary<BatchId, BatchDispositionKind>(dispositions.Length);
+        foreach (var disposition in dispositions)
+            if (!kinds.TryAdd(disposition.Batch, disposition.Kind))
+                return true;
+        foreach (var batch in candidates.Batches)
+        {
+            if (!kinds.TryGetValue(batch.Batch, out var kind) ||
+                kind is not (BatchDispositionKind.Commit or BatchDispositionKind.Defer or BatchDispositionKind.Reject))
+                return true;
+            if (kind == BatchDispositionKind.Reject)
+                continue;
+
+            var scope = batch.Permit.Scope;
+            foreach (var key in scope.ReadScopes)
+                if (Matches(key, scope))
+                {
+                    conflict = new(batch.Batch, inventory, key);
+                    return true;
+                }
+            foreach (var key in scope.CommandScopes)
+                if (Matches(key, scope))
+                {
+                    conflict = new(batch.Batch, inventory, key);
+                    return true;
+                }
+            foreach (var command in batch.Commands)
+                if (command.Entity.Existing == inventory.Entity &&
+                    (command.Kind != JobCommandKind.ReplaceComponent || command.Component == inventory.Component))
+                {
+                    conflict = new(batch.Batch, inventory, null);
+                    return true;
+                }
+        }
+        return false;
+
+        bool Matches(ResourceKey key, IAdmittedJobScope scope) =>
+            key.World == inventory.Entity.World && (key.Component.Value == 0 || key.Component == inventory.Component) &&
+            (key.Scope.Kind switch
+            {
+                ScopeKind.Entity => key.Scope.Entity == inventory.Entity,
+                ScopeKind.Partition when key.Scope.Partition is { } partition => scope.MayContain(partition, inventory.Entity),
+                _ => true,
+            });
     }
 
     public VolumeStreamingLease? TryRead()
@@ -792,18 +848,18 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
         VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null, VolumeBrushIntent? edit = null, VolumeEditStatus? editStatus = null,
-        BarrierStamp? stamp = null)
+        BarrierStamp? stamp = null, VolumeOreInventoryConflict? oreConflict = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, stamp ?? _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus);
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus) { OreInventoryConflict = oreConflict };
         _journalPermits[index] = permit;
         return true;
     }
 
-    private void Cancel(VolumeGeneration entry)
+    private void Cancel(VolumeGeneration entry, VolumeOreInventoryConflict? oreConflict = null)
     {
         entry.Permit?.Revoke();
         Refresh();
@@ -811,7 +867,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             return;
         entry.Cancelled = true;
         if (entry.Edit is { } edit)
-            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null);
+            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null, oreConflict: oreConflict);
         if (!entry.Outstanding)
             Release(entry);
     }

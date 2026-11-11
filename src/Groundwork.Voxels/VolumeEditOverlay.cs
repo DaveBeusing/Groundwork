@@ -18,6 +18,9 @@ public interface IVolumeOreInventoryState : Groundwork.Core.IWorldStateRoot
     /// <summary>Version of the inventory scope affected by depletion. Ordinary writes advance it.</summary>
     ulong OreInventoryRevision { get; }
 
+    /// <summary>Canonical component written by depletion, including its owning entity.</summary>
+    Groundwork.Core.ComponentTarget OreInventoryTarget { get; }
+
     /// <summary>Returns a new immutable state or null on conflict or capacity failure. Must be bounded and side-effect free.</summary>
     Groundwork.Core.IWorldStateRoot? StageOreDepletion(in VolumeOreDepletion depletion);
 }
