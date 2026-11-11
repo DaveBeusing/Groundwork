@@ -13,7 +13,7 @@ public sealed partial class VolumeStreamingCoordinator
     private readonly EditSlot[]? _edits;
     private int _editCount;
     private ulong _sealedEditTick;
-    private ulong _overflowedEditTick;
+    private ulong _closedEditTick;
     private ulong _editSourceGeneration;
 
     private record struct EditSlot(VolumeBrushIntent Intent, VolumeEditStatus Status, BarrierStamp? Commit = null);
@@ -64,24 +64,23 @@ public sealed partial class VolumeStreamingCoordinator
     }
 
     /// <summary>Seals one input tick's intents in canonical ID order. Only its unresolved head can stage.</summary>
-    public VolumeAdmission SealEditTick(PlanetDescriptor lineage, ReadOnlySpan<VolumeBrushIntent> intents)
+    public VolumeAdmission SealEditTick(ulong tick, PlanetDescriptor lineage, ReadOnlySpan<VolumeBrushIntent> intents)
     {
-        if (_edits is null || lineage != _descriptor || intents.IsEmpty)
+        if (_edits is null || tick == 0 || lineage != _descriptor || intents.IsEmpty)
             return VolumeAdmission.Invalid;
         if (intents.Length > MaximumEditsPerTick)
         {
             lock (_gate)
             {
                 var stamp = _world.Publication.Committed.Read().Stamp;
-                if (stamp.Kind == BarrierKind.BeginTick && stamp.Tick == intents[0].Tick && stamp.Tick > _sealedEditTick)
-                    _overflowedEditTick = stamp.Tick;
+                if (stamp.Kind == BarrierKind.BeginTick && stamp.Tick == tick && stamp.Tick > _sealedEditTick)
+                    _closedEditTick = stamp.Tick;
             }
             return VolumeAdmission.Invalid;
         }
         Span<VolumeBrushIntent> ordered = stackalloc VolumeBrushIntent[intents.Length];
         intents.CopyTo(ordered);
         ordered.Sort(static (a, b) => a.Id.CompareTo(b.Id));
-        var tick = ordered[0].Tick;
         for (var index = 0; index < ordered.Length; index++)
             if (ordered[index].Tick != tick || !TryGetEditDependencies(ordered[index], out _) ||
                 index > 0 && ordered[index - 1].Id == ordered[index].Id)
@@ -92,8 +91,6 @@ public sealed partial class VolumeStreamingCoordinator
             Refresh();
             if (_stopped || !PresentationEpochOpen)
                 return VolumeAdmission.Closed;
-            if (tick <= _overflowedEditTick)
-                return VolumeAdmission.Stale;
             if (tick == _sealedEditTick)
             {
                 if (ordered.Length != _editCount)
@@ -105,13 +102,16 @@ public sealed partial class VolumeStreamingCoordinator
             }
 
             var stamp = _world.Publication.Committed.Read().Stamp;
-            if (tick < _sealedEditTick || stamp.Kind != BarrierKind.BeginTick || tick != stamp.Tick)
+            if (tick <= _closedEditTick || tick < _sealedEditTick || stamp.Kind != BarrierKind.BeginTick || tick != stamp.Tick)
                 return VolumeAdmission.Stale;
             if (!_movementOpen || _active is not { } active || !IsCurrentRoot(active) || FindEditHead() >= 0)
                 return VolumeAdmission.Backpressure;
 
             if (ordered.Length > _journal.Length - _journalCount || ulong.MaxValue - _sequence < (ulong)ordered.Length)
+            {
+                _closedEditTick = tick;
                 return Deny();
+            }
             foreach (var intent in ordered)
             {
                 if (intent.ExpectedRevision != CurrentRevision())
@@ -154,7 +154,7 @@ public sealed partial class VolumeStreamingCoordinator
                 intent.ExpectedRevision == ulong.MaxValue)
             {
                 ResolveEdit(intent, VolumeEditStatus.Stale);
-                return VolumeAdmission.Stale;
+                return _stopped ? VolumeAdmission.Closed : VolumeAdmission.Stale;
             }
             if (_movementOpen || active.View == _view || _prepared is not null)
                 return VolumeAdmission.Backpressure;
@@ -224,13 +224,15 @@ public sealed partial class VolumeStreamingCoordinator
         var index = FindEditHead();
         if (index < 0 || _edits![index].Intent != intent)
             return;
-        _edits[index] = new(intent, status, stamp);
         if (status != VolumeEditStatus.Committed)
         {
-            if (!_stopped && recordOutcome)
-                Record(VolumeEventKind.EditRejected, 0, edit: intent, editStatus: status);
+            if (!_stopped && recordOutcome &&
+                !Record(VolumeEventKind.EditRejected, 0, edit: intent, editStatus: status))
+                return;
+            _edits[index] = new(intent, status, stamp);
             return;
         }
+        _edits[index] = new(intent, status, stamp);
         // The permit-backed commit and preceding EditQueued records determine these
         // outcomes without allocating new semantic journal slots after the swap.
         for (index++; index < _editCount; index++)

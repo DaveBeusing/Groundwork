@@ -37,6 +37,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     private bool _stopped;
     private bool _movementOpen;
     private bool _maskReady;
+    private ulong _maskReadyTick;
 
     public VolumeStreamingCoordinator(WorldSafetyPorts world, PlanetDescriptor descriptor, VolumeStreamingLimits limits)
     {
@@ -150,6 +151,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 renderer is not null && frame == 0 || _movementOpen || view != _view ||
                 !Record(VolumeEventKind.Accepted, 0, frame: frame == 0 ? null : frame))
                 return false;
+            _maskReadyTick = _world.Publication.Committed.Read().Stamp.Tick;
             _maskReady = true;
             return true;
         }
@@ -182,8 +184,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (_stopped || !PresentationEpochOpen)
                 return VolumeAdmission.Closed;
             var head = FindEditHead();
-            if (_editBaseline is not null && edit is null && head >= 0 &&
-                (kind != VolumeWorkClass.Recovery || _edits![head].Status == VolumeEditStatus.Building))
+            if (_editBaseline is not null && edit is null && head >= 0 && kind != VolumeWorkClass.Recovery)
                 return VolumeAdmission.Backpressure;
             if (sourceRevision != CurrentRevision())
                 return VolumeAdmission.Stale;
@@ -225,9 +226,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             {
                 artifacts?.Dispose();
                 entry.Cancelled = true;
+                if (entry.Edit is { } failed)
+                    ResolveEdit(failed, VolumeEditStatus.Rejected);
                 Release(entry);
                 return false;
             }
+            if (entry.Edit is not null)
+                entry.EditReadyTick = _world.Publication.Committed.Read().Stamp.Tick;
             entry.Overlay = overlay;
             entry.Artifacts = artifacts;
             entry.Info = new VolumePublicationInfo(entry.Id, entry.TargetRevision, entry.View, entry.Selection.Minimum,
@@ -255,6 +260,21 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             credits = entry.Resources;
             packingBytes = credits.CpuBytes - RequiredEditableCpuBytes(entry.Selection, meshBytes);
             return Acquire(entry);
+        }
+    }
+
+    /// <summary>Records provider readiness for edit cutoff eligibility.</summary>
+    public bool ConfirmPreparedGeometry(VolumeRendererAuthority renderer, VolumePublicationInfo info)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        lock (_gate)
+        {
+            Refresh();
+            var entry = FindPresentationCandidate(info.Generation);
+            if (!OwnsPresentation(renderer) || entry is null || entry.Info != info)
+                return false;
+            entry.NativeReadyTick ??= _world.Publication.Committed.Read().Stamp.Tick;
+            return true;
         }
     }
 
@@ -296,7 +316,9 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 entry.View != _view || entry.SourceRevision != CurrentRevision() ||
                 _active is not null && entry.View.View <= _active.View.View ||
                 candidates.Request.Kind != BarrierKind.CommitResults ||
-                (entry.Edit is { } edit && (candidates.Request.Tick < edit.Tick || _active?.Id != _editSourceGeneration)))
+                (entry.Edit is not null && (_active?.Id != _editSourceGeneration ||
+                    candidates.Request.Tick <= Math.Max(entry.EditReadyTick, _maskReadyTick) ||
+                    renderer is not null && (entry.NativeReadyTick is not { } nativeTick || candidates.Request.Tick <= nativeTick))))
                 return null;
             var editHead = FindEditHead();
             if (entry.Edit is null && editHead >= 0 && _edits![editHead].Status == VolumeEditStatus.Building)
@@ -319,8 +341,6 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             var permit = _world.Publication.RootChanges.TryReserve(candidates, root);
             if (permit is null)
                 return null;
-            // This evidence slot resolves from Core's atomic permit outcome, even after Stop.
-            Record(VolumeEventKind.Commit, entry.Id, permit, terrainRevision: entry.TargetRevision, edit: entry.Edit);
             var preparation = _world.Publication.Preparation.TryPrepare(new BarrierPublicationDraft(
                 candidates, root, _world.State.Read().PendingFaultGeneration, dispositions, permit));
             if (preparation.Publication is not { } prepared)
@@ -328,6 +348,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 permit.Revoke();
                 return null;
             }
+            // Preparation is fallible and may be retried. Only a prepared permit yields an outcome record.
+            Record(VolumeEventKind.Commit, entry.Id, permit, terrainRevision: entry.TargetRevision, edit: entry.Edit);
             _used[(int)entry.Envelope] -= entry.Resources;
             entry.Envelope = VolumeWorkClass.Baseline;
             _used[(int)entry.Envelope] += entry.Resources;
@@ -605,6 +627,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         else
         {
             entry.Cancelled = true;
+            if (entry.Edit is { } rejected)
+                ResolveEdit(rejected, VolumeEditStatus.Rejected, recordOutcome: false);
             Release(entry);
         }
         foreach (var other in _entries)
@@ -656,6 +680,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         if (entry == _active)
             return;
         entry.Cancelled = true;
+        if (entry.Edit is { } edit)
+            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null);
         if (!entry.Outstanding)
             Release(entry);
     }
@@ -711,8 +737,6 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             _entries[index] = null;
         if (_firstEdit == entry)
             _firstEdit = null;
-        if (entry.Edit is { } edit && entry.Permit?.Status != RootChangeStatus.Committed)
-            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null);
         ReleaseCustodyIfSettled();
     }
 

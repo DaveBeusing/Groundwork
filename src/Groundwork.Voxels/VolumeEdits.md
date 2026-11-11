@@ -14,7 +14,7 @@ or their generator material on removal. Density remains the solidity source.
 Rows equal to the generator are removed from the sparse overlay.
 
 At a finalized BeginTick with admitted terrain, call SealEditTick with the
-whole input set. It sorts by brush ID, validates lineage, revision and coverage,
+explicit tick and the whole input set. It sorts by brush ID, validates lineage, revision and coverage,
 and reserves bounded journal capacity. The current sealed tick retains receipts
 and accepts an identical retry. A newer accepted tick replaces the retained
 receipts. Only the first unresolved ID can stage. After a successful edit, the
@@ -24,7 +24,9 @@ determine those stale outcomes.
 
 Call ChangeView to hold movement before TryStageEdit. Execute the returned
 work outside the authority lock. RejectEdit settles an abandoned head before
-Core preparation. Failure leaves the previous root in place. Compute the dirty
+Core preparation. Recovery can stage in its own envelope and publish once the
+edit is rejected, even while canceled work and private readers retain credits.
+Failure leaves the previous root in place. Compute the dirty
 dependency box with TryGetEditDependencies. Editable builds conservatively
 regenerate the whole selected window and refine bricks around edited samples,
 including material, normal and transition dependencies. This accounts for LOD
@@ -32,7 +34,9 @@ plan changes that can extend beyond the brush. Rebuilding a different window
 uses the same committed global overlay.
 
 Use the existing C03 native staging and mask protocol before preparing
-CommitResults. Core publishes the overlay, complete mesh and collision generation
+CommitResults. The earliest eligible cut is strictly later than worker,
+mask, and native readiness. Work that becomes ready during a tick cannot
+enter that tick's already sealed Core candidates. Core publishes the overlay, complete mesh and collision generation
 in one root. Movement remains held until the provider retires the corresponding
 frame and a later BeginTick admits it. An edit is terrain-only. Gameplay effects
 and checkpoint storage are separate work packages.
@@ -41,4 +45,5 @@ TryWriteEditOverlay on a retained committed lease writes a little-endian Int32
 density count and material count, followed by sorted density rows then material
 rows. Each row has signed Int64 X, Y, Z and value fields in lexicographic XYZ
 order. The payload digest contributes to mesh-plan identity. A checkpoint
-consumer supplies the lineage and revision from the same publication cut.
+consumer uses EditLineage and Info.TerrainRevision from the same lease.
+Private renderer leases cannot export edit rows.

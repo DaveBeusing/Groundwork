@@ -330,6 +330,80 @@ public sealed partial class PresentationSmokeTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    public async Task WarpEditedTerrainRebaseRetiresTheMatchingCollisionRevision()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var token = timeout.Token;
+        using var run = new VolumeRun(editable: true);
+        var runtime = run.Fixture.Runtime;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
+        await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork edited volume {Guid.NewGuid():N}", 360, 280, 32),
+            runtime.UiWake, runtime.RuntimeOwnership);
+        await using var renderer = D3D12Renderer.CreateWithVolumeTerrain(window, runtime.RuntimeOwnership, run.Terrain, 1,
+            QualificationDiagnostics, useWarp: true, startupTimeout: TimeSpan.FromSeconds(15));
+        try
+        {
+            await window.InitializeAsync(context, token);
+            await window.StartAsync(token);
+            await renderer.InitializeAsync(context, token);
+            await renderer.StartAsync(token);
+            var view = run.Terrain.View;
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(view, 1, Vector4.Zero));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 1, token);
+            await run.Publish(1, cut: false, renderer);
+            using var old = run.Terrain.TryRead();
+            Assert.IsNotNull(old);
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(old.Info.Generation, 2, VolumeCameraAt(view, 32, 4)));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 2, token);
+
+            var next = await run.CutFloor(renderer, token);
+            Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
+            using var edited = run.Terrain.TryRead();
+            Assert.IsNotNull(edited);
+            Assert.AreEqual(2UL, edited.Info.TerrainRevision);
+            Assert.AreNotEqual(view.Frame, next.Frame);
+            Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
+                renderer.TrySubmitVolumeCamera(old.Info.Generation, 4, VolumeCameraAt(view, 32, 4)));
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, 4, VolumeCameraAt(next, 32, 4)));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 4, token);
+            Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
+            await run.OpenMovement();
+            Assert.IsFalse(run.Terrain.Statistics.MovementHeld);
+
+            var beforeHits = new VolumeRayHit[4];
+            var afterHits = new VolumeRayHit[4];
+            Assert.AreEqual(1, old.Raycast(new(32, 32, 4), new(32, 32, -8), beforeHits).Count);
+            Assert.AreEqual(1, edited.Raycast(new(32, 32, 4), new(32, 32, -8), afterHits).Count);
+            Assert.IsLessThan(afterHits[0].Distance, beforeHits[0].Distance);
+            await renderer.StopAsync(token);
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
+
+            using var gpu = new GpuDevice(true, enableDebugLayer: true, enableDred: true);
+            var oldRegion = D3D12Renderer.PackVolumeTerrain(old.Meshes, view.Frame, VolumeRun.NativeBytes);
+            Assert.IsNotNull(oldRegion);
+            gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(oldRegion);
+            Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(VolumeCameraAt(view, 32, 4), 1, out var frame));
+            var before = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
+            gpu.ActiveMeshGeometry.Dispose();
+            var editedRegion = D3D12Renderer.PackVolumeTerrain(edited.Meshes, next.Frame, VolumeRun.NativeBytes);
+            Assert.IsNotNull(editedRegion);
+            gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(editedRegion);
+            Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(VolumeCameraAt(next, 32, 4), 2, out frame));
+            var after = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
+            Assert.IsLessThan(1f, after.DepthAt(80, 48));
+            Assert.IsLessThan(after.DepthAt(80, 48), before.DepthAt(80, 48));
+        }
+        finally
+        {
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+    }
+
     private sealed class VolumeClock : CoreRuntimeFixture.TestClock { }
 
     private sealed class VolumeRun : IDisposable
@@ -338,29 +412,33 @@ public sealed partial class PresentationSmokeTests
         private const long MeshBytes = 8 * 1024 * 1024;
         private readonly VolumeStreamingSelection _selection;
         private readonly VolumeResources _unit;
+        private readonly VolumeFixtureSource? _editSource;
         private ulong _tick;
         internal CoreRuntimeFixture Fixture { get; } = new(new VolumeClock());
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
 
-        internal VolumeRun(int readers = 8)
+        internal VolumeRun(int readers = 8, bool editable = false)
         {
             World = Fixture.OpenWorld();
             var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
                 new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
             _selection = VolumeStreamingSelection.Select(descriptor, new PlanetVector(0, 32, 0), new PlanetVector(-1, 0, 0));
-            _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, MeshBytes),
+            const int overlayRows = 1024;
+            _editSource = editable ? new VolumeFixtureSource(descriptor, false) : null;
+            _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, MeshBytes) + (editable ? 64L * overlayRows + 4096 : 0),
                 NativeBytes, NativeBytes, NativeBytes, 1, 1, 1, 64, 1);
             var baseline = _unit.Retained + _unit.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
-            Terrain = new(World, descriptor, new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
-                baseline, _unit, _unit, _unit, _unit, 12, readers, 128));
+            var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
+                baseline, _unit, _unit, _unit, _unit, 12, readers, 128);
+            Terrain = _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
         }
 
         internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection,
-                revision - 1, revision, MeshBytes, _unit, new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                revision - 1, revision, MeshBytes, _unit, _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             using (work)
             {
@@ -385,6 +463,40 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
                 CoreRuntimeFixture.PublishObserver(World, outcome.Stamp!.Value, (int)_tick);
             }
+        }
+
+        internal async Task<VolumeViewIdentity> CutFloor(D3D12Renderer renderer, CancellationToken token)
+        {
+            var begin = await BeginHeldTick();
+            Assert.IsTrue(Terrain.BeginTick(begin));
+            var edit = new VolumeBrushIntent(begin.Tick, 1, 1, new(28, 28, -2), new(36, 36, 1), VolumeBrushOperation.Remove);
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.SealEditTick(begin.Tick, _selection.Descriptor, [edit]));
+            var view = Terrain.View;
+            Assert.IsTrue(view.Frame.TryRebase(new PlanetVector(32, 32, 0), out var frame));
+            var next = Terrain.ChangeView(frame, view.RendererEpoch);
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, 3, Vector4.Zero));
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStageEdit(begin.Tick, edit.Id, _selection, MeshBytes, _unit, out var work));
+            Assert.IsNotNull(work);
+            using (work)
+            {
+                Assert.IsTrue(work.Execute(token));
+                Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
+                await AwaitStatus(renderer, state => state.LastPresentedSequence == 3 && renderer.IsVolumeTerrainReady(work.Generation), token);
+                var sealedCut = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
+                Assert.IsNull(renderer.TryPrepareVolumePublication(work.Generation, sealedCut, [], out _));
+                var unchanged = World.Publication.Finalization.TryFinalize(CoreRuntimeFixture.Prepare(World, sealedCut, []));
+                Assert.AreEqual(BarrierStatus.Unchanged, unchanged.Status);
+                CoreRuntimeFixture.PublishObserver(World, unchanged.Stamp!.Value, (int)_tick);
+                await BeginHeldTick();
+                var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
+                var prepared = renderer.TryPrepareVolumePublication(work.Generation, candidates, [], out var result);
+                Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, result);
+                Assert.IsNotNull(prepared);
+                var committed = World.Publication.Finalization.TryFinalize(prepared);
+                Assert.AreEqual(BarrierStatus.Committed, committed.Status);
+                CoreRuntimeFixture.PublishObserver(World, committed.Stamp!.Value, (int)_tick);
+            }
+            return next;
         }
 
         internal async Task VerifyInvalidationOrder(bool swapFirst)

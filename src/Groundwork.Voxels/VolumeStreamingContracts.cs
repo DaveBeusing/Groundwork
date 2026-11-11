@@ -69,6 +69,8 @@ internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStr
     public VolumeArtifacts? Artifacts { get; set; }
     public VolumeEditOverlay? Overlay { get; set; }
     public VolumeBrushIntent? Edit { get; set; }
+    public ulong EditReadyTick { get; set; }
+    public ulong? NativeReadyTick { get; set; }
     public RootChangePermit? Permit { get; set; }
     public bool Outstanding { get; set; } = true;
     public volatile bool Cancelled;
@@ -105,14 +107,20 @@ public sealed class VolumeStreamingWork : IDisposable
         {
             Check(cancellationToken);
             var overlay = _generation.Overlay;
+            void CheckEditCancellation()
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_generation.Cancelled)
+                    throw new OperationCanceledException("Terrain edit was superseded or stopped.");
+            }
             if (_generation.Edit is { } edit)
             {
-                overlay = overlay!.Apply(edit, _overlayLimit, cancellationToken);
+                overlay = overlay!.Apply(edit, _overlayLimit, CheckEditCancellation);
                 if (overlay is null)
                     return _owner.Complete(_generation, null);
             }
             ReadOnlySpan<VolumeMeshRequest> requests = overlay is { Count: > 0 }
-                ? overlay.Refine(_generation.Selection, cancellationToken)
+                ? overlay.Refine(_generation.Selection, CheckEditCancellation)
                 : _generation.Selection.Requests;
             var store = new PlanetBrickStore((IPlanetBrickSource?)overlay ?? _source, (long)requests.Length * PlanetBrickStore.BrickPayloadBytes, requests.Length);
             VolumeMeshPlan? plan = null;
@@ -202,11 +210,14 @@ public sealed class VolumeStreamingLease : IDisposable
     private readonly object _gate = new();
     private readonly VolumeStreamingCoordinator _owner;
     private VolumeGeneration? _generation;
+    public PlanetDescriptor? EditLineage { get; }
     internal VolumeStreamingLease(VolumeStreamingCoordinator owner, VolumeGeneration generation)
     {
         _owner = owner;
         _generation = generation;
         Info = generation.Info;
+        if (generation.Permit?.Status == RootChangeStatus.Committed)
+            EditLineage = generation.Overlay?.Descriptor;
     }
     public VolumePublicationInfo Info { get; }
 
@@ -272,7 +283,7 @@ public sealed class VolumeStreamingLease : IDisposable
         {
             ObjectDisposedException.ThrowIf(_generation is null, this);
             written = 0;
-            return _generation.Overlay is { } overlay && overlay.TryWrite(destination, out written);
+            return EditLineage is not null && _generation.Overlay is { } overlay && overlay.TryWrite(destination, out written);
         }
     }
 

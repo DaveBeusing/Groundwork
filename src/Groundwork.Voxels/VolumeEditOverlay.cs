@@ -27,7 +27,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
     internal VolumeEditOverlay(IPlanetBrickSource baseline)
         : this(baseline, [], 0, [], 0) { }
 
-    private VolumeEditOverlay(IPlanetBrickSource baseline, Row[] density, int densityCount, Row[] materials, int materialCount)
+    private VolumeEditOverlay(IPlanetBrickSource baseline, Row[] density, int densityCount, Row[] materials, int materialCount, Action? check = null)
     {
         _baseline = baseline;
         _density = density;
@@ -41,11 +41,13 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         hash.AppendData(row[..8]);
         foreach (var entry in density.AsSpan(0, densityCount))
         {
+            check?.Invoke();
             EncodeRow(entry, row);
             hash.AppendData(row);
         }
         foreach (var entry in materials.AsSpan(0, materialCount))
         {
+            check?.Invoke();
             EncodeRow(entry, row);
             hash.AppendData(row);
         }
@@ -64,7 +66,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
 
     internal static long ReservedBytes(int limit) => 64L * limit;
 
-    internal VolumeEditOverlay? Apply(VolumeBrushIntent brush, int limit, CancellationToken cancellationToken)
+    internal VolumeEditOverlay? Apply(VolumeBrushIntent brush, int limit, Action check)
     {
         var density = new Row[limit];
         var materials = new Row[limit];
@@ -76,7 +78,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         // Include all cells incident to modified vertices so their material is resolved at the same cut.
         var materialMin = new LatticeCoordinate(min.X - 1, min.Y - 1, min.Z - 1);
         var materialCount = Merge(_materials, _materialCount, materials, limit - densityCount, materialMin, max, density: false);
-        return materialCount < 0 ? null : new VolumeEditOverlay(_baseline, density, densityCount, materials, materialCount);
+        return materialCount < 0 ? null : new VolumeEditOverlay(_baseline, density, densityCount, materials, materialCount, check);
 
         int Merge(Row[] previous, int previousCount, Row[] destination, int budget,
             LatticeCoordinate lower, LatticeCoordinate upper, bool density)
@@ -87,10 +89,11 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
             for (var y = lower.Y; y <= upper.Y; y++)
             for (var z = lower.Z; z <= upper.Z; z++)
             {
-                cancellationToken.ThrowIfCancellationRequested();
+                check();
                 var key = new LatticeCoordinate(x, y, z);
                 while (old < previousCount && Compare(previous[old].Key, key) < 0)
                 {
+                    check();
                     if (written == budget)
                         return -1;
                     destination[written++] = previous[old++];
@@ -121,7 +124,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         }
     }
 
-    internal VolumeMeshRequest[] Refine(VolumeStreamingSelection selection, CancellationToken token)
+    internal VolumeMeshRequest[] Refine(VolumeStreamingSelection selection, Action check)
     {
         var requests = selection.Requests.ToArray();
         var minimum = selection.Minimum;
@@ -134,7 +137,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         {
             foreach (var row in rows)
             {
-                token.ThrowIfCancellationRequested();
+                check();
                 var key = row.Key;
                 var low = new LatticeCoordinate(key.X - 4, key.Y - 4, key.Z - 4).Locate().Brick;
                 var high = new LatticeCoordinate(key.X + 4, key.Y + 4, key.Z + 4).Locate().Brick;
