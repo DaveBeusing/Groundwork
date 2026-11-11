@@ -27,7 +27,7 @@ and [package provenance](adr/ADR-0006-packaging-release.md).
 | WP09 · Surface to orbit (complete) | Local and planetary reference-frame transitions, graded rendering and controlled streaming | Takeoff, orbit and return to a visibly marked, edited landing site | [Windows flight and landing pad handover](wp09-handover.md) and [surface-to-orbit contract](architecture/wp09-surface-to-orbit-contract.md) |
 | WP10 · Windows alpha (accepted) | Stability, diagnostics, package compatibility and reproducible builds | Per-user installer, onboarding, persistent settings, rescue-to-orbit mission, ESC sidebar and F1 performance panel | [Owner acceptance and evidence](wp10-handover.md), [Windows alpha contract](architecture/wp10-windows-alpha-contract.md) and [UI playtest](https://github.com/DaveBeusing/wyu/pull/26) |
 
-## WP11 – Procedural volumetric planet generation (proposed)
+## WP11 – Procedural volumetric planet generation (workstation integration verified)
 
 WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse three-dimensional planet terrain system. **No compatibility obligation** applies to old planet APIs, alpha save schemas, smoke modes, or fixtures: these can be replaced when it improves the architecture. Old save data must nevertheless be detected as incompatible and preserved rather than silently overwritten. Existing tests can be rewritten, but new deterministic, GPU ownership, crash recovery, precision, and flight/landing tests must prove the replacement.
 
@@ -36,7 +36,7 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 - **WP11-C:** bounded generation/meshing jobs, streaming, collision, coherent D3D12 presentation, instrumentation and budgets.
 - **WP11-D:** deterministic terrain editing, new save/recovery schema, WYU playable/flight integration and clean Windows handover.
 
-The [WP11 architecture proposal](architecture/wp11-procedural-planet-contract.md) and [implementation issue map](wp11-issues.md) define scope, ownership, requirement identifiers, issue links, dependency DAG, exclusions and acceptance. The contract was accepted and merged in PR #77. A01�A03, B01 and C01 are merged (PRs #91�#95); C02 (#84) implements portable collision and movement. C03, editing, persistence, WYU integration and qualification remain open. C00-4 assigns chart-boundary qualification and production capacity limits to the named downstream acceptance gates. WP12 expands underground geology/caves and WP13 addresses biomes/vegetation.
+The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepted in PR #77. Groundwork generation, streaming, collision, D3D12 and NTFS checkpoints are merged, along with WYU W01–W05. The [workstation handover](wp11-handover.md) records the clean Windows integration, installer and package provenance. Q01 production budgets, Q02 reference qualification and owner acceptance remain open. The [issue map](wp11-issues.md) records the dependencies and final gates.
 
 ## After WP10
 
@@ -44,7 +44,7 @@ The fresh Windows 11 offline run remains open as a follow-up to the
 accepted WP10 milestone. The [handover](wp10-handover.md) records its
 scope and the existing evidence.
 
-WP11 implementation follows the accepted volumetric contract. Complete C02 collision, C03 presentation and the dependent edit/persistence and WYU tracks before the final qualification gates.
+WP11 closes after the reference-system run, the qualification review and owner acceptance. WP12 expands underground geology and caves. WP13 addresses biomes and vegetation.
 
 ## Planning and verification
 
