@@ -38,13 +38,17 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 
 The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepted in PR #77. Groundwork generation, streaming, collision, D3D12 and NTFS checkpoints are merged, along with WYU W01–W05. The [workstation handover](wp11-handover.md) records the clean Windows integration, installer and package provenance. Q01 production budgets, Q02 reference qualification and owner acceptance remain open. The [issue map](wp11-issues.md) records the dependencies and final gates.
 
+## WP12 – Underground geology and caves (proposed)
+
+The [WP12 contract](architecture/wp12-underground-geology-contract.md) defines seeded strata, caves and ore deposits, underground streaming and collision, and save and recovery. The Windows playtest follows a surface entrance into the cave, through an ore edit and underground restart, then back to the surface. Contract approval precedes implementation. WP11 reference qualification and production acceptance remain open.
+
 ## After WP10
 
 The fresh Windows 11 offline run remains open as a follow-up to the
 accepted WP10 milestone. The [handover](wp10-handover.md) records its
 scope and the existing evidence.
 
-WP11 closes after the reference-system run, the qualification review and owner acceptance. WP12 expands underground geology and caves. WP13 addresses biomes and vegetation.
+WP11 closes after the reference-system run, the qualification review and owner acceptance. WP13 addresses biomes and vegetation.
 
 ## Planning and verification
 
