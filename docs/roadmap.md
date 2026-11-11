@@ -38,17 +38,31 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 
 The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepted in PR #77. Groundwork generation, streaming, collision, D3D12 and NTFS checkpoints are merged, along with WYU W01–W05. The [workstation handover](wp11-handover.md) records the clean Windows integration, installer and package provenance. Q01 production budgets, Q02 reference qualification and owner acceptance remain open. The [issue map](wp11-issues.md) records the dependencies and final gates.
 
-## WP12 – Underground geology and caves (proposed)
+## WP12 – Underground geology and caves (generator PR open)
 
-The [WP12 contract](architecture/wp12-underground-geology-contract.md) defines seeded strata, caves and ore deposits, underground streaming and collision, and save and recovery. The Windows playtest follows a surface entrance into the cave, through an ore edit and underground restart, then back to the surface. Contract approval precedes implementation. WP11 reference qualification and production acceptance remain open.
+The [WP12 contract](architecture/wp12-underground-geology-contract.md) defines seeded strata, caves and ore deposits, underground streaming and collision, and save and recovery. The Windows playtest follows a surface entrance into a cave, through an ore edit and underground restart, then back to the surface. The contract is merged in [#108](https://github.com/DaveBeusing/Groundwork/pull/108). The [WP12-A01 generator PR #109](https://github.com/DaveBeusing/Groundwork/pull/109) is open. WP12-B01 terrain integration and C01 checkpoint compatibility remain acceptance dependencies for WP17. WP11 reference qualification and production acceptance remain open.
 
-## After WP10
+## Approved rendering and simulation packages
 
-The fresh Windows 11 offline run remains open as a follow-up to the
-accepted WP10 milestone. The [handover](wp10-handover.md) records its
-scope and the existing evidence.
+The issues below are open and track approved scope. Each pair records its acceptance and performance limits. Start the Groundwork work against its listed prerequisites. WYU pins the exact verified Groundwork archive for the integration.
 
-WP11 closes after the reference-system run, the qualification review and owner acceptance. WP13 addresses biomes and vegetation.
+| Package | Groundwork delivers | WYU delivers | Dependencies | Issues |
+| --- | --- | --- | --- | --- |
+| Package B · Biomes | Canonical biome coloring for near terrain and orbital meshes | Integrate three visible biome zones on the reference planet | Groundwork color evaluation → WYU; starts on WP11. | [Groundwork #110](https://github.com/DaveBeusing/Groundwork/issues/110) · [WYU #40](https://github.com/DaveBeusing/wyu/issues/40) |
+| Package E · Day/night and regional fog | Optional distance fog in the D3D12 terrain pass | Fixed-step day/night cycle, regional fog and Save/Continue | Groundwork fog + B → WYU. | [Groundwork #111](https://github.com/DaveBeusing/Groundwork/issues/111) · [WYU #41](https://github.com/DaveBeusing/wyu/issues/41) |
+| Package G · Dynamic sky and atmosphere | Shared D3D12 sky pass with sunlight scattering, stars and orbital limb | Continuous sky from surface to orbit and back | Groundwork atmosphere pass + E → WYU. | [Groundwork #112](https://github.com/DaveBeusing/Groundwork/issues/112) · [WYU #42](https://github.com/DaveBeusing/wyu/issues/42) |
+| WP15 · Sunlight and terrain shadows | Directional terrain lighting and two near-field shadow cascades | Reference-planet lighting and shadow tests across edits and rebases | Groundwork lighting + E → WYU. Verify alignment with G when available. | [Groundwork #113](https://github.com/DaveBeusing/Groundwork/issues/113) · [WYU #43](https://github.com/DaveBeusing/wyu/issues/43) |
+| WP16 · Instanced props and vegetation | Bounded GPU instancing, cell visibility and instance-buffer streaming | Biome-dependent rocks, scree, grass and trees with distance LOD | Groundwork instancing + B → WYU. | [Groundwork #114](https://github.com/DaveBeusing/Groundwork/issues/114) · [WYU #44](https://github.com/DaveBeusing/wyu/issues/44) |
+| WP17 · Connected ridges and valleys | Versioned landform profile shared by volumetric terrain, WP12 depth and orbital relief | Reference seeds and a ridge/valley route from the ground to orbit | Groundwork landform + WP12-A01 interfaces and B01/C01 acceptance → WYU. | [Groundwork #115](https://github.com/DaveBeusing/Groundwork/issues/115) · [WYU #45](https://github.com/DaveBeusing/wyu/issues/45) |
+| WP18 · Loose-object physics | Bounded 60 Hz simulation for spherical bodies against published voxel terrain | Repeatable loose-rock scene with terrain edits, sleeping and rebases | Groundwork physics on WP11 → WYU. WP16 instancing is optional. | [Groundwork #116](https://github.com/DaveBeusing/Groundwork/issues/116) · [WYU #46](https://github.com/DaveBeusing/wyu/issues/46) |
+
+WP16, WP17 and WP18 can begin on their respective foundations. The order of their issue numbers does not define an implementation dependency.
+
+## Open qualification work
+
+The fresh Windows 11 offline run remains a follow-up to the accepted WP10 milestone. The [handover](wp10-handover.md) records its scope and existing evidence.
+
+WP11 closes after the [reference-system measurements](https://github.com/DaveBeusing/Groundwork/issues/88), [pressure qualification](https://github.com/DaveBeusing/Groundwork/issues/89) and [owner acceptance](https://github.com/DaveBeusing/Groundwork/issues/90). Package-specific performance claims require the benchmark evidence specified in the linked issues.
 
 ## Planning and verification
 
