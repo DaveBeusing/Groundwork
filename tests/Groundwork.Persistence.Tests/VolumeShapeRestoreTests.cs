@@ -111,6 +111,148 @@ public sealed class VolumeShapeRestoreTests
         await restarted.FinishUnchanged(resumed.Tick);
     }
 
+    [TestMethod]
+    public async Task CapturedV2CaveCheckpointRestoresPoseGeometryAndDepletedOreFromNtfs()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("The checkpoint round trip requires Windows NTFS.");
+
+        using var directory = new OwnedDirectory(Directory.CreateTempSubdirectory("groundwork-wp12-c01-"));
+        var root = directory.Path.CreateSubdirectory("v2").FullName;
+        var landform = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
+        var recipe = new PlanetGeologyRecipe(landform, 12, 100, 19, 0, 7, 0, 8, 112, 65536, 0, 21, 22, 23, 24);
+        var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
+            new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 2, 1, 2, recipe.ParameterSha256, 128);
+        var source = new PlanetGeologyField(descriptor, recipe);
+        var deposit = Enumerable.Range(45, 8).SelectMany(y => Enumerable.Range(18, 8)
+            .Select(z => new LatticeCoordinate(63, y, z)))
+            .First(cell => source.SampleMaterial(cell) == recipe.Ore && Enumerable.Range(-1, 4).All(x =>
+                Enumerable.Range(-1, 4).All(y => Enumerable.Range(-1, 4).All(z =>
+                    source.SampleDensity(new(cell.X + x, cell.Y + y, cell.Z + z)) < 0))));
+        var upper = new LatticeCoordinate(deposit.X + 1, deposit.Y + 1, deposit.Z + 1);
+        var slotId = Guid.NewGuid();
+        var lineage = Guid.NewGuid();
+        var slot = VolumeCheckpointSlot.Reserve(root, slotId, lineage, descriptor,
+            static cut => cut.Game.Length == 1 ? SaveGameValidation.Valid : SaveGameValidation.Malformed);
+        PlanetWalkState savedPose;
+        string plan;
+        VolumeRayHit[] savedHits;
+        ulong savedTick;
+
+        using (var run = new ShapeRun(source))
+        {
+            await run.Build();
+            using var original = run.Read();
+            var begin = await run.OpenMovement(original);
+            var pose = new PlanetWalkState(new(64, 33, 26), new(0, 0, 1), default);
+            var movement = run.Terrain.TryPlanMovement(pose, 0, 0, out _);
+            Assert.IsNotNull(movement);
+            var movementCut = await CoreRuntimeFixture.SealAsync(run.World, begin.Tick, BarrierKind.CommitResults);
+            var planned = run.Terrain.TryPrepareMovement(movement, movementCut, []);
+            Assert.IsNotNull(planned);
+            var moved = run.World.Publication.Finalization.TryFinalize(planned);
+            Assert.AreEqual(BarrierStatus.Committed, moved.Status);
+            CoreRuntimeFixture.PublishObserver(run.World, moved.Stamp!.Value, (int)begin.Tick);
+            savedPose = movement.Result.State;
+
+            using var capture = await Edit(run, 1, VolumeBrushOperation.Remove, save: true);
+            Assert.IsNotNull(capture);
+            Assert.IsNotNull(capture.Value.Terrain);
+            savedTick = capture.Value.Publication.Stamp.Tick;
+            var committed = (VolumeWorldRoot)capture.Value.Publication.Root;
+            Assert.AreEqual(savedPose, committed.Player);
+            Assert.AreEqual(1, committed.CommittedOreDepletion?.Deposits);
+            Assert.AreEqual((byte)1, ((CaveInventory)committed.State).Deposits);
+            plan = capture.Value.Terrain.Info.PlanIdentity;
+            savedHits = ReadMine(capture.Value.Terrain);
+
+            using var writer = slot.OpenWriter(out var opened);
+            Assert.AreEqual(VolumeSlotStatus.Empty, opened.Status);
+            Assert.IsNotNull(writer);
+            Assert.AreEqual(VolumeCaptureAdmission.Accepted, writer.TryAdmit(capture.Value, 1, static (state, game) =>
+            {
+                game.Span[0] = ((CaveInventory)state.State).Deposits;
+                return 1;
+            }));
+            var saved = writer.ExecutePending();
+            Assert.AreEqual(VolumeSlotStatus.Committed, saved.Status, saved.Error?.ToString());
+        }
+
+        var loaded = slot.Load();
+        Assert.AreEqual(VolumeSlotStatus.Loaded, loaded.Status, loaded.Error?.ToString());
+        var checkpoint = loaded.Checkpoint;
+        Assert.IsNotNull(checkpoint);
+        Assert.AreEqual(descriptor, checkpoint.Planet);
+        Assert.AreEqual(savedTick, checkpoint.Tick);
+        Assert.AreEqual(savedPose, checkpoint.Player);
+        Assert.AreEqual(2UL, checkpoint.TerrainRevision);
+        CollectionAssert.AreEqual(new byte[] { 1 }, checkpoint.Game.ToArray());
+
+        using var restored = new ShapeRun(source, checkpoint);
+        Assert.IsFalse(restored.Terrain.HasAdmittedCoverage(savedPose.Position));
+        await restored.Build();
+        using (var terrain = restored.Read())
+        {
+            Assert.AreEqual(plan, terrain.Info.PlanIdentity);
+            CollectionAssert.AreEqual(savedHits, ReadMine(terrain));
+            var overlay = new byte[terrain.EditOverlayBytes];
+            Assert.IsTrue(terrain.TryWriteEditOverlay(overlay, out var written));
+            Assert.AreEqual(overlay.Length, written);
+            CollectionAssert.AreEqual(checkpoint.Overlay.ToArray(), overlay);
+        }
+        Assert.AreEqual(savedPose, ((VolumeWorldRoot)restored.World.Publication.Committed.Read().Root).Player);
+
+        await Edit(restored, 2, VolumeBrushOperation.Add, save: false);
+        await Edit(restored, 3, VolumeBrushOperation.Remove, save: false);
+        var after = (VolumeWorldRoot)restored.World.Publication.Committed.Read().Root;
+        Assert.AreEqual(4UL, after.Terrain.TerrainRevision);
+        Assert.IsNull(after.CommittedOreDepletion);
+        Assert.AreEqual((byte)1, ((CaveInventory)after.State).Deposits);
+
+        async Task<VolumeCheckpointCut?> Edit(ShapeRun run, ulong revision, VolumeBrushOperation operation, bool save)
+        {
+            using var lease = run.Read();
+            var begin = await run.OpenMovement(lease);
+            var brush = new VolumeBrushIntent(begin.Tick, 1, revision, deposit, upper, operation,
+                operation == VolumeBrushOperation.Add ? recipe.Ore : (ushort)0);
+            Assert.AreEqual(VolumeAdmission.Accepted, run.Terrain.SealEditTick(begin.Tick, descriptor, [brush]));
+            run.Hold();
+            Assert.IsTrue(VolumeStreamingCoordinator.TryGetEditDependencies(brush, out var footprint));
+            Assert.AreEqual(VolumeAdmission.Accepted,
+                run.Terrain.TryStageEdit(begin.Tick, brush.Id, run.Select(footprint), run.MeshLimit, run.Credits, out var work));
+            Assert.IsNotNull(work);
+            using var owned = work;
+            Assert.IsTrue(owned.Execute());
+            Assert.AreEqual(revision, run.ReadRevision());
+            await run.FinishUnchanged(begin.Tick);
+            var commit = await run.Begin();
+            using var reservation = save ? run.Terrain.TryReserveCheckpoint(commit.Tick) : null;
+            if (save)
+                Assert.IsNotNull(reservation);
+            await run.Publish(owned, commit.Tick);
+            return reservation?.TryTake();
+        }
+
+        VolumeRayHit[] ReadMine(VolumeStreamingLease terrain)
+        {
+            Assert.IsTrue(terrain.TryReadDensity(new(descriptor.WorldId, descriptor.PlanetId, deposit), out var density));
+            Assert.IsGreaterThan(0L, density);
+            var hits = new VolumeRayHit[8];
+            var ray = terrain.Raycast(new(deposit.X - 1, deposit.Y + 0.5, deposit.Z + 0.5),
+                new(upper.X + 1, deposit.Y + 0.5, deposit.Z + 0.5), hits);
+            Assert.AreEqual(VolumeQueryStatus.Contact, ray.Status);
+            Assert.AreEqual(2, ray.Count);
+            return hits[..ray.Count];
+        }
+    }
+
+    private sealed record CaveInventory(WorldId World, ulong OreInventoryRevision, byte Deposits) : IVolumeOreInventoryState
+    {
+        public ComponentTarget OreInventoryTarget => new(new(World, 1, 1), new(7));
+        public IWorldStateRoot StageOreDepletion(in VolumeOreDepletion depletion) =>
+            this with { OreInventoryRevision = OreInventoryRevision + 1, Deposits = checked((byte)(Deposits + depletion.Deposits)) };
+    }
+
     private static SaveGameValidation Validate(VolumeCheckpoint checkpoint) =>
         checkpoint.Game.SequenceEqual(new byte[] { 42 }) ? SaveGameValidation.Valid : SaveGameValidation.Malformed;
 
@@ -243,37 +385,53 @@ public sealed class VolumeShapeRestoreTests
     private sealed class ShapeRun : IDisposable
     {
         private readonly CoreRuntimeFixture _runtime = new(new ShapeClock());
-        private readonly ShapeSource _source;
+        private readonly IPlanetBrickSource _source;
+        private readonly CaveInventory? _initialInventory;
+        private ulong _frame;
         private readonly ulong _revision;
         private ulong _tick;
 
-        internal ShapeRun(ShapeSource source, VolumeCheckpoint? checkpoint = null)
+        internal ShapeRun(IPlanetBrickSource source, VolumeCheckpoint? checkpoint = null)
         {
             _source = source;
             _tick = checkpoint?.Tick ?? 0;
             _revision = checkpoint?.TerrainRevision ?? 1;
             World = _runtime.OpenWorld(completedTick: _tick);
-            Selection = VolumeStreamingSelection.Select(source.Descriptor, default, new(-1, 0, 0));
-            Credits = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, MeshBytes) + OverlayLimit * 64 + 4096,
+            MeshLimit = source is PlanetGeologyField ? 32_000_000 : MeshBytes;
+            _initialInventory = source is PlanetGeologyField
+                ? new(World.Publication.Committed.Read().Root.World, 1, checkpoint is null ? (byte)0 : checkpoint.Game[0]) : null;
+            Selection = Select();
+            Credits = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, MeshLimit) + OverlayLimit * 64 + 4096,
                 0, 0, 0, 1, 1, 1, 64, 1);
             var baseline = Credits.Retained + Credits.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
             var limits = new VolumeStreamingLimits(baseline + Credits + Credits + Credits + Credits,
                 baseline, Credits, Credits, Credits, Credits, 12, 8, 256);
             Terrain = checkpoint is null ? new(World, source, limits, OverlayLimit) :
-                checkpoint.RestoreTerrain(World, source, limits, OverlayLimit, static material => material is 3 or 7);
+                checkpoint.RestoreTerrain(World, source, limits, OverlayLimit, source is PlanetGeologyField
+                    ? static material => material is >= 21 and <= 24 : static material => material is 3 or 7);
         }
 
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
         internal VolumeStreamingSelection Selection { get; }
         internal VolumeResources Credits { get; }
+        internal long MeshLimit { get; }
+
+        internal VolumeStreamingSelection Select(VolumeEditDependencies? edit = null)
+        {
+            if (_source is not PlanetGeologyField)
+                return VolumeStreamingSelection.Select(_source.Descriptor, default, new(-1, 0, 0));
+            var center = new PlanetVector(64, 33, 26);
+            return VolumeStreamingSelection.SelectCave(_source.Descriptor, center, new(-1, 0, 0),
+                new(center, center with { Z = 27 }, 0.5), default, edit);
+        }
 
         internal async Task Build()
         {
             Assert.IsTrue(Terrain.ConfirmMask(Terrain.View));
             Assert.AreEqual(VolumeAdmission.Accepted,
-                Terrain.TryStage(VolumeWorkClass.Movement, Selection, 0, _revision, MeshBytes, Credits, _source, out var work));
+                Terrain.TryStage(VolumeWorkClass.Movement, Selection, 0, _revision, MeshLimit, Credits, _source, out var work));
             Assert.IsNotNull(work);
             using var owned = work;
             Assert.IsTrue(owned.Execute());
@@ -295,7 +453,7 @@ public sealed class VolumeShapeRestoreTests
 
         internal async Task<BarrierStamp> OpenMovement(VolumeStreamingLease lease)
         {
-            using var frame = Terrain.TryRegisterFrame(lease.Info.Generation, lease.Info.View, 1);
+            using var frame = Terrain.TryRegisterFrame(lease.Info.Generation, lease.Info.View, ++_frame);
             Assert.IsNotNull(frame);
             Assert.IsTrue(Terrain.AcknowledgeFrame(frame));
             var begin = await Begin();
@@ -312,7 +470,8 @@ public sealed class VolumeShapeRestoreTests
         internal async Task Publish(VolumeStreamingWork work, ulong tick)
         {
             var candidates = await CoreRuntimeFixture.SealAsync(World, tick, BarrierKind.CommitResults);
-            var prepared = Terrain.TryPreparePublication(work.Generation, candidates, []);
+            var initial = World.Publication.Committed.Read().Root is VolumeWorldRoot ? null : _initialInventory;
+            var prepared = Terrain.TryPreparePublication(work.Generation, candidates, [], initial);
             Assert.IsNotNull(prepared);
             var result = World.Publication.Finalization.TryFinalize(prepared);
             Assert.AreEqual(BarrierStatus.Committed, result.Status);
