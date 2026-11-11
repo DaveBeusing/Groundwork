@@ -51,7 +51,7 @@ jobs:
             'WarpRegionReadbackUsesVertexColorsAndPreservesNearestDepth',
             'WarpPlanetTerrainReadbackSurvivesLodAndOriginChange',
             'WarpFlightTerrainReadbackSurvivesBothViewAndOriginTransitions', 'WarpVolumeReadbackCoversTransitionAndCavityAcrossRebase',
-            'WarpCubeSphereTransitionsMatchCollisionAcrossRebase',
+            'WarpCubeSphereTransitionsMatchCollisionAcrossRebase', 'WarpGeologyPortalReadbackMatchesCollisionAfterRebase',
             'WarpLandingPadColorAndSilhouetteAreVisibleOnApproach')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }

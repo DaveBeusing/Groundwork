@@ -95,6 +95,10 @@ internal sealed class EcsScopePolicy : IJobScopePolicy
 internal sealed record EcsScope(WorldId World, ImmutableArray<ResourceKey> ReadScopes,
     ImmutableArray<ResourceKey> CommandScopes, ImmutableDictionary<PartitionId, EcsPartition> Partitions) : IAdmittedJobScope
 {
+    public bool MayContain(PartitionScope partition, EntityId entity) =>
+        !Partitions.TryGetValue(partition.Partition, out var admitted) ||
+        admitted.Revision != partition.Revision || admitted.Members.Contains(entity);
+
     internal bool AllowsRead(EcsRoot root, ComponentTarget target) => Allows(root, ReadScopes, target);
     internal bool AllowsWrite(EcsRoot root, ComponentTarget target) => Allows(root, CommandScopes, target);
 

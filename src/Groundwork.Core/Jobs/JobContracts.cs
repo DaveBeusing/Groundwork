@@ -343,6 +343,9 @@ public interface IAdmittedJobScope
 {
     ImmutableArray<ResourceKey> ReadScopes { get; }
     ImmutableArray<ResourceKey> CommandScopes { get; }
+
+    /// <summary>Whether an admitted partition could contain this entity. Unknown membership is conservative.</summary>
+    bool MayContain(PartitionScope partition, EntityId entity) => true;
 }
 
 public enum JobScopeStatus : byte { Authorized = 1, InvalidAccess, CapacityExceeded }

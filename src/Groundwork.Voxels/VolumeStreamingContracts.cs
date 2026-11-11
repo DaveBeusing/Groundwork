@@ -7,7 +7,11 @@ public enum VolumeAdmission { Accepted, Backpressure, Stale, Closed, Invalid }
 public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected, EditQueued, EditRejected, NativeReady, CheckpointReserved, CheckpointDenied, CheckpointCaptured }
 public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result);
 public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKind Kind, ulong Generation, BarrierStamp? Stamp,
-    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null);
+    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null)
+{
+    public VolumeOreInventoryConflict? OreInventoryConflict { get; init; }
+}
+public readonly record struct VolumeOreInventoryConflict(BatchId Batch, ComponentTarget Inventory, ResourceKey? Scope);
 public readonly record struct VolumePublicationInfo(ulong Generation, ulong TerrainRevision,
     VolumeViewIdentity View, LatticeBrick Minimum, int Width, string PlanIdentity);
 public readonly record struct VolumeStreamingStatistics(VolumeResources Used, VolumeResources Peak,
@@ -30,6 +34,7 @@ public sealed class VolumeWorldRoot : IWorldStateRoot
     internal VolumeGeneration Generation { get; }
     public VolumePublicationInfo Terrain => Generation.Info;
     public VolumeBrushIntent? CommittedEdit => Generation.Edit;
+    public VolumeOreDepletion? CommittedOreDepletion => Generation.OreDepletion.Deposits > 0 ? Generation.OreDepletion : null;
     public VolumeWorldRoot WithState(IWorldStateRoot state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -69,6 +74,7 @@ internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStr
     public VolumeArtifacts? Artifacts { get; set; }
     public VolumeEditOverlay? Overlay { get; set; }
     public VolumeBrushIntent? Edit { get; set; }
+    public VolumeOreDepletion OreDepletion { get; set; }
     public ulong EditReadyTick { get; set; }
     public ulong? NativeReadyTick { get; set; }
     public RootChangePermit? Permit { get; set; }
@@ -107,6 +113,7 @@ public sealed class VolumeStreamingWork : IDisposable
         {
             Check(cancellationToken);
             var overlay = _generation.Overlay;
+            VolumeOreDepletion depletion = default;
             void CheckEditCancellation()
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -115,7 +122,7 @@ public sealed class VolumeStreamingWork : IDisposable
             }
             if (_generation.Edit is { } edit)
             {
-                overlay = overlay!.Apply(edit, _overlayLimit, CheckEditCancellation);
+                overlay = overlay!.Apply(edit, _overlayLimit, CheckEditCancellation, out depletion);
                 if (overlay is null)
                     return _owner.Complete(_generation, null);
             }
@@ -161,7 +168,7 @@ public sealed class VolumeStreamingWork : IDisposable
                 }
             }
             Check(cancellationToken);
-            var accepted = _owner.Complete(_generation, artifacts, overlay);
+            var accepted = _owner.Complete(_generation, artifacts, overlay, depletion);
             artifacts = null;
             return accepted;
         }

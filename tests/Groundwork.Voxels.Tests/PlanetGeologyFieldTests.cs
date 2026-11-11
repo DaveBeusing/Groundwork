@@ -158,6 +158,32 @@ public sealed class PlanetGeologyFieldTests
         Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => field.SampleMaterial(new(0, 0, long.MaxValue)));
     }
 
+    [TestMethod]
+    public void CaveInterestShiftsWindowAndProtectsSweepAndEditBricks()
+    {
+        var descriptor = Describe(Recipe(), 42, 128);
+        var camera = new PlanetVector(59, 33, 26);
+        var body = new VolumeCapsule(camera, camera with { Z = 27 }, 0.5);
+        var previous = VolumeStreamingSelection.Select(descriptor, camera, new(-1, 0, 0));
+        var footprint = new VolumeEditDependencies(new(1, 0, 0), new(2, 1, 1));
+        var selected = VolumeStreamingSelection.SelectCave(descriptor, camera, new(-1, 0, 0), body,
+            new(55, 0, 0), footprint, previous: previous);
+
+        Assert.IsTrue(selected.RequiresFineCoverage);
+        Assert.AreEqual(previous.Minimum.X + 1, selected.Minimum.X);
+        foreach (var request in selected.Requests)
+        {
+            var inSweep = request.Brick is { X: >= 1 and <= 3, Y: 1, Z: 0 };
+            var inEdit = request.Brick is { X: >= 1 and <= 2, Y: >= 0 and <= 1, Z: >= 0 and <= 1 };
+            if (inSweep || inEdit)
+                Assert.AreEqual(1, request.Stride);
+        }
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            VolumeStreamingSelection.SelectCave(descriptor, camera, new(-1, 0, 0), body, new(500, 0, 0)));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            VolumeStreamingSelection.SelectCave(descriptor, camera, new(-1, 0, 0), body, new(double.NaN, 0, 0)));
+    }
+
     private static PlanetGeologyRecipe Recipe(int portalChance = 65536, int shaftChance = 0,
         int oreThreshold = 2500, int deepBandCells = 65, int maximumDepth = 112) =>
         new(Flat, 12, deepBandCells, 19, 3, 7, oreThreshold, 8, maximumDepth,

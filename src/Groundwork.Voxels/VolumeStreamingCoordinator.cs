@@ -172,7 +172,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         ArgumentNullException.ThrowIfNull(source);
         work = null;
         if (kind is VolumeWorkClass.Baseline || !Enum.IsDefined(kind) || selection.Descriptor != _descriptor ||
-            source.Descriptor != _descriptor || targetRevision == 0 || targetRevision < sourceRevision ||
+            source.Descriptor != _descriptor || _descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion && !selection.RequiresFineCoverage ||
+            targetRevision == 0 || targetRevision < sourceRevision ||
             !resources.IsNonnegative || resources.CpuBytes < RequiredEditableCpuBytes(selection, meshBytes) ||
             resources.LeaseSlots < selection.Requests.Length || resources.DensityJobs < 1 ||
             resources.MeshJobs < 1 || resources.QueueSlots < 1 || resources.RetirementSlots < 1)
@@ -210,7 +211,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
-    internal bool Complete(VolumeGeneration entry, VolumeArtifacts? artifacts, VolumeEditOverlay? overlay = null)
+    internal bool Complete(VolumeGeneration entry, VolumeArtifacts? artifacts, VolumeEditOverlay? overlay = null,
+        VolumeOreDepletion depletion = default)
     {
         lock (_gate)
         {
@@ -237,6 +239,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (entry.Edit is not null)
                 entry.EditReadyTick = ready.Tick;
             entry.Overlay = overlay;
+            entry.OreDepletion = depletion;
             entry.Artifacts = artifacts;
             entry.Info = new VolumePublicationInfo(entry.Id, entry.TargetRevision, entry.View, entry.Selection.Minimum,
                 entry.Selection.Width, artifacts.Plan.Identity);
@@ -338,13 +341,39 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             }
             if (!HasJournalSpace())
                 return null;
-            var current = _world.Publication.Committed.Read().Root;
+            var committed = _world.Publication.Committed.Read();
+            var current = committed.Root;
             if (current is VolumeWorldRoot foreign && foreign.Owner != this)
                 return null;
-            var state = composedState ?? (current is VolumeWorldRoot volume ? volume.State : current);
+            var currentState = current is VolumeWorldRoot volume ? volume.State : current;
+            var state = composedState ?? currentState;
             var player = current is VolumeWorldRoot previousRoot ? previousRoot.Player : _initialPlayer;
             if (player is { } pose && VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
                 return null;
+            if (entry.OreDepletion.Deposits > 0)
+            {
+                if (candidates.Request.Entry != committed.Stamp || dispositions.IsDefault ||
+                    dispositions.Length != candidates.Batches.Length)
+                    return null;
+                var before = currentState as IVolumeOreInventoryState;
+                var composed = state as IVolumeOreInventoryState;
+                VolumeOreInventoryConflict? conflict = null;
+                var hasValidTarget = before is not null && before.OreInventoryTarget.Entity.World == current.World &&
+                    before.OreInventoryTarget.Entity.Generation != 0 && before.OreInventoryTarget.Component.Value != 0;
+                var overlaps = hasValidTarget && HasOreInventoryConflict(candidates, dispositions, before!, out conflict);
+                var inventory = hasValidTarget && !overlaps && composed is not null &&
+                    before!.OreInventoryRevision == composed.OreInventoryRevision &&
+                    before.OreInventoryTarget == composed.OreInventoryTarget
+                    ? composed.StageOreDepletion(entry.OreDepletion) as IVolumeOreInventoryState : null;
+                if (inventory is null || inventory.World != current.World ||
+                    inventory.OreInventoryRevision <= composed!.OreInventoryRevision ||
+                    inventory.OreInventoryTarget != composed.OreInventoryTarget)
+                {
+                    Cancel(entry, conflict);
+                    return null;
+                }
+                state = inventory;
+            }
             var root = new VolumeWorldRoot(state, this, entry, player);
             var permit = _world.Publication.RootChanges.TryReserve(candidates, root);
             if (permit is null)
@@ -368,6 +397,76 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             UpdatePeak();
             return prepared;
         }
+    }
+
+    private static bool HasOreInventoryConflict(CandidateSet candidates, ImmutableArray<BatchDisposition> dispositions,
+        IVolumeOreInventoryState before, out VolumeOreInventoryConflict? conflict)
+    {
+        conflict = null;
+        var inventory = before.OreInventoryTarget;
+        var kinds = new Dictionary<BatchId, BatchDispositionKind>(dispositions.Length);
+        foreach (var disposition in dispositions)
+            if (!kinds.TryAdd(disposition.Batch, disposition.Kind))
+                return true;
+        foreach (var batch in candidates.Batches)
+        {
+            if (!kinds.TryGetValue(batch.Batch, out var kind) ||
+                kind is not (BatchDispositionKind.Commit or BatchDispositionKind.Defer or BatchDispositionKind.Reject))
+                return true;
+            if (kind == BatchDispositionKind.Reject)
+                continue;
+
+            var scope = batch.Permit.Scope;
+            foreach (var key in scope.ReadScopes)
+                if (Matches(key, scope))
+                {
+                    conflict = new(batch.Batch, inventory, key);
+                    return true;
+                }
+            foreach (var key in scope.CommandScopes)
+                if (Matches(key, scope))
+                {
+                    conflict = new(batch.Batch, inventory, key);
+                    return true;
+                }
+            foreach (var command in batch.Commands)
+            {
+                if (command.Entity.Existing == inventory.Entity &&
+                    (command.Kind != JobCommandKind.ReplaceComponent || command.Component == inventory.Component))
+                {
+                    conflict = new(batch.Batch, inventory, null);
+                    return true;
+                }
+                if (command.Kind == JobCommandKind.DestroyEntity && command.Entity.Existing is { } destroyed &&
+                    MaySharePartition(destroyed, out var partition))
+                {
+                    ResourceKey? key = partition is { } known
+                        ? new(inventory.Entity.World, default, new ResourceScope(ScopeKind.Partition, known, null)) : null;
+                    conflict = new(batch.Batch, inventory, key);
+                    return true;
+                }
+            }
+        }
+        return false;
+
+        bool MaySharePartition(EntityId destroyed, out PartitionScope? partition)
+        {
+            var known = before.TryGetEntityPartition(inventory.Entity, out partition);
+            if (known && partition is null)
+                return false;
+            if (!before.TryGetEntityPartition(destroyed, out var other))
+                return true;
+            return other is not null && (!known || partition!.Value.Partition == other.Value.Partition);
+        }
+
+        bool Matches(ResourceKey key, IAdmittedJobScope scope) =>
+            key.World == inventory.Entity.World && (key.Component.Value == 0 || key.Component == inventory.Component) &&
+            (key.Scope.Kind switch
+            {
+                ScopeKind.Entity => key.Scope.Entity == inventory.Entity,
+                ScopeKind.Partition when key.Scope.Partition is { } partition => scope.MayContain(partition, inventory.Entity),
+                _ => true,
+            });
     }
 
     public VolumeStreamingLease? TryRead()
@@ -469,8 +568,15 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            return !_stopped && _movementOpen && _active is { } active &&
-                IsCurrentRoot(active) && active.Selection.Contains(_descriptor.SampleAt(position).Vertex);
+            if (_stopped || !_movementOpen || _active is not { } active || !IsCurrentRoot(active) ||
+                !active.Selection.Contains(_descriptor.SampleAt(position).Vertex))
+                return false;
+            if (!active.Selection.RequiresFineCoverage)
+                return true;
+            var point = VolumeCollision.Local(active, position);
+            var halo = active.Selection.SupportCells;
+            var padding = new CollisionVector(halo, halo, halo);
+            return VolumeCollision.Covers(active, point - padding, point + padding);
         }
     }
 
@@ -763,18 +869,18 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
         VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null, VolumeBrushIntent? edit = null, VolumeEditStatus? editStatus = null,
-        BarrierStamp? stamp = null)
+        BarrierStamp? stamp = null, VolumeOreInventoryConflict? oreConflict = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, stamp ?? _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus);
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus) { OreInventoryConflict = oreConflict };
         _journalPermits[index] = permit;
         return true;
     }
 
-    private void Cancel(VolumeGeneration entry)
+    private void Cancel(VolumeGeneration entry, VolumeOreInventoryConflict? oreConflict = null)
     {
         entry.Permit?.Revoke();
         Refresh();
@@ -782,7 +888,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             return;
         entry.Cancelled = true;
         if (entry.Edit is { } edit)
-            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null);
+            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null, oreConflict: oreConflict);
         if (!entry.Outstanding)
             Release(entry);
     }

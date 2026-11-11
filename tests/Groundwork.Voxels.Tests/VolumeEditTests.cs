@@ -463,20 +463,185 @@ public sealed class VolumeEditTests
         var denied = events.Single(item => item.Kind == VolumeEventKind.CheckpointDenied);
         Assert.AreEqual(finalized, denied.Stamp);
     }
+    [TestMethod]
+    public async Task NaturalOrePublishesWithInventoryAndCannotBeMinedAgainAfterRefill()
+    {
+        var landform = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
+        var recipe = new PlanetGeologyRecipe(landform, 12, 100, 19, 0, 7, 0, 8, 112, 65536, 0, 21, 22, 23, 24);
+        var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
+            new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 2, 1, 2, recipe.ParameterSha256, 128);
+        var field = new PlanetGeologyField(descriptor, recipe);
+        var deposit = Enumerable.Range(45, 8).SelectMany(y => Enumerable.Range(18, 8)
+            .Select(z => new LatticeCoordinate(63, y, z)))
+            .First(cell => field.SampleMaterial(cell) == recipe.Ore && Enumerable.Range(-1, 4).All(x =>
+                Enumerable.Range(-1, 4).All(y => Enumerable.Range(-1, 4).All(z =>
+                    field.SampleDensity(new(cell.X + x, cell.Y + y, cell.Z + z)) < 0))));
+        var upper = new LatticeCoordinate(deposit.X + 1, deposit.Y + 1, deposit.Z + 1);
+        using var run = new EditRun(geology: field);
+        await run.BuildInitial();
+        using var original = run.Coordinator.TryRead();
+        Assert.IsNotNull(original);
+
+        await Edit(run, 1, VolumeBrushOperation.Remove, deposit, OrdinaryInventoryBatch.None, expectedDeposits: 0);
+        await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Read, expectedDeposits: 0);
+        await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Write, expectedDeposits: 0);
+        await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Destroy, expectedDeposits: 0);
+        await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.DestroyPartitionPeer, expectedDeposits: 0);
+        await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Disjoint, expectedDeposits: 1);
+        await Edit(run, 3, VolumeBrushOperation.Add, upper, OrdinaryInventoryBatch.None, expectedDeposits: 1);
+        using var filled = run.Coordinator.TryRead();
+        Assert.IsNotNull(filled);
+        using var restored = new EditRun(restored: Overlay(filled), geology: field, restoredRevision: 4, restoredOreCount: 1);
+        await restored.BuildInitial();
+        await Edit(restored, 4, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.None, expectedDeposits: 1);
+
+        Assert.IsTrue(original.TryReadDensity(new(descriptor.WorldId, descriptor.PlanetId, deposit), out var oldDensity));
+        Assert.IsLessThan(0L, oldDensity);
+
+        async Task Edit(EditRun run, ulong revision, VolumeBrushOperation operation, LatticeCoordinate max,
+            OrdinaryInventoryBatch ordinary, int expectedDeposits)
+        {
+            var conflict = ordinary is OrdinaryInventoryBatch.Read or OrdinaryInventoryBatch.Write or OrdinaryInventoryBatch.Destroy or OrdinaryInventoryBatch.DestroyPartitionPeer;
+            var begin = await run.OpenTick();
+            var intent = new VolumeBrushIntent(begin.Tick, 1, revision, deposit, max, operation,
+                operation == VolumeBrushOperation.Add ? recipe.Ore : (ushort)0);
+            var next = intent with { Id = 2 };
+            var before = (VolumeWorldRoot)run.World.Publication.Committed.Read().Root;
+            Assert.AreEqual(VolumeAdmission.Accepted, run.Coordinator.SealEditTick(begin.Tick, descriptor, [next, intent]));
+            run.Hold();
+            Assert.AreEqual(VolumeAdmission.Accepted, run.Stage(intent, out var work));
+            Assert.IsNotNull(work);
+            using (work)
+            {
+                Assert.IsTrue(work.Execute());
+                Assert.AreSame(before, run.World.Publication.Committed.Read().Root);
+                if (ordinary == OrdinaryInventoryBatch.None)
+                    await run.Commit(work, edit: true);
+                else
+                {
+                    await run.CommitUnchanged();
+                    var attempt = await run.Begin();
+                    using var job = CompleteOrdinaryBatch(run.World.Publication, attempt, ((OreInventory)before.State).OreInventoryTarget,
+                        ordinary, out var batch);
+                    var candidates = await CoreRuntimeFixture.SealAsync(run.World, attempt.Tick, BarrierKind.CommitResults);
+                    var structural = ordinary is OrdinaryInventoryBatch.Destroy or OrdinaryInventoryBatch.DestroyPartitionPeer;
+                    var disposition = new BatchDisposition(batch,
+                        structural ? BatchDispositionKind.Defer : BatchDispositionKind.Commit, BatchRejection.None);
+                    var previousInventory = (OreInventory)before.State;
+                    var composed = ordinary == OrdinaryInventoryBatch.Write
+                        ? previousInventory with { OreInventoryRevision = previousInventory.OreInventoryRevision + 1 }
+                        : previousInventory;
+                    var prepared = run.Coordinator.TryPreparePublication(work.Generation, candidates, [disposition], composed);
+                    if (conflict)
+                    {
+                        Assert.IsNull(prepared);
+                        Assert.AreEqual(VolumeEditStatus.Rejected, run.Status(intent));
+                        VolumeOreInventoryConflict? recorded = null;
+                        while (run.Coordinator.TryReadEvent(out var evidence))
+                            if (evidence.Edit == intent && evidence.EditStatus == VolumeEditStatus.Rejected)
+                                recorded = evidence.OreInventoryConflict;
+                        Assert.IsNotNull(recorded);
+                        Assert.AreEqual(batch, recorded.Value.Batch);
+                        if (ordinary == OrdinaryInventoryBatch.DestroyPartitionPeer)
+                            Assert.AreEqual(new PartitionId(1), recorded.Value.Scope?.Scope.Partition?.Partition);
+                        Assert.AreEqual(((OreInventory)before.State).OreInventoryTarget, recorded.Value.Inventory);
+                        run.FinalizeOrdinary(candidates, disposition);
+                        Assert.IsTrue(run.Coordinator.RejectEdit(begin.Tick, next.Id));
+                        if (structural)
+                            await run.DrainDeferred(batch);
+                        Assert.AreEqual(JobCommitStatus.Committed, job.Observe().Commit);
+                        await run.StreamAt(run.Center, revision);
+                    }
+                    else
+                    {
+                        Assert.IsNotNull(prepared);
+                        run.FinalizeTerrain(prepared, work.Generation);
+                        Assert.AreEqual(JobCommitStatus.Committed, job.Observe().Commit);
+                    }
+                }
+                if (!conflict)
+                    Assert.AreEqual(VolumeEditStatus.Stale, run.Status(next));
+            }
+            var after = (VolumeWorldRoot)run.World.Publication.Committed.Read().Root;
+            Assert.AreEqual(expectedDeposits, ((OreInventory)after.State).Count);
+            Assert.AreEqual(conflict ? revision : revision + 1, after.Terrain.TerrainRevision);
+            Assert.AreEqual(!conflict && revision == 2 ? 1 : 0, after.CommittedOreDepletion?.Deposits ?? 0);
+        }
+    }
+
+    private enum OrdinaryInventoryBatch { None, Read, Write, Destroy, DestroyPartitionPeer, Disjoint }
+
+    private static IJobHandle CompleteOrdinaryBatch(WorldPublicationPorts ports, BarrierStamp stamp,
+        ComponentTarget inventory, OrdinaryInventoryBatch kind, out BatchId batch)
+    {
+        var structural = kind is OrdinaryInventoryBatch.Destroy or OrdinaryInventoryBatch.DestroyPartitionPeer;
+        var target = inventory with { Component = structural ? default : kind == OrdinaryInventoryBatch.Write ? inventory.Component : new(8) };
+        if (kind == OrdinaryInventoryBatch.DestroyPartitionPeer)
+            target = target with { Entity = target.Entity with { Slot = 2 } };
+        var scope = new ResourceScope(ScopeKind.Entity, null, target.Entity);
+        var read = new ResourceKey(stamp.World, target.Component, scope);
+        var reads = kind == OrdinaryInventoryBatch.Read
+            ? System.Collections.Immutable.ImmutableArray.Create(read, read with { Component = inventory.Component })
+            : [read];
+        var opened = ports.Phases.TryOpen(stamp, TickPhase.Base);
+        Assert.IsNotNull(opened.Phase);
+        var phase = opened.Phase;
+        var source = new SourceKey(stamp.World, stamp.Tick, phase.Phase, 1, 0, stamp.Tick);
+        var submission = new JobSubmission(source, new(1), JobInputKind.Borrowed, JobResultKind.Commands,
+            [], reads, [read], [], [], new JobResultBudget(1, 1, 1, 0, 0));
+        var id = new JobId(stamp.World, stamp.Tick);
+        var admitted = ports.Execution.TryAdmit(id, submission, phase);
+        Assert.AreEqual(JobAdmissionStatus.Accepted, admitted.Status);
+        Assert.IsNotNull(admitted.Handle);
+        var dispatch = ports.Execution.TryAuthorizeDispatch(id, phase);
+        Assert.IsNotNull(dispatch.Permit);
+        var permit = dispatch.Permit;
+        var capture = ports.Capture.TryAcquire(permit);
+        Assert.IsNotNull(capture.Lease);
+        TargetVersion version;
+        using (capture.Lease)
+            version = ports.VersionIssuer.Issue(new TargetVersionStamp(permit, target, true, 1));
+        batch = new BatchId(source, 1);
+        var command = new JobCommand(1, 1, structural ? JobCommandKind.DestroyEntity : JobCommandKind.ReplaceComponent,
+            new CommandEntity(CommandEntityKind.Existing, target.Entity, null), target.Component, null, version,
+            structural ? [] : [0]);
+        Assert.AreEqual(ExecutionSettlementStatus.Settled, ports.Execution.TrySettle(
+            new JobExecutionCompletion(permit, JobExecutionStatus.Succeeded, [new CompletedBatch(batch, [command])], [])));
+        ports.Phases.Close(phase);
+        return admitted.Handle;
+    }
+
+    private sealed record OreInventory(WorldId World, ulong OreInventoryRevision, int Count) : IVolumeOreInventoryState
+    {
+        public ComponentTarget OreInventoryTarget => new(new(World, 1, 1), new(7));
+
+        public bool TryGetEntityPartition(EntityId entity, out PartitionScope? partition)
+        {
+            partition = new PartitionScope(new(1), 1);
+            return entity.World == World && entity.Slot is 1 or 2;
+        }
+
+        public IWorldStateRoot StageOreDepletion(in VolumeOreDepletion depletion) =>
+            this with { OreInventoryRevision = OreInventoryRevision + 1, Count = Count + depletion.Deposits };
+    }
+
     private static VolumeBrushIntent Brush(ulong tick, ulong id, ulong revision, VolumeBrushOperation operation) =>
         new(tick, id, revision, new(-1, -1, -1), new(1, 1, 1), operation,
             operation == VolumeBrushOperation.Add ? (ushort)7 : (ushort)0);
 
     private static byte[] Overlay(VolumeStreamingLease lease)
     {
-        var buffer = new byte[16_392];
+        var buffer = new byte[lease.EditOverlayBytes];
         Assert.IsTrue(lease.TryWriteEditOverlay(buffer, out var written));
         return buffer[..written];
     }
 
     private sealed class EditRun : IDisposable
     {
-        private const long MeshBytes = 8_000_000;
+        private readonly long _meshBytes;
+        private readonly IPlanetBrickSource _baseline;
+        private readonly OreInventory? _initialInventory;
+        internal PlanetVector Center { get; }
         private readonly CoreRuntimeFixture _fixture = new();
         private readonly VolumeResources _resources;
         private ulong _tick;
@@ -489,36 +654,45 @@ public sealed class VolumeEditTests
         internal VolumeStreamingSelection Selection { get; }
 
         private readonly ulong _initialRevision;
-        internal EditRun(int limit = 256, int journalRecords = 256, byte[]? restored = null)
+        internal EditRun(int limit = 256, int journalRecords = 256, byte[]? restored = null, PlanetGeologyField? geology = null,
+            ulong restoredRevision = 2, int restoredOreCount = 0)
         {
             _tick = restored is null ? 0UL : 21UL;
             World = _fixture.OpenWorld(completedTick: _tick);
-            Selection = Select(default);
-            _resources = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, MeshBytes) + limit * 64L + 4096,
+            _baseline = (IPlanetBrickSource?)geology ?? Source;
+            Center = geology is null ? default : new(64, 33, 26);
+            _meshBytes = geology is null ? 8_000_000 : 32_000_000;
+            _initialInventory = geology is null ? null : new(World.Publication.Committed.Read().Root.World, 1, restoredOreCount);
+            Selection = Select(Center);
+            _resources = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, _meshBytes) + limit * 64L + 4096,
                 0, 0, 0, 1, 1, 1, 64, 1);
             var baseline = _resources.Retained + _resources.Retained + _resources.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
             var limits = new VolumeStreamingLimits(baseline + _resources + _resources + _resources + _resources,
                 baseline, _resources, _resources, _resources, _resources, 12, 8, journalRecords);
-            _initialRevision = restored is null ? 1UL : 2UL;
-            Coordinator = restored is null ? new(World, Source, limits, limit) :
-                new(World, Source, limits, limit, Source.Descriptor, _initialRevision, restored, static material => material == 7,
-                    new(new(0, 0, 12), new(1, 0, 0), new(0, 0, -2)));
+            _initialRevision = restored is null ? 1UL : restoredRevision;
+            Coordinator = restored is null ? new(World, _baseline, limits, limit) :
+                new(World, _baseline, limits, limit, _baseline.Descriptor, _initialRevision, restored,
+                    geology is null ? static material => material == 7 : static material => material is >= 21 and <= 24,
+                    geology is null ? new(new(0, 0, 12), new(1, 0, 0), new(0, 0, -2)) : null);
         }
 
-        private VolumeStreamingSelection Select(PlanetVector center) =>
-            VolumeStreamingSelection.Select(Source.Descriptor, center, new PlanetVector(-1, 0, 0));
+        private VolumeStreamingSelection Select(PlanetVector center, VolumeEditDependencies? edit = null) =>
+            _baseline is PlanetGeologyField
+                ? VolumeStreamingSelection.SelectCave(_baseline.Descriptor, center, new(-1, 0, 0),
+                    new(center, center, 0.5), default, edit)
+                : VolumeStreamingSelection.Select(Source.Descriptor, center, new(-1, 0, 0));
 
         internal Task BuildInitial()
         {
             Assert.IsTrue(Coordinator.ConfirmMask(Coordinator.View));
-            return StreamAt(default, 0);
+            return StreamAt(Center, 0);
         }
 
         internal async Task StreamAt(PlanetVector center, ulong revision)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Coordinator.TryStage(VolumeWorkClass.Movement, Select(center),
-                revision, revision == 0 ? _initialRevision : revision, MeshBytes, _resources, Source, out var work));
+                revision, revision == 0 ? _initialRevision : revision, _meshBytes, _resources, _baseline, out var work));
             Assert.IsNotNull(work);
             using (work)
             {
@@ -528,7 +702,7 @@ public sealed class VolumeEditTests
         }
 
         internal VolumeAdmission StageRecovery(out VolumeStreamingWork? work) =>
-            Coordinator.TryStage(VolumeWorkClass.Recovery, Selection, 1, 1, MeshBytes, _resources, Source, out work);
+            Coordinator.TryStage(VolumeWorkClass.Recovery, Selection, 1, 1, _meshBytes, _resources, _baseline, out work);
 
         internal void FinishUnchanged(CandidateSet cut)
         {
@@ -539,8 +713,13 @@ public sealed class VolumeEditTests
             _open = false;
         }
 
-        internal VolumeAdmission Stage(VolumeBrushIntent intent, out VolumeStreamingWork? work) =>
-            Coordinator.TryStageEdit(intent.Tick, intent.Id, Selection, MeshBytes, _resources, out work);
+        internal VolumeAdmission Stage(VolumeBrushIntent intent, out VolumeStreamingWork? work)
+        {
+            var selection = Selection;
+            if (_baseline is PlanetGeologyField && VolumeStreamingCoordinator.TryGetEditDependencies(intent, out var footprint))
+                selection = Select(Center, footprint);
+            return Coordinator.TryStageEdit(intent.Tick, intent.Id, selection, _meshBytes, _resources, out work);
+        }
 
         internal void Hold()
         {
@@ -573,13 +752,36 @@ public sealed class VolumeEditTests
                 await Begin();
             beforeCommit?.Invoke(_tick);
             var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
-            var prepared = Coordinator.TryPreparePublication(work.Generation, candidates, []);
+            var prepared = Coordinator.TryPreparePublication(work.Generation, candidates, [], _generation == 0 ? _initialInventory : null);
             Assert.IsNotNull(prepared);
+            FinalizeTerrain(prepared, work.Generation);
+        }
+
+        internal void FinalizeTerrain(PreparedBarrierPublication prepared, ulong generation)
+        {
             var outcome = World.Publication.Finalization.TryFinalize(prepared);
             Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
             CoreRuntimeFixture.PublishObserver(World, outcome.Stamp!.Value, (int)_tick);
-            _generation = work.Generation;
+            _generation = generation;
             _open = false;
+        }
+
+        internal void FinalizeOrdinary(CandidateSet candidates, BatchDisposition disposition)
+        {
+            var prepared = CoreRuntimeFixture.Prepare(World, candidates, [disposition]);
+            var outcome = World.Publication.Finalization.TryFinalize(prepared);
+            Assert.IsTrue(outcome.Stamp.HasValue);
+            _open = candidates.Request.Kind == BarrierKind.BeginTick;
+            if (!_open)
+                CoreRuntimeFixture.PublishObserver(World, outcome.Stamp.Value, (int)_tick);
+        }
+
+        internal async Task DrainDeferred(BatchId batch)
+        {
+            var candidates = await CoreRuntimeFixture.SealAsync(World, ++_tick, BarrierKind.BeginTick);
+            Assert.AreEqual(batch, candidates.Batches.Single().Batch);
+            FinalizeOrdinary(candidates, new BatchDisposition(batch, BatchDispositionKind.Commit, BatchRejection.None));
+            await CommitUnchanged();
         }
 
         internal async Task CommitUnchanged()

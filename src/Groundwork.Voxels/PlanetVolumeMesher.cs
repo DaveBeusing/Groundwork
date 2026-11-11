@@ -13,7 +13,7 @@ public readonly record struct VolumeTriangle(VolumeVertex A, VolumeVertex B, Vol
     public bool IsTransition { get; init; }
 }
 
-/// <summary>Immutable mesh of one complete 2󫎾 brick neighborhood, relative to its canonical origin.</summary>
+/// <summary>Immutable mesh of one complete 2锟�2锟�2 brick neighborhood, relative to its canonical origin.</summary>
 public sealed class PlanetVolumeMesh
 {
     private readonly VolumeTriangle[] _triangles;
@@ -231,10 +231,24 @@ public static class PlanetVolumeMesher
             var a = vertices[cell[i]];
             var b = vertices[cell[i + (reverse ? 2 : 1)]];
             var c = vertices[cell[i + (reverse ? 1 : 2)]];
-            if (Vector3.Cross(b.Position - a.Position, c.Position - a.Position) == Vector3.Zero)
+            var face = Vector3.Cross(b.Position - a.Position, c.Position - a.Position);
+            if (face == Vector3.Zero)
                 continue;
-            if (Vector3.Dot(Vector3.Cross(b.Position - a.Position, c.Position - a.Position), a.Normal + b.Normal + c.Normal) <= 0)
-                inverted = true;
+            if (Vector3.Dot(face, a.Normal + b.Normal + c.Normal) <= 0)
+            {
+                if (transition || plan.Descriptor.GeneratorVersion != PlanetGeologyField.GeneratorVersion)
+                    inverted = true;
+                else if (output is not null)
+                {
+                    // The regular table supplies solid-to-air winding. At a sharp V2
+                    // union or edit, the wider smoothing stencil can cross another wall.
+                    // Keep the topology and use the oriented face normal at that crease.
+                    var normal = Vector3.Normalize(face);
+                    a = a with { Normal = normal };
+                    b = b with { Normal = normal };
+                    c = c with { Normal = normal };
+                }
+            }
             if (output is not null)
                 output[count] = new VolumeTriangle(a, b, c) { IsTransition = transition };
             count++;
