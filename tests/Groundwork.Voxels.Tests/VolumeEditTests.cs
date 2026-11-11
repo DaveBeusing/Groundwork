@@ -422,6 +422,29 @@ public sealed class VolumeEditTests
         Assert.AreEqual(VolumeEventKind.Stopped, run.Coordinator.TerminalEvidence!.Value.Kind);
     }
 
+    [TestMethod]
+    public async Task EditBatchCannotConsumeTheReservedCheckpointJournalEntry()
+    {
+        using var run = new EditRun(journalRecords: 13);
+        await run.BuildInitial();
+        var begin = await run.OpenTick();
+        while (run.Coordinator.TryReadEvent(out _)) { }
+        for (var i = 0; i < 10; i++)
+            Assert.IsNull(run.Coordinator.TryReserveCheckpoint(begin.Tick + 1));
+        using var reservation = run.Coordinator.TryReserveCheckpoint(begin.Tick);
+        Assert.IsNotNull(reservation);
+        var first = Brush(begin.Tick, 1, 1, VolumeBrushOperation.Remove);
+        Assert.AreEqual(VolumeAdmission.Backpressure,
+            run.Coordinator.SealEditTick(begin.Tick, run.Source.Descriptor, [first, first with { Id = 2 }]));
+        await run.CommitUnchanged();
+        using var cut = reservation.TryTake();
+        Assert.IsNotNull(cut);
+        var events = new List<VolumeEventKind>();
+        while (run.Coordinator.TryReadEvent(out var item))
+            events.Add(item.Kind);
+        Assert.DoesNotContain(VolumeEventKind.EditQueued, events);
+        Assert.Contains(VolumeEventKind.CheckpointCaptured, events);
+    }
     private static VolumeBrushIntent Brush(ulong tick, ulong id, ulong revision, VolumeBrushOperation operation) =>
         new(tick, id, revision, new(-1, -1, -1), new(1, 1, 1), operation,
             operation == VolumeBrushOperation.Add ? (ushort)7 : (ushort)0);

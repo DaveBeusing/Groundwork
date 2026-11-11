@@ -8,6 +8,7 @@ internal sealed partial class VolumeNtfsDirectory : IDisposable
 {
     private const uint ReadAttributes = 0x80;
     private const uint OpenReparsePoint = 0x00200000;
+    private const uint WriteThrough = 0x80000000;
     private const uint BackupSemantics = 0x02000000;
     private readonly List<SafeFileHandle> _pins = [];
 
@@ -44,7 +45,7 @@ internal sealed partial class VolumeNtfsDirectory : IDisposable
     {
         var access = candidate ? 0xC0010000u : lease ? 0xC0000000u : 0x80000000u;
         var handle = Open(path, access, candidate || lease ? 0u : 1u, candidate ? 1u : lease ? 4u : 3u,
-            OpenReparsePoint | BackupSemantics);
+            OpenReparsePoint | BackupSemantics | (candidate ? WriteThrough : 0));
         try
         {
             Verify(handle, directory: false);

@@ -119,6 +119,9 @@ public static class VolumeCheckpointCodec
     public const int MaximumBytes = HeaderLength + BodyFields + 8 + 32 * VolumeCheckpoint.MaximumOverlayRows +
         VolumeCheckpoint.MaximumGameBytes + 32;
 
+    internal static bool Supports(PlanetDescriptor planet) =>
+        planet.GeneratorVersion == PlanetDensityField.GeneratorVersion &&
+        planet.TerrainSchemaVersion == PlanetDensityField.TerrainSchemaVersion;
     public static byte[] Encode(VolumeCheckpoint checkpoint)
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
@@ -155,7 +158,8 @@ public static class VolumeCheckpointCodec
 
     public static VolumeCheckpointRead Decode(ReadOnlySpan<byte> bytes, Guid slot, Guid lineage, PlanetDescriptor planet)
     {
-        if (bytes.Length < HeaderLength || bytes.Length > MaximumBytes ||
+        ArgumentNullException.ThrowIfNull(planet);
+        if (!Supports(planet) || bytes.Length < HeaderLength || bytes.Length > MaximumBytes ||
             !bytes[..8].SequenceEqual("GWVOLCP1"u8) || BinaryPrimitives.ReadUInt16LittleEndian(bytes[8..]) != Schema ||
             !HashMatches(bytes[..HeaderFields], bytes[HeaderFields..HeaderLength]))
             return new(VolumeCheckpointStatus.Incompatible);

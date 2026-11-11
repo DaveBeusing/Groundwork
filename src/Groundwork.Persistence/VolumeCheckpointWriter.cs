@@ -9,15 +9,17 @@ public sealed class VolumeCheckpointWriter : IDisposable
 {
     private readonly object _gate = new();
     private readonly VolumeCheckpointSlot _slot;
+    private IDisposable? _ownership;
     private ulong _base;
     private (ulong Tick, ulong Ordinal) _watermark;
     private Pending? _pending;
     private bool _executing;
     private bool _closed;
 
-    internal VolumeCheckpointWriter(VolumeCheckpointSlot slot, VolumeCheckpoint? durable)
+    internal VolumeCheckpointWriter(VolumeCheckpointSlot slot, VolumeCheckpoint? durable, IDisposable ownership)
     {
         _slot = slot;
+        _ownership = ownership;
         if (durable is not null)
         {
             _base = durable.Generation;
@@ -65,6 +67,7 @@ public sealed class VolumeCheckpointWriter : IDisposable
         }
 
         VolumeSlotResult? result = null;
+        var enteredStorage = false;
         try
         {
             if (pending.Checkpoint is null)
@@ -77,6 +80,7 @@ public sealed class VolumeCheckpointWriter : IDisposable
                 if (pending.Checkpoint is null)
                     return result = new(VolumeSlotStatus.InvalidCheckpoint);
             }
+            enteredStorage = true;
             return result = _slot.Save(pending.Checkpoint, pending.Unsettled ? CancellationToken.None : token);
         }
         finally
@@ -84,18 +88,21 @@ public sealed class VolumeCheckpointWriter : IDisposable
             lock (_gate)
             {
                 _executing = false;
-                pending.Unsettled |= result?.Status is VolumeSlotStatus.Indeterminate or VolumeSlotStatus.StorageError;
+                pending.Unsettled |= result?.Status is VolumeSlotStatus.Indeterminate or VolumeSlotStatus.StorageError ||
+                    result is null && enteredStorage;
                 if (result?.Status is VolumeSlotStatus.Committed or VolumeSlotStatus.AlreadyCommitted)
                     _base = pending.Checkpoint!.Generation;
                 if (result?.Status is VolumeSlotStatus.Stale or VolumeSlotStatus.Conflict or VolumeSlotStatus.ReadOnlyRecovery or
                     VolumeSlotStatus.Incompatible or VolumeSlotStatus.Corrupt)
                     _closed = true;
-                if (result?.Status is not (VolumeSlotStatus.Busy or VolumeSlotStatus.Indeterminate or VolumeSlotStatus.StorageError) ||
-                    _closed && !pending.Unsettled)
+                var keep = result?.Status is VolumeSlotStatus.Busy or VolumeSlotStatus.Indeterminate or VolumeSlotStatus.StorageError ||
+                    result is null && pending.Unsettled;
+                if (!keep || _closed && !pending.Unsettled)
                 {
                     _pending = null;
                     pending.ReleaseCut();
                 }
+                ReleaseOwnershipIfClosed();
             }
         }
     }
@@ -105,14 +112,22 @@ public sealed class VolumeCheckpointWriter : IDisposable
         lock (_gate)
         {
             _closed = true;
-            if (_executing || _pending is not { Unsettled: false } pending)
-                return;
-            _pending = null;
-            pending.ReleaseCut();
+            if (!_executing && _pending is { Unsettled: false } pending)
+            {
+                _pending = null;
+                pending.ReleaseCut();
+            }
+            ReleaseOwnershipIfClosed();
         }
     }
 
-
+    private void ReleaseOwnershipIfClosed()
+    {
+        if (!_closed || _executing || _pending is not null)
+            return;
+        _ownership?.Dispose();
+        _ownership = null;
+    }
     private sealed class Pending(VolumeCheckpointCut cut, VolumeSaveOperation operation, ulong ordinal,
         Func<VolumeWorldRoot, Memory<byte>, int> encodeGame)
     {

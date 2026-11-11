@@ -65,18 +65,57 @@ public sealed class VolumeCheckpointSlot
     internal Guid Lineage => _lineage;
     internal PlanetDescriptor Planet => _planet;
 
-    /// <summary>Opens the host's writer after a validated disk scan. Use one writer per active slot.</summary>
+    /// <summary>Claims the only admission authority for this slot until the writer settles and closes.</summary>
     public VolumeCheckpointWriter? OpenWriter(out VolumeSlotResult result)
     {
-        result = Load();
-        return result.Status is VolumeSlotStatus.Empty or VolumeSlotStatus.Loaded
-            ? new VolumeCheckpointWriter(this, result.Checkpoint) : null;
+        WriterLease? ownership = null;
+        try
+        {
+            ownership = WriterLease.Open(_directory);
+            result = Load();
+            if (result.Status is not (VolumeSlotStatus.Empty or VolumeSlotStatus.Loaded))
+                return null;
+            var writer = new VolumeCheckpointWriter(this, result.Checkpoint, ownership);
+            ownership = null;
+            return writer;
+        }
+        catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
+        {
+            result = new(VolumeSlotStatus.Busy, Error: error);
+            return null;
+        }
+        catch (InvalidDataException error)
+        {
+            result = new(VolumeSlotStatus.Incompatible, Error: error);
+            return null;
+        }
+        catch (Exception error) when (StorageException(error))
+        {
+            result = new(VolumeSlotStatus.StorageError, Error: error);
+            return null;
+        }
+        finally { ownership?.Dispose(); }
     }
+
     public VolumeSlotResult Load() => WithLease(_ => ReadSettled().Result);
 
-    public VolumeSlotResult Save(VolumeCheckpoint checkpoint, CancellationToken cancellationToken = default) =>
-        Save(checkpoint, null, cancellationToken);
+    /// <summary>Copies an explicitly recovered cut into a distinct reserved empty lineage.</summary>
+    public VolumeSlotResult CopyRecoveredCut(VolumeSlotResult recovery, Guid nonce, CancellationToken token = default)
+    {
+        ArgumentNullException.ThrowIfNull(recovery);
+        if (nonce == Guid.Empty || recovery.Status != VolumeSlotStatus.ReadOnlyRecovery || recovery.Checkpoint is not { } cut ||
+            cut.Operation.SlotId == _slot || cut.Lineage == _lineage || cut.Planet != _planet)
+            return new(VolumeSlotStatus.InvalidCheckpoint);
+        using var writer = OpenWriter(out var opened);
+        if (writer is null)
+            return opened;
+        var copy = new VolumeCheckpoint(new(_slot, 0, nonce), _lineage, _planet,
+            cut.Tick, cut.TerrainRevision, cut.Overlay, cut.Game, cut.CaptureOrdinal, cut.Player);
+        return Save(copy, token);
+    }
 
+    internal VolumeSlotResult Save(VolumeCheckpoint checkpoint, CancellationToken cancellationToken = default) =>
+        Save(checkpoint, null, cancellationToken);
     internal VolumeSlotResult Save(VolumeCheckpoint checkpoint, Action<SaveWriteStage>? observe, CancellationToken token)
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
@@ -322,6 +361,8 @@ public sealed class VolumeCheckpointSlot
 
     private VolumeSlotResult WithLease(Func<VolumeNtfsDirectory, VolumeSlotResult> action)
     {
+        if (!VolumeCheckpointCodec.Supports(_planet))
+            return new(VolumeSlotStatus.Incompatible);
         try
         {
             using var directory = new VolumeNtfsDirectory(_directory);
@@ -357,6 +398,25 @@ public sealed class VolumeCheckpointSlot
         left.Status == right.Status && left.Identity == right.Identity && (left.Bytes is null ? right.Bytes is null :
             right.Bytes is { } rightBytes && left.Bytes.AsSpan().SequenceEqual(rightBytes));
 
+    private sealed class WriterLease(VolumeNtfsDirectory directory, FileStream stream) : IDisposable
+    {
+        internal static WriterLease Open(string path)
+        {
+            var directory = new VolumeNtfsDirectory(path);
+            try { return new(directory, VolumeNtfsDirectory.OpenFile(Path.Combine(path, "volume.writer"), lease: true)); }
+            catch
+            {
+                directory.Dispose();
+                throw;
+            }
+        }
+
+        public void Dispose()
+        {
+            stream.Dispose();
+            directory.Dispose();
+        }
+    }
     private sealed record Member(VolumeSlotStatus Status, byte[]? Bytes = null,
         VolumeCheckpoint? Checkpoint = null, Exception? Error = null, VolumeNtfsDirectory.FileIdentity Identity = default);
     private sealed record SlotScan(Member A, Member B, VolumeSlotResult Result);

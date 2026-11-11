@@ -53,6 +53,24 @@ public sealed class VolumeCheckpointTests
     }
 
     [TestMethod]
+    public void BoundedPayloadFuzzCannotBypassCanonicalDecode()
+    {
+        var random = new Random(117087);
+        var reference = VolumeCheckpointCodec.Encode(Create(0));
+        for (var trial = 0; trial < 1_024; trial++)
+        {
+            var bytes = (byte[])reference.Clone();
+            for (var mutation = 0; mutation < 4; mutation++)
+                bytes[random.Next(VolumeCheckpointCodec.HeaderLength, bytes.Length - 32)] ^= (byte)random.Next(1, 256);
+            SHA256.HashData(bytes.AsSpan(0, bytes.Length - 32), bytes.AsSpan(bytes.Length - 32));
+            var result = VolumeCheckpointCodec.Decode(bytes, Slot, Lineage, Planet);
+            if (result.Status == VolumeCheckpointStatus.Valid)
+                CollectionAssert.AreEqual(bytes, VolumeCheckpointCodec.Encode(result.Checkpoint!));
+            else
+                Assert.AreEqual(VolumeCheckpointStatus.DamagedCompatible, result.Status);
+        }
+    }
+    [TestMethod]
     public void NtfsRotatesReceiptsAndPreservesDamagedOrForeignSibling()
     {
         if (!OperatingSystem.IsWindows())
@@ -320,9 +338,12 @@ public sealed class VolumeCheckpointTests
     {
         if (!OperatingSystem.IsWindows())
             Assert.Inconclusive("Requires Windows NTFS.");
-        using var fixture = new Fixture();
+        var throwValidation = false;
+        using var fixture = new Fixture(_ => throwValidation ? throw new InvalidOperationException("validation fault") : SaveGameValidation.Valid);
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(new VolumeCheckpoint(Create(0).Operation,
+            Lineage, Planet, 21, 1, new byte[8], [])));
         using var runtime = new CoreRuntimeFixture(new CaptureClock());
-        var world = runtime.OpenWorld();
+        var world = runtime.OpenWorld(completedTick: 21);
         var source = new FixtureDensity();
         var selection = VolumeStreamingSelection.Select(Planet, default, new(-1, 0, 0));
         const int meshBytes = 8_000_000;
@@ -338,13 +359,13 @@ public sealed class VolumeCheckpointTests
             meshBytes, credits, source, out var work));
         Assert.IsNotNull(work);
 
-        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
-        using var firstReservation = terrain.TryReserveCheckpoint(1);
+        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 22, BarrierKind.BeginTick);
+        using var firstReservation = terrain.TryReserveCheckpoint(22);
         Assert.IsNotNull(firstReservation);
         using (work)
         {
             Assert.IsTrue(work.Execute());
-            var candidates = await CoreRuntimeFixture.SealAsync(world, 1, BarrierKind.CommitResults);
+            var candidates = await CoreRuntimeFixture.SealAsync(world, 22, BarrierKind.CommitResults);
             var prepared = terrain.TryPreparePublication(work.Generation, candidates, []);
             Assert.IsNotNull(prepared);
             var committed = world.Publication.Finalization.TryFinalize(prepared);
@@ -354,23 +375,26 @@ public sealed class VolumeCheckpointTests
         using var older = firstReservation.TryTake();
         Assert.IsNotNull(older);
 
-        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 2, BarrierKind.BeginTick);
-        using var secondReservation = terrain.TryReserveCheckpoint(2);
+        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 23, BarrierKind.BeginTick);
+        using var secondReservation = terrain.TryReserveCheckpoint(23);
         Assert.IsNotNull(secondReservation);
-        var second = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 2, BarrierKind.CommitResults);
+        var second = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 23, BarrierKind.CommitResults);
         CoreRuntimeFixture.PublishObserver(world, second, 2);
 
-        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 3, BarrierKind.BeginTick);
-        using var thirdReservation = terrain.TryReserveCheckpoint(3);
+        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 24, BarrierKind.BeginTick);
+        using var thirdReservation = terrain.TryReserveCheckpoint(24);
         Assert.IsNull(thirdReservation, "An untaken cut still occupies the reservation.");
         terrain.Stop();
         using var newer = secondReservation.TryTake();
         Assert.IsNotNull(newer);
-        Assert.AreEqual(2UL, newer.Value.Publication.Stamp.Tick);
+        Assert.AreEqual(23UL, newer.Value.Publication.Stamp.Tick);
 
         using var writer = fixture.Slot.OpenWriter(out var opened);
-        AssertStatus(VolumeSlotStatus.Empty, opened);
+        AssertStatus(VolumeSlotStatus.Loaded, opened);
         Assert.IsNotNull(writer);
+        using var secondWriter = fixture.Reopen().OpenWriter(out var busy);
+        Assert.IsNull(secondWriter);
+        AssertStatus(VolumeSlotStatus.Busy, busy);
         Assert.AreEqual(VolumeCaptureAdmission.Accepted, writer.TryAdmit(newer.Value, 1, (_, game) =>
         {
             AssertStatus(VolumeSlotStatus.Busy, writer.ExecutePending());
@@ -378,18 +402,122 @@ public sealed class VolumeCheckpointTests
             return 1;
         }));
         Assert.AreEqual(VolumeCaptureAdmission.Stale, writer.TryAdmit(older.Value, 1, static (_, _) => 0));
-        AssertStatus(VolumeSlotStatus.Committed, writer.ExecutePending());
+        var marker = fixture.Member("volume.intent");
+        File.WriteAllBytes(marker, [1]);
+        AssertStatus(VolumeSlotStatus.Indeterminate, writer.ExecutePending());
+        throwValidation = true;
+        Assert.ThrowsExactly<InvalidOperationException>(() => writer.ExecutePending());
+        throwValidation = false;
+        File.Delete(marker);
+        using var cancellation = new CancellationTokenSource();
+        cancellation.Cancel();
+        AssertStatus(VolumeSlotStatus.Committed, writer.ExecutePending(cancellation.Token));
         var loaded = fixture.Reopen().Load();
         AssertStatus(VolumeSlotStatus.Loaded, loaded);
-        Assert.AreEqual(2UL, loaded.Checkpoint!.Tick);
+        Assert.AreEqual(23UL, loaded.Checkpoint!.Tick);
         CollectionAssert.AreEqual(new byte[] { 42 }, loaded.Checkpoint.Game.ToArray());
     }
 
+    [TestMethod]
+    public void ExplicitRecoveryCopiesTheCutToANewLineageAndCanRetry()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Requires Windows NTFS.");
+        using var fixture = new Fixture();
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Create(0)));
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Create(1)));
+        var damaged = File.ReadAllBytes(fixture.Member("volume.b"));
+        damaged[^1] ^= 1;
+        File.WriteAllBytes(fixture.Member("volume.b"), damaged);
+        var recovered = fixture.Reopen().Load();
+        AssertStatus(VolumeSlotStatus.ReadOnlyRecovery, recovered);
+        var newLineage = Guid.NewGuid();
+        var target = VolumeCheckpointSlot.Reserve(fixture.Root, Guid.NewGuid(), newLineage, Planet,
+            static _ => SaveGameValidation.Valid);
+        var nonce = Guid.NewGuid();
+        var copied = target.CopyRecoveredCut(recovered, nonce);
+        AssertStatus(VolumeSlotStatus.Committed, copied);
+        Assert.AreEqual(newLineage, copied.Checkpoint!.Lineage);
+        Assert.AreEqual(recovered.Checkpoint!.Player, copied.Checkpoint.Player);
+        CollectionAssert.AreEqual(recovered.Checkpoint.Overlay.ToArray(), copied.Checkpoint.Overlay.ToArray());
+        AssertStatus(VolumeSlotStatus.AlreadyCommitted, target.CopyRecoveredCut(recovered, nonce));
+        AssertStatus(VolumeSlotStatus.Stale, target.CopyRecoveredCut(recovered, Guid.NewGuid()));
+        CollectionAssert.AreEqual(damaged, File.ReadAllBytes(fixture.Member("volume.b")));
+    }
+    [TestMethod]
+    public async Task DecodedDurableCheckpointRebuildsTheEditedCollisionAndRestoredPose()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Requires Windows NTFS.");
+        using var fixture = new Fixture();
+        var overlay = new byte[8 + 27 * 32];
+        BinaryPrimitives.WriteInt32LittleEndian(overlay, 27);
+        var offset = 8;
+        for (var x = -1; x <= 1; x++)
+        for (var y = -1; y <= 1; y++)
+        for (var z = -1; z <= 1; z++)
+        {
+            BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(offset), x);
+            BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(offset + 8), y);
+            BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(offset + 16), z);
+            BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(offset + 24), 128);
+            offset += 32;
+        }
+        var falling = new PlanetWalkState(new(0, 0, 12), new(1, 0, 0), new(0, 0, -2));
+        var sample = Create(0);
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(new VolumeCheckpoint(sample.Operation,
+            Lineage, Planet, 21, 4, overlay, [9], player: falling)));
+        var durable = fixture.Reopen().Load().Checkpoint;
+        Assert.IsNotNull(durable);
+
+        using var runtime = new CoreRuntimeFixture(new CaptureClock());
+        var world = runtime.OpenWorld(completedTick: durable.Tick);
+        var source = new FixtureDensity();
+        var selection = VolumeStreamingSelection.Select(Planet, default, new(-1, 0, 0));
+        const int meshBytes = 8_000_000;
+        const int maximumOverlay = 256;
+        var credits = new VolumeResources(VolumeStreamingCoordinator.RequiredCpuBytes(selection, meshBytes) +
+            maximumOverlay * 64 + 4096, 0, 0, 0, 1, 1, 1, 64, 1);
+        var baseline = credits.Retained with
+        {
+            CpuBytes = credits.CpuBytes + 27 * 32,
+            LeaseSlots = credits.LeaseSlots + 8,
+        };
+        var limits = new VolumeStreamingLimits(baseline + credits + credits + credits + credits,
+            baseline, credits, credits, credits, credits, 12, 8, 256);
+        var foreignPlanet = new PlanetDescriptor(Planet.WorldId, Planet.PlanetId, Planet.Seed + 1,
+            Planet.GeneratorVersion, Planet.TerrainSchemaVersion, Planet.MaterialCatalogVersion,
+            Planet.ParameterSha256, Planet.RadiusMeters, Planet.CellSizeMeters);
+        Assert.ThrowsExactly<InvalidDataException>(() =>
+            durable.RestoreTerrain(world, new FixtureDensity(foreignPlanet), limits, maximumOverlay, static material => material == 3));
+        using var terrain = durable.RestoreTerrain(world, source, limits, maximumOverlay, static material => material == 3);
+        Assert.IsTrue(terrain.ConfirmMask(terrain.View));
+        Assert.AreEqual(VolumeAdmission.Accepted, terrain.TryStage(VolumeWorkClass.Movement, selection, 0,
+            durable.TerrainRevision, meshBytes, credits, source, out var work));
+        Assert.IsNotNull(work);
+        using (work)
+        {
+            Assert.IsTrue(work.Execute());
+            await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 22, BarrierKind.BeginTick);
+            var candidates = await CoreRuntimeFixture.SealAsync(world, 22, BarrierKind.CommitResults);
+            var prepared = terrain.TryPreparePublication(work.Generation, candidates, []);
+            Assert.IsNotNull(prepared);
+            var committed = world.Publication.Finalization.TryFinalize(prepared);
+            Assert.AreEqual(BarrierStatus.Committed, committed.Status);
+            var root = (VolumeWorldRoot)world.Publication.Committed.Read().Root;
+            Assert.AreEqual(falling, root.Player);
+            Assert.AreEqual(4UL, root.Terrain.TerrainRevision);
+        }
+        Assert.IsTrue(terrain.Statistics.MovementHeld);
+        using var lease = terrain.TryRead();
+        Assert.IsNotNull(lease);
+        Assert.AreEqual(2, lease.Raycast(new(0, 0, -5), new(0, 0, 5), new VolumeRayHit[8]).Count);
+    }
     private sealed class CaptureClock : CoreRuntimeFixture.TestClock { }
 
-    private sealed class FixtureDensity : IPlanetBrickSource
+    private sealed class FixtureDensity(PlanetDescriptor? descriptor = null) : IPlanetBrickSource
     {
-        public PlanetDescriptor Descriptor => Planet;
+        public PlanetDescriptor Descriptor => descriptor ?? Planet;
         public long SampleDensity(LatticeCoordinate vertex) => (vertex.Z - 8) * 256;
         public ushort SampleMaterial(LatticeCoordinate cell) => 3;
     }
@@ -414,15 +542,17 @@ public sealed class VolumeCheckpointTests
     {
         private readonly DirectoryInfo _temp = Directory.CreateTempSubdirectory("groundwork-volume-slot-");
         private readonly string _root;
-        public Fixture()
+        private readonly Func<VolumeCheckpoint, SaveGameValidation> _validate;
+        public Fixture(Func<VolumeCheckpoint, SaveGameValidation>? validate = null)
         {
             _root = _temp.CreateSubdirectory("v2").FullName;
-            Slot = VolumeCheckpointSlot.Reserve(_root, VolumeCheckpointTests.Slot, Lineage, Planet, Validate);
+            _validate = validate ?? Validate;
+            Slot = VolumeCheckpointSlot.Reserve(_root, VolumeCheckpointTests.Slot, Lineage, Planet, _validate);
         }
         public string Root => _root;
         public VolumeCheckpointSlot Slot { get; }
         public string Member(string name) => Path.Combine(_root, VolumeCheckpointTests.Slot.ToString("N"), name);
-        public VolumeCheckpointSlot Reopen() => new(_root, VolumeCheckpointTests.Slot, Lineage, Planet, Validate);
+        public VolumeCheckpointSlot Reopen() => new(_root, VolumeCheckpointTests.Slot, Lineage, Planet, _validate);
         public void Dispose() => _temp.Delete(recursive: true);
         private static SaveGameValidation Validate(VolumeCheckpoint _) => SaveGameValidation.Valid;
     }

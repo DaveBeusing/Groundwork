@@ -158,7 +158,7 @@ public sealed partial class VolumeStreamingCoordinator
             if (!_movementOpen || _active is not { } active || !IsCurrentRoot(active) || FindEditHead() >= 0)
                 return VolumeAdmission.Backpressure;
 
-            if (ordered.Length > _journal.Length - _journalCount || ulong.MaxValue - _sequence < (ulong)ordered.Length)
+            if (!CanAppendJournal(ordered.Length))
             {
                 _closedEditTick = tick;
                 return Deny();

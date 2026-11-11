@@ -391,8 +391,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (_stopped || _editBaseline is null)
                 return null;
             if (_checkpoint is not null || stamp.Tick != tick || stamp.Kind != BarrierKind.BeginTick ||
-                _readers == _limits.Readers || _journalCount >= _journal.Length - 1 ||
-                _sequence >= ulong.MaxValue - 1 ||
+                _readers == _limits.Readers || !CanAppendJournal(2) ||
                 !ReaderCharge.Fits(_limits.Envelope(VolumeWorkClass.Baseline) - _used[(int)VolumeWorkClass.Baseline]))
             {
                 Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0, stamp: stamp);
@@ -430,11 +429,14 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private void BindCheckpoint()
     {
-        if (_checkpoint is not { Bound: null } reservation ||
-            reservation.Cut.Read() is not { Root: VolumeWorldRoot root } captured ||
-            root.Owner != this || root.Generation is not { Overlay: not null } entry)
+        if (_checkpoint is not { Bound: null } reservation || reservation.Cut.Read() is not { } captured)
             return;
-        entry.Readers++;
+        if (captured.Root is not VolumeWorldRoot root || root.Owner != this ||
+            root.Generation is not { Overlay: not null } entry)
+        {
+            CancelCheckpoint(reservation);
+            return;
+        }        entry.Readers++;
         reservation.Lease.Attach(entry);
         reservation.Bound = captured;
         Record(VolumeEventKind.CheckpointCaptured, entry.Id, view: entry.View,
@@ -456,6 +458,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             }
             _readers--;
             _used[(int)VolumeWorkClass.Baseline] -= ReaderCharge;
+            Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0);
         }
     }
     /// <summary>Tests the admitted support halo. C02 additionally validates body contacts against this density revision.</summary>
@@ -742,15 +745,20 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         return Record(VolumeEventKind.Backpressure, 0) ? VolumeAdmission.Backpressure : VolumeAdmission.Closed;
     }
 
-    private bool HasJournalSpace()
+    private bool CanAppendJournal(int count)
     {
         var reserved = _checkpoint is { Bound: null } ? 1 : 0;
-        if (_journalCount < _journal.Length - reserved && _sequence < ulong.MaxValue - (ulong)reserved)
+        return count <= _journal.Length - _journalCount - reserved &&
+            (ulong)(count + reserved) <= ulong.MaxValue - _sequence;
+    }
+
+    private bool HasJournalSpace()
+    {
+        if (CanAppendJournal(1))
             return true;
         StopInternal();
         return false;
     }
-
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
         VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null, VolumeBrushIntent? edit = null, VolumeEditStatus? editStatus = null,
         BarrierStamp? stamp = null)
