@@ -157,22 +157,34 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     public VolumeAdmission TryStage(VolumeWorkClass kind, VolumeStreamingSelection selection,
         ulong sourceRevision, ulong targetRevision, long meshBytes, VolumeResources resources,
-        IPlanetBrickSource source, out VolumeStreamingWork? work)
+        IPlanetBrickSource source, out VolumeStreamingWork? work) =>
+        Stage(kind, selection, sourceRevision, targetRevision, meshBytes, resources, source, null, out work);
+
+    private VolumeAdmission Stage(VolumeWorkClass kind, VolumeStreamingSelection selection,
+        ulong sourceRevision, ulong targetRevision, long meshBytes, VolumeResources resources,
+        IPlanetBrickSource source, VolumeBrushIntent? edit, out VolumeStreamingWork? work)
     {
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(source);
         work = null;
         if (kind is VolumeWorkClass.Baseline || !Enum.IsDefined(kind) || selection.Descriptor != _descriptor ||
             source.Descriptor != _descriptor || targetRevision == 0 || targetRevision < sourceRevision ||
-            !resources.IsNonnegative || resources.CpuBytes < RequiredCpuBytes(selection, meshBytes) ||
+            !resources.IsNonnegative || resources.CpuBytes < RequiredEditableCpuBytes(selection, meshBytes) ||
             resources.LeaseSlots < selection.Requests.Length || resources.DensityJobs < 1 ||
             resources.MeshJobs < 1 || resources.QueueSlots < 1 || resources.RetirementSlots < 1)
+            return VolumeAdmission.Invalid;
+        if (_editBaseline is not null && (!ReferenceEquals(source, _editBaseline) ||
+            (edit is null && (kind == VolumeWorkClass.FirstEdit || targetRevision != Math.Max(sourceRevision, 1UL)))))
             return VolumeAdmission.Invalid;
         lock (_gate)
         {
             Refresh();
             if (_stopped || !PresentationEpochOpen)
                 return VolumeAdmission.Closed;
+            var head = FindEditHead();
+            if (_editBaseline is not null && edit is null && head >= 0 &&
+                (kind != VolumeWorkClass.Recovery || _edits![head].Status == VolumeEditStatus.Building))
+                return VolumeAdmission.Backpressure;
             if (sourceRevision != CurrentRevision())
                 return VolumeAdmission.Stale;
             if (kind == VolumeWorkClass.FirstEdit && _firstEdit is not null)
@@ -188,12 +200,14 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             _entries[slot] = entry;
             if (kind == VolumeWorkClass.FirstEdit)
                 _firstEdit = entry;
-            work = new VolumeStreamingWork(this, entry, source);
+            entry.Overlay = _active?.Overlay ?? _emptyOverlay;
+            entry.Edit = edit;
+            work = new VolumeStreamingWork(this, entry, source, _overlayLimit);
             return VolumeAdmission.Accepted;
         }
     }
 
-    internal bool Complete(VolumeGeneration entry, VolumeArtifacts? artifacts)
+    internal bool Complete(VolumeGeneration entry, VolumeArtifacts? artifacts, VolumeEditOverlay? overlay = null)
     {
         lock (_gate)
         {
@@ -214,6 +228,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 Release(entry);
                 return false;
             }
+            entry.Overlay = overlay;
             entry.Artifacts = artifacts;
             entry.Info = new VolumePublicationInfo(entry.Id, entry.TargetRevision, entry.View, entry.Selection.Minimum,
                 entry.Selection.Width, artifacts.Plan.Identity);
@@ -238,7 +253,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             foreach (var mesh in entry.Artifacts!.Meshes)
                 meshBytes += (long)mesh.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes;
             credits = entry.Resources;
-            packingBytes = credits.CpuBytes - RequiredCpuBytes(entry.Selection, meshBytes);
+            packingBytes = credits.CpuBytes - RequiredEditableCpuBytes(entry.Selection, meshBytes);
             return Acquire(entry);
         }
     }
@@ -280,7 +295,11 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 entry.Artifacts is null || entry.Cancelled || entry.Kind == VolumeWorkClass.Speculative ||
                 entry.View != _view || entry.SourceRevision != CurrentRevision() ||
                 _active is not null && entry.View.View <= _active.View.View ||
-                candidates.Request.Kind != BarrierKind.CommitResults)
+                candidates.Request.Kind != BarrierKind.CommitResults ||
+                (entry.Edit is { } edit && (candidates.Request.Tick < edit.Tick || _active?.Id != _editSourceGeneration)))
+                return null;
+            var editHead = FindEditHead();
+            if (entry.Edit is null && editHead >= 0 && _edits![editHead].Status == VolumeEditStatus.Building)
                 return null;
             if (!entry.Resources.Fits(_limits.Envelope(VolumeWorkClass.Baseline) - _used[(int)VolumeWorkClass.Baseline]))
             {
@@ -301,7 +320,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (permit is null)
                 return null;
             // This evidence slot resolves from Core's atomic permit outcome, even after Stop.
-            Record(VolumeEventKind.Commit, entry.Id, permit, terrainRevision: entry.TargetRevision);
+            Record(VolumeEventKind.Commit, entry.Id, permit, terrainRevision: entry.TargetRevision, edit: entry.Edit);
             var preparation = _world.Publication.Preparation.TryPrepare(new BarrierPublicationDraft(
                 candidates, root, _world.State.Read().PendingFaultGeneration, dispositions, permit));
             if (preparation.Publication is not { } prepared)
@@ -507,7 +526,9 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                     Kind = record.Movement is not null
                         ? status == RootChangeStatus.Committed ? VolumeEventKind.MovementCommit : VolumeEventKind.MovementRejected
                         : status == RootChangeStatus.Committed ? VolumeEventKind.Commit : VolumeEventKind.Rejected,
-                    Stamp = permit.CommittedStamp
+                    Stamp = permit.CommittedStamp,
+                    EditStatus = record.Edit is null ? null :
+                        status == RootChangeStatus.Committed ? VolumeEditStatus.Committed : VolumeEditStatus.Rejected
                 };
             }
             _journalPermits[_journalHead] = null;
@@ -572,6 +593,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             var old = _active;
             _active = entry;
+            if (entry.Edit is { } edit)
+                ResolveEdit(edit, VolumeEditStatus.Committed, permit.CommittedStamp);
             if (old is not null)
             {
                 old.Retired = true;
@@ -615,13 +638,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
 
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
-        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null)
+        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null, VolumeBrushIntent? edit = null, VolumeEditStatus? editStatus = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement);
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus);
         _journalPermits[index] = permit;
         return true;
     }
@@ -655,6 +678,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             entry.Cancelled = true;
         }
         Refresh();
+        RejectUnresolvedEditsOnStop();
         _terminalEvidence = new VolumeStreamingEvent(_sequence, VolumeEventKind.Stopped, _active?.Id ?? 0,
             _world.Publication.Committed.Read().Stamp, _view, CurrentRevision(), _lastFrame);
         foreach (var entry in _entries)
@@ -679,6 +703,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
         entry.Artifacts?.Dispose();
         entry.Artifacts = null;
+        entry.Overlay = null;
         entry.Released = true;
         _used[(int)entry.Envelope] -= entry.Resources;
         var index = Array.IndexOf(_entries, entry);
@@ -686,6 +711,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             _entries[index] = null;
         if (_firstEdit == entry)
             _firstEdit = null;
+        if (entry.Edit is { } edit && entry.Permit?.Status != RootChangeStatus.Committed)
+            ResolveEdit(edit, VolumeEditStatus.Rejected, recordOutcome: entry.Permit is null);
         ReleaseCustodyIfSettled();
     }
 
