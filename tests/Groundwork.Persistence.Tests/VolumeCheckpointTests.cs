@@ -170,6 +170,7 @@ public sealed class VolumeCheckpointTests
                     await Task.Delay(20, timeout.Token);
                 Assert.IsTrue(File.Exists(ready), $"Writer failed to reach {stage}.");
                 using var writer = Process.GetProcessById(int.Parse(File.ReadAllText(ready), CultureInfo.InvariantCulture));
+                AssertStatus(VolumeSlotStatus.Busy, fixture.Reopen().Load());
                 writer.Kill();
                 await writer.WaitForExitAsync(timeout.Token);
             }
@@ -181,7 +182,15 @@ public sealed class VolumeCheckpointTests
             }
 
             var published = stage is SaveWriteStage.AfterPublish or SaveWriteStage.BeforeAcknowledge;
-            var loaded = fixture.Reopen().Load();
+            // The killed test host can be signaled before NTFS finishes closing its file objects.
+            // Busy is the observable lease outcome until close completes.
+            VolumeSlotResult loaded;
+            do
+            {
+                loaded = fixture.Reopen().Load();
+                if (loaded.Status == VolumeSlotStatus.Busy)
+                    await Task.Delay(20, timeout.Token);
+            } while (loaded.Status == VolumeSlotStatus.Busy);
             AssertStatus(VolumeSlotStatus.Loaded, loaded);
             CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(Create(published ? 1UL : 0UL)),
                 VolumeCheckpointCodec.Encode(loaded.Checkpoint!));
