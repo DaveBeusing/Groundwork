@@ -205,21 +205,62 @@ public sealed class VolumeStreamingWork : IDisposable
 }
 
 /// <summary>Bounded reader. Density, collision coverage identity, meshes and origin come from one publication.</summary>
+public readonly struct VolumeCheckpointCut : IDisposable
+{
+    internal VolumeCheckpointCut(CommittedWorldView publication, VolumeStreamingLease terrain) =>
+        (Publication, Terrain) = (publication, terrain);
+
+    public CommittedWorldView Publication { get; }
+    public VolumeStreamingLease? Terrain { get; }
+
+    public void Dispose() => Terrain?.Dispose();
+}
+public sealed class VolumeCheckpointReservation : IDisposable
+{
+    private readonly VolumeStreamingCoordinator _owner;
+
+    internal VolumeCheckpointReservation(VolumeStreamingCoordinator owner, ulong tick)
+    {
+        _owner = owner;
+        Tick = tick;
+        Lease = new VolumeStreamingLease(owner);
+    }
+
+    internal VolumeStreamingLease Lease { get; }
+    public ulong Tick { get; }
+
+    /// <summary>Takes the finalized cut before the next tick, for transfer to the save worker.</summary>
+    public VolumeCheckpointCut? TryTake() => _owner.TakeCheckpoint(this, out var publication) is { } terrain
+        ? new VolumeCheckpointCut(publication, terrain) : null;
+
+    public void Dispose() => _owner.CancelCheckpoint(this);
+}
 public sealed class VolumeStreamingLease : IDisposable
 {
     private readonly object _gate = new();
     private readonly VolumeStreamingCoordinator _owner;
     private VolumeGeneration? _generation;
-    public PlanetDescriptor? EditLineage { get; }
+    public PlanetDescriptor? EditLineage { get; private set; }
     internal VolumeStreamingLease(VolumeStreamingCoordinator owner, VolumeGeneration generation)
     {
         _owner = owner;
+        Attach(generation);
+    }
+
+    internal VolumeStreamingLease(VolumeStreamingCoordinator owner) => _owner = owner;
+
+    internal void Attach(VolumeGeneration generation)
+    {
         _generation = generation;
         Info = generation.Info;
         if (generation.Permit?.Status == RootChangeStatus.Committed)
+        {
             EditLineage = generation.Overlay?.Descriptor;
+            if (generation.Overlay is { } overlay)
+                EditOverlayBytes = 8 + 32 * overlay.Count;
+        }
     }
-    public VolumePublicationInfo Info { get; }
+    public VolumePublicationInfo Info { get; private set; }
 
     public ReadOnlySpan<PlanetVolumeMesh> Meshes
     {
@@ -276,6 +317,8 @@ public sealed class VolumeStreamingLease : IDisposable
         }
     }
 
+    /// <summary>Byte count of the canonical overlay on this committed lease.</summary>
+    public int EditOverlayBytes { get; private set; }
     /// <summary>Writes the committed sparse overlay in canonical order for a checkpoint consumer.</summary>
     public bool TryWriteEditOverlay(Span<byte> destination, out int written)
     {

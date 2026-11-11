@@ -178,7 +178,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             resources.MeshJobs < 1 || resources.QueueSlots < 1 || resources.RetirementSlots < 1)
             return VolumeAdmission.Invalid;
         if (_editBaseline is not null && (!ReferenceEquals(source, _editBaseline) ||
-            (edit is null && (kind == VolumeWorkClass.FirstEdit || targetRevision != Math.Max(sourceRevision, 1UL)))))
+            (edit is null && (kind == VolumeWorkClass.FirstEdit || targetRevision != (sourceRevision == 0 ? _initialTerrainRevision : sourceRevision)))))
             return VolumeAdmission.Invalid;
         lock (_gate)
         {
@@ -203,7 +203,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             _entries[slot] = entry;
             if (kind == VolumeWorkClass.FirstEdit)
                 _firstEdit = entry;
-            entry.Overlay = _active?.Overlay ?? _emptyOverlay;
+            entry.Overlay = _active?.Overlay ?? _initialOverlay;
             entry.Edit = edit;
             work = new VolumeStreamingWork(this, entry, source, _overlayLimit);
             return VolumeAdmission.Accepted;
@@ -379,6 +379,61 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
+    private VolumeCheckpointReservation? _checkpoint;
+
+    /// <summary>Reserves a single checkpoint reader before the named CommitResults barrier.</summary>
+    public VolumeCheckpointReservation? TryReserveCheckpoint(ulong tick)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            var stamp = _world.Publication.Committed.Read().Stamp;
+            if (_stopped || _editBaseline is null || _checkpoint is not null ||
+                stamp.Tick != tick || stamp.Kind != BarrierKind.BeginTick ||
+                _readers == _limits.Readers ||
+                !ReaderCharge.Fits(_limits.Envelope(VolumeWorkClass.Baseline) - _used[(int)VolumeWorkClass.Baseline]))
+                return null;
+            _checkpoint = new VolumeCheckpointReservation(this, tick);
+            _readers++;
+            _used[(int)VolumeWorkClass.Baseline] += ReaderCharge;
+            UpdatePeak();
+            return _checkpoint;
+        }
+    }
+
+    internal VolumeStreamingLease? TakeCheckpoint(VolumeCheckpointReservation reservation, out CommittedWorldView cut)
+    {
+        lock (_gate)
+        {
+            cut = default;
+            if (_checkpoint != reservation)
+                return null;
+            Refresh();
+            cut = _world.Publication.Committed.Read();
+            if (!_stopped && cut.Stamp.Kind == BarrierKind.CommitResults && cut.Stamp.Tick == reservation.Tick &&
+                _active is { } active && active.Permit?.Status == RootChangeStatus.Committed &&
+                active.Overlay is not null && cut.Root is VolumeWorldRoot root && root.Generation == active)
+            {
+                _checkpoint = null;
+                active.Readers++;
+                reservation.Lease.Attach(active);
+                return reservation.Lease;
+            }
+            return null;
+        }
+    }
+
+    internal void CancelCheckpoint(VolumeCheckpointReservation reservation)
+    {
+        lock (_gate)
+        {
+            if (_checkpoint != reservation)
+                return;
+            _checkpoint = null;
+            _readers--;
+            _used[(int)VolumeWorkClass.Baseline] -= ReaderCharge;
+        }
+    }
     /// <summary>Tests the admitted support halo. C02 additionally validates body contacts against this density revision.</summary>
     public bool HasAdmittedCoverage(PlanetVector position)
     {
@@ -697,6 +752,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private void StopInternal()
     {
+        if (_checkpoint is { } checkpoint)
+            CancelCheckpoint(checkpoint);
         if (_stopped)
             return;
         _movementPermit?.Revoke();

@@ -14,6 +14,11 @@ public sealed class VolumeEditTests
         using var before = run.Coordinator.TryRead();
         Assert.IsNotNull(before);
         var begin = await run.OpenTick();
+        using var capture = run.Coordinator.TryReserveCheckpoint(begin.Tick);
+        Assert.IsNotNull(capture);
+        Assert.IsNull(run.Coordinator.TryReserveCheckpoint(begin.Tick));
+        Assert.IsNull(capture.TryTake());
+        VolumeCheckpointReservation? postCapture = null;
         var cut = Brush(begin.Tick, 1, 1, VolumeBrushOperation.Remove);
         var successor = cut with { Id = 2, Minimum = new(8, 0, 0), Maximum = new(10, 2, 2) };
         Assert.AreEqual(VolumeAdmission.Accepted, run.Coordinator.SealEditTick(begin.Tick, run.Source.Descriptor, [successor, cut]));
@@ -28,7 +33,15 @@ public sealed class VolumeEditTests
             Assert.IsTrue(await Task.Run(() => work.Execute()));
             Assert.AreEqual(1UL, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Terrain.TerrainRevision);
             Assert.AreEqual(VolumeEditStatus.Building, run.Status(cut));
-            await run.Commit(work, edit: true);
+            await run.CommitUnchanged();
+            using (var pre = capture.TryTake())
+            {
+                Assert.IsNotNull(pre);
+                Assert.AreEqual(begin.Tick, pre.Value.Publication.Stamp.Tick);
+                Assert.HasCount(8, Overlay(pre.Value.Terrain!));
+            }
+            await run.Commit(work, edit: true, beforeCommit: tick =>
+                postCapture = run.Coordinator.TryReserveCheckpoint(tick));
         }
 
         Assert.AreEqual(VolumeEditStatus.Committed, run.Status(cut));
@@ -41,6 +54,27 @@ public sealed class VolumeEditTests
         Assert.AreEqual(2, after.Raycast(new(0, 0, -5), new(0, 0, 5), hits).Count);
         Assert.AreEqual(cut, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).CommittedEdit);
         var bytes = Overlay(after);
+        using var post = postCapture;
+        Assert.IsNotNull(post);
+        using (var retained = post.TryTake())
+        {
+            Assert.IsNotNull(retained);
+            var committed = retained.Value.Publication;
+            Assert.AreEqual(begin.Tick + 1, committed.Stamp.Tick);
+            Assert.AreEqual(BarrierKind.CommitResults, committed.Stamp.Kind);
+            Assert.AreEqual(cut, ((VolumeWorldRoot)committed.Root).CommittedEdit);
+            CollectionAssert.AreEqual(bytes, Overlay(retained.Value.Terrain!));
+        }
+        using (var restart = new EditRun(restored: bytes))
+        {
+            await restart.BuildInitial();
+            using var restored = restart.Coordinator.TryRead();
+            Assert.IsNotNull(restored);
+            Assert.AreEqual(2UL, restored.Info.TerrainRevision);
+            Assert.AreEqual(restart.Source.Descriptor, restored.EditLineage);
+            CollectionAssert.AreEqual(bytes, Overlay(restored));
+            Assert.AreEqual(2, restored.Raycast(new(0, 0, -5), new(0, 0, 5), hits).Count);
+        }
         before.Dispose();
 
         await run.OpenTick();
@@ -410,7 +444,8 @@ public sealed class VolumeEditTests
         internal VolumeStreamingCoordinator Coordinator { get; }
         internal VolumeStreamingSelection Selection { get; }
 
-        internal EditRun(int limit = 256, int journalRecords = 256)
+        private readonly ulong _initialRevision;
+        internal EditRun(int limit = 256, int journalRecords = 256, byte[]? restored = null)
         {
             World = _fixture.OpenWorld();
             Selection = Select(default);
@@ -418,8 +453,11 @@ public sealed class VolumeEditTests
                 0, 0, 0, 1, 1, 1, 64, 1);
             var baseline = _resources.Retained + _resources.Retained + _resources.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
-            Coordinator = new(World, Source, new VolumeStreamingLimits(baseline + _resources + _resources + _resources + _resources,
-                baseline, _resources, _resources, _resources, _resources, 12, 8, journalRecords), limit);
+            var limits = new VolumeStreamingLimits(baseline + _resources + _resources + _resources + _resources,
+                baseline, _resources, _resources, _resources, _resources, 12, 8, journalRecords);
+            _initialRevision = restored is null ? 1UL : 2UL;
+            Coordinator = restored is null ? new(World, Source, limits, limit) :
+                new(World, Source, limits, limit, _initialRevision, restored, static material => material == 7);
         }
 
         private VolumeStreamingSelection Select(PlanetVector center) =>
@@ -434,7 +472,7 @@ public sealed class VolumeEditTests
         internal async Task StreamAt(PlanetVector center, ulong revision)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Coordinator.TryStage(VolumeWorkClass.Movement, Select(center),
-                revision, Math.Max(1, revision), MeshBytes, _resources, Source, out var work));
+                revision, revision == 0 ? _initialRevision : revision, MeshBytes, _resources, Source, out var work));
             Assert.IsNotNull(work);
             using (work)
             {
@@ -481,12 +519,13 @@ public sealed class VolumeEditTests
             return stamp;
         }
 
-        internal async Task Commit(VolumeStreamingWork work, bool edit = false)
+        internal async Task Commit(VolumeStreamingWork work, bool edit = false, Action<ulong>? beforeCommit = null)
         {
             if (edit && _open)
                 await CommitUnchanged();
             if (!_open)
                 await Begin();
+            beforeCommit?.Invoke(_tick);
             var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
             var prepared = Coordinator.TryPreparePublication(work.Generation, candidates, []);
             Assert.IsNotNull(prepared);

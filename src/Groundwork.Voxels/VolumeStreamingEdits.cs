@@ -8,7 +8,8 @@ public sealed partial class VolumeStreamingCoordinator
     public const int MaximumEditsPerTick = 32;
     public const int MaximumBrushAxis = 16;
     private readonly IPlanetBrickSource? _editBaseline;
-    private readonly VolumeEditOverlay? _emptyOverlay;
+    private readonly VolumeEditOverlay? _initialOverlay;
+    private readonly ulong _initialTerrainRevision = 1;
     private readonly int _overlayLimit;
     private readonly EditSlot[]? _edits;
     private int _editCount;
@@ -24,7 +25,22 @@ public sealed partial class VolumeStreamingCoordinator
         : this(world, ValidateEditConfiguration(baseline, maximumOverlaySamples), limits)
     {
         _editBaseline = baseline;
-        _emptyOverlay = new VolumeEditOverlay(baseline);
+        _initialOverlay = new VolumeEditOverlay(baseline);
+        _overlayLimit = maximumOverlaySamples;
+        _edits = new EditSlot[MaximumEditsPerTick];
+    }
+
+    /// <summary>Restores the sparse overlay before admitting the first terrain publication.</summary>
+    public VolumeStreamingCoordinator(WorldSafetyPorts world, IPlanetBrickSource baseline, VolumeStreamingLimits limits,
+        int maximumOverlaySamples, ulong restoredTerrainRevision, ReadOnlySpan<byte> overlay,
+        Func<ushort, bool> supportsMaterial)
+        : this(world, ValidateEditConfiguration(baseline, maximumOverlaySamples), limits)
+    {
+        ArgumentOutOfRangeException.ThrowIfZero(restoredTerrainRevision);
+        ArgumentNullException.ThrowIfNull(supportsMaterial);
+        _editBaseline = baseline;
+        _initialOverlay = VolumeEditOverlay.Restore(baseline, maximumOverlaySamples, overlay, supportsMaterial);
+        _initialTerrainRevision = restoredTerrainRevision;
         _overlayLimit = maximumOverlaySamples;
         _edits = new EditSlot[MaximumEditsPerTick];
     }
