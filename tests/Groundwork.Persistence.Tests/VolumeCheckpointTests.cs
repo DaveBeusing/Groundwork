@@ -182,21 +182,75 @@ public sealed class VolumeCheckpointTests
             }
 
             var published = stage is SaveWriteStage.AfterPublish or SaveWriteStage.BeforeAcknowledge;
-            // The killed test host can be signaled before NTFS finishes closing its file objects.
-            // Busy is the observable lease outcome until close completes.
-            VolumeSlotResult loaded;
-            do
-            {
-                loaded = fixture.Reopen().Load();
-                if (loaded.Status == VolumeSlotStatus.Busy)
-                    await Task.Delay(20, timeout.Token);
-            } while (loaded.Status == VolumeSlotStatus.Busy);
+            var loaded = await WaitForInterruptedWriter(fixture.Reopen(), timeout.Token);
             AssertStatus(VolumeSlotStatus.Loaded, loaded);
             CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(Create(published ? 1UL : 0UL)),
                 VolumeCheckpointCodec.Encode(loaded.Checkpoint!));
             AssertStatus(published ? VolumeSlotStatus.AlreadyCommitted : VolumeSlotStatus.Committed,
                 fixture.Reopen().Save(Create(1)));
             Assert.IsEmpty(Directory.EnumerateFileSystemEntries(fixture.Member("staging")));
+        }
+    }
+
+    [TestMethod]
+    public async Task NtfsIntentCloseWaitRetriesSharingViolationsAndKeepsOtherFailuresVisible()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Requires Windows NTFS.");
+        using var fixture = new Fixture();
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Create(0)));
+        var slot = fixture.Reopen();
+        var intent = fixture.Member("volume.intent");
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        Task<VolumeSlotResult> recovered;
+        using (File.Open(intent, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+        {
+            var blocked = slot.Load();
+            AssertStatus(VolumeSlotStatus.Indeterminate, blocked);
+            Assert.AreEqual("volume.intent", blocked.Member);
+            Assert.IsInstanceOfType<IOException>(blocked.Error);
+            Assert.AreEqual(32, blocked.Error.HResult & 0xffff);
+
+            using var canceled = new CancellationTokenSource();
+            var pending = WaitForInterruptedWriter(slot, canceled.Token);
+            Assert.IsFalse(pending.IsCompleted);
+            canceled.Cancel();
+            await Assert.ThrowsExactlyAsync<TimeoutException>(() => pending);
+            recovered = WaitForInterruptedWriter(slot, timeout.Token);
+            Assert.IsFalse(recovered.IsCompleted);
+        }
+        var loaded = await recovered;
+        AssertStatus(VolumeSlotStatus.Loaded, loaded);
+        CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(Create(0)),
+            VolumeCheckpointCodec.Encode(loaded.Checkpoint!));
+
+        File.WriteAllBytes(intent, [1]);
+        var malformed = await WaitForInterruptedWriter(slot, timeout.Token);
+        AssertStatus(VolumeSlotStatus.Indeterminate, malformed);
+        Assert.AreEqual("volume.intent", malformed.Member);
+        Assert.IsNull(malformed.Error);
+        CollectionAssert.AreEqual(new byte[] { 1 }, File.ReadAllBytes(intent));
+    }
+
+    private static async Task<VolumeSlotResult> WaitForInterruptedWriter(VolumeCheckpointSlot slot, CancellationToken token)
+    {
+        // Windows can signal process exit before closing both the slot lease and the renamed intent handle.
+        while (true)
+        {
+            var result = slot.Load();
+            var intentLocked = result is { Status: VolumeSlotStatus.Indeterminate, Member: "volume.intent", Error: IOException error } &&
+                (error.HResult & 0xffff) is 32 or 33;
+            if (result.Status != VolumeSlotStatus.Busy && !intentLocked)
+                return result;
+            try
+            {
+                await Task.Delay(20, token);
+            }
+            catch (OperationCanceledException) when (token.IsCancellationRequested)
+            {
+                throw new TimeoutException($"NTFS writer handles did not close. Last result: {result.Status}, member: {result.Member}.",
+                    result.Error);
+            }
         }
     }
 
