@@ -86,6 +86,8 @@ public sealed partial class PresentationSmokeTests
     [DataRow(false)]
     public async Task VolumePresentRetainsGenerationUntilFenceAndRejectsStaleView(bool warp)
     {
+        var measure = Environment.GetEnvironmentVariable("GROUNDWORK_Q01_MEASURE") == "1";
+        var phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(50));
         var token = timeout.Token;
         using var run = new VolumeRun(readers: 2);
@@ -141,6 +143,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual(1, run.Terrain.Statistics.Readers);
             Assert.AreEqual(1, device.LiveMeshBuffers);
+            Sample("first-fence-held", device);
             Assert.AreEqual(MeshReplacementSubmissionResult.DuplicateGeneration,
                 renderer.TrySubmitVolumeTerrain(generation, 3, VolumeCameraAt(view, 32, 4)));
 
@@ -165,6 +168,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
                 renderer.TrySubmitVolumeTerrain(generation, 4, VolumeCameraAt(next, 32, 4)));
             await nextObserved.Task.WaitAsync(token);
+            Sample("replacement-fence-held", device);
             var alreadyFinalized = await run.BeginHeldTick();
             Volatile.Write(ref holdNext, 0);
             await AwaitStatus(renderer, s => s.LastPresentedSequence == 4, token);
@@ -186,6 +190,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual(0, run.Terrain.Statistics.Readers);
             Assert.AreEqual(0L, device.LiveMeshBytes);
+            Sample("shutdown", device);
             AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
         }
         finally
@@ -193,6 +198,35 @@ public sealed partial class PresentationSmokeTests
             Volatile.Write(ref hold, 0);
             Volatile.Write(ref holdNext, 0);
             runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+        static object ResourceVector(VolumeResources resources) => new
+        {
+            resources.CpuBytes, resources.NativeBytes, resources.UploadBytes, resources.RetirementBytes,
+            resources.DensityJobs, resources.MeshJobs, resources.QueueSlots, resources.LeaseSlots, resources.RetirementSlots,
+        };
+        void Sample(string phase, GpuDevice device)
+        {
+            if (!measure)
+                return;
+            var now = System.Diagnostics.Stopwatch.GetTimestamp();
+            var stats = run.Terrain.Statistics;
+            using var process = System.Diagnostics.Process.GetCurrentProcess();
+            Console.WriteLine("Q01 " + System.Text.Json.JsonSerializer.Serialize(new
+            {
+                route = warp ? "warp-fence" : "hardware-fence",
+                phase,
+                elapsedMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart, now).TotalMilliseconds,
+                used = ResourceVector(stats.Used),
+                peak = ResourceVector(stats.Peak),
+                stats.Readers,
+                stats.Generations,
+                stats.MovementHeld,
+                device.LiveMeshBytes,
+                device.LiveMeshBuffers,
+                process.WorkingSet64,
+                process.PrivateMemorySize64,
+            }));
+            phaseStart = System.Diagnostics.Stopwatch.GetTimestamp();
         }
     }
 
