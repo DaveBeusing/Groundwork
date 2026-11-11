@@ -21,6 +21,13 @@ public interface IVolumeOreInventoryState : Groundwork.Core.IWorldStateRoot
     /// <summary>Canonical component written by depletion, including its owning entity.</summary>
     Groundwork.Core.ComponentTarget OreInventoryTarget { get; }
 
+    /// <summary>Reads barrier-entry partition membership. Null is unpartitioned. False means unknown.</summary>
+    bool TryGetEntityPartition(Groundwork.Core.EntityId entity, out Groundwork.Core.PartitionScope? partition)
+    {
+        partition = null;
+        return false;
+    }
+
     /// <summary>Returns a new immutable state or null on conflict or capacity failure. Must be bounded and side-effect free.</summary>
     Groundwork.Core.IWorldStateRoot? StageOreDepletion(in VolumeOreDepletion depletion);
 }

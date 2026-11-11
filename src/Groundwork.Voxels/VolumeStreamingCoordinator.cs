@@ -358,12 +358,12 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 var before = currentState as IVolumeOreInventoryState;
                 var composed = state as IVolumeOreInventoryState;
                 VolumeOreInventoryConflict? conflict = null;
-                var inventory = before is not null && composed is not null &&
-                    before.OreInventoryRevision == composed.OreInventoryRevision &&
-                    before.OreInventoryTarget == composed.OreInventoryTarget &&
-                    before.OreInventoryTarget.Entity.World == current.World &&
-                    before.OreInventoryTarget.Entity.Generation != 0 && before.OreInventoryTarget.Component.Value != 0 &&
-                    !HasOreInventoryConflict(candidates, dispositions, before.OreInventoryTarget, out conflict)
+                var hasValidTarget = before is not null && before.OreInventoryTarget.Entity.World == current.World &&
+                    before.OreInventoryTarget.Entity.Generation != 0 && before.OreInventoryTarget.Component.Value != 0;
+                var overlaps = hasValidTarget && HasOreInventoryConflict(candidates, dispositions, before!, out conflict);
+                var inventory = hasValidTarget && !overlaps && composed is not null &&
+                    before!.OreInventoryRevision == composed.OreInventoryRevision &&
+                    before.OreInventoryTarget == composed.OreInventoryTarget
                     ? composed.StageOreDepletion(entry.OreDepletion) as IVolumeOreInventoryState : null;
                 if (inventory is null || inventory.World != current.World ||
                     inventory.OreInventoryRevision <= composed!.OreInventoryRevision ||
@@ -400,9 +400,10 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
 
     private static bool HasOreInventoryConflict(CandidateSet candidates, ImmutableArray<BatchDisposition> dispositions,
-        ComponentTarget inventory, out VolumeOreInventoryConflict? conflict)
+        IVolumeOreInventoryState before, out VolumeOreInventoryConflict? conflict)
     {
         conflict = null;
+        var inventory = before.OreInventoryTarget;
         var kinds = new Dictionary<BatchId, BatchDispositionKind>(dispositions.Length);
         foreach (var disposition in dispositions)
             if (!kinds.TryAdd(disposition.Batch, disposition.Kind))
@@ -429,14 +430,34 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                     return true;
                 }
             foreach (var command in batch.Commands)
+            {
                 if (command.Entity.Existing == inventory.Entity &&
                     (command.Kind != JobCommandKind.ReplaceComponent || command.Component == inventory.Component))
                 {
                     conflict = new(batch.Batch, inventory, null);
                     return true;
                 }
+                if (command.Kind == JobCommandKind.DestroyEntity && command.Entity.Existing is { } destroyed &&
+                    MaySharePartition(destroyed, out var partition))
+                {
+                    ResourceKey? key = partition is { } known
+                        ? new(inventory.Entity.World, default, new ResourceScope(ScopeKind.Partition, known, null)) : null;
+                    conflict = new(batch.Batch, inventory, key);
+                    return true;
+                }
+            }
         }
         return false;
+
+        bool MaySharePartition(EntityId destroyed, out PartitionScope? partition)
+        {
+            var known = before.TryGetEntityPartition(inventory.Entity, out partition);
+            if (known && partition is null)
+                return false;
+            if (!before.TryGetEntityPartition(destroyed, out var other))
+                return true;
+            return other is not null && (!known || partition!.Value.Partition == other.Value.Partition);
+        }
 
         bool Matches(ResourceKey key, IAdmittedJobScope scope) =>
             key.World == inventory.Entity.World && (key.Component.Value == 0 || key.Component == inventory.Component) &&

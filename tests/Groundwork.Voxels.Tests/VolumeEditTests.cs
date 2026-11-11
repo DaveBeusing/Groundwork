@@ -486,6 +486,7 @@ public sealed class VolumeEditTests
         await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Read, expectedDeposits: 0);
         await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Write, expectedDeposits: 0);
         await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Destroy, expectedDeposits: 0);
+        await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.DestroyPartitionPeer, expectedDeposits: 0);
         await Edit(run, 2, VolumeBrushOperation.Remove, upper, OrdinaryInventoryBatch.Disjoint, expectedDeposits: 1);
         await Edit(run, 3, VolumeBrushOperation.Add, upper, OrdinaryInventoryBatch.None, expectedDeposits: 1);
         using var filled = run.Coordinator.TryRead();
@@ -500,7 +501,7 @@ public sealed class VolumeEditTests
         async Task Edit(EditRun run, ulong revision, VolumeBrushOperation operation, LatticeCoordinate max,
             OrdinaryInventoryBatch ordinary, int expectedDeposits)
         {
-            var conflict = ordinary is OrdinaryInventoryBatch.Read or OrdinaryInventoryBatch.Write or OrdinaryInventoryBatch.Destroy;
+            var conflict = ordinary is OrdinaryInventoryBatch.Read or OrdinaryInventoryBatch.Write or OrdinaryInventoryBatch.Destroy or OrdinaryInventoryBatch.DestroyPartitionPeer;
             var begin = await run.OpenTick();
             var intent = new VolumeBrushIntent(begin.Tick, 1, revision, deposit, max, operation,
                 operation == VolumeBrushOperation.Add ? recipe.Ore : (ushort)0);
@@ -523,10 +524,14 @@ public sealed class VolumeEditTests
                     using var job = CompleteOrdinaryBatch(run.World.Publication, attempt, ((OreInventory)before.State).OreInventoryTarget,
                         ordinary, out var batch);
                     var candidates = await CoreRuntimeFixture.SealAsync(run.World, attempt.Tick, BarrierKind.CommitResults);
-                    var structural = ordinary == OrdinaryInventoryBatch.Destroy;
+                    var structural = ordinary is OrdinaryInventoryBatch.Destroy or OrdinaryInventoryBatch.DestroyPartitionPeer;
                     var disposition = new BatchDisposition(batch,
                         structural ? BatchDispositionKind.Defer : BatchDispositionKind.Commit, BatchRejection.None);
-                    var prepared = run.Coordinator.TryPreparePublication(work.Generation, candidates, [disposition]);
+                    var previousInventory = (OreInventory)before.State;
+                    var composed = ordinary == OrdinaryInventoryBatch.Write
+                        ? previousInventory with { OreInventoryRevision = previousInventory.OreInventoryRevision + 1 }
+                        : previousInventory;
+                    var prepared = run.Coordinator.TryPreparePublication(work.Generation, candidates, [disposition], composed);
                     if (conflict)
                     {
                         Assert.IsNull(prepared);
@@ -537,6 +542,8 @@ public sealed class VolumeEditTests
                                 recorded = evidence.OreInventoryConflict;
                         Assert.IsNotNull(recorded);
                         Assert.AreEqual(batch, recorded.Value.Batch);
+                        if (ordinary == OrdinaryInventoryBatch.DestroyPartitionPeer)
+                            Assert.AreEqual(new PartitionId(1), recorded.Value.Scope?.Scope.Partition?.Partition);
                         Assert.AreEqual(((OreInventory)before.State).OreInventoryTarget, recorded.Value.Inventory);
                         run.FinalizeOrdinary(candidates, disposition);
                         Assert.IsTrue(run.Coordinator.RejectEdit(begin.Tick, next.Id));
@@ -562,13 +569,15 @@ public sealed class VolumeEditTests
         }
     }
 
-    private enum OrdinaryInventoryBatch { None, Read, Write, Destroy, Disjoint }
+    private enum OrdinaryInventoryBatch { None, Read, Write, Destroy, DestroyPartitionPeer, Disjoint }
 
     private static IJobHandle CompleteOrdinaryBatch(WorldPublicationPorts ports, BarrierStamp stamp,
         ComponentTarget inventory, OrdinaryInventoryBatch kind, out BatchId batch)
     {
-        var structural = kind == OrdinaryInventoryBatch.Destroy;
+        var structural = kind is OrdinaryInventoryBatch.Destroy or OrdinaryInventoryBatch.DestroyPartitionPeer;
         var target = inventory with { Component = structural ? default : kind == OrdinaryInventoryBatch.Write ? inventory.Component : new(8) };
+        if (kind == OrdinaryInventoryBatch.DestroyPartitionPeer)
+            target = target with { Entity = target.Entity with { Slot = 2 } };
         var scope = new ResourceScope(ScopeKind.Entity, null, target.Entity);
         var read = new ResourceKey(stamp.World, target.Component, scope);
         var reads = kind == OrdinaryInventoryBatch.Read
@@ -605,6 +614,12 @@ public sealed class VolumeEditTests
     private sealed record OreInventory(WorldId World, ulong OreInventoryRevision, int Count) : IVolumeOreInventoryState
     {
         public ComponentTarget OreInventoryTarget => new(new(World, 1, 1), new(7));
+
+        public bool TryGetEntityPartition(EntityId entity, out PartitionScope? partition)
+        {
+            partition = new PartitionScope(new(1), 1);
+            return entity.World == World && entity.Slot is 1 or 2;
+        }
 
         public IWorldStateRoot StageOreDepletion(in VolumeOreDepletion depletion) =>
             this with { OreInventoryRevision = OreInventoryRevision + 1, Count = Count + depletion.Deposits };
