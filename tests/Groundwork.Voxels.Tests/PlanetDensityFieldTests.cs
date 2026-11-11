@@ -30,7 +30,7 @@ public sealed class PlanetDensityFieldTests
 
         foreach (var fixture in fixtures)
         {
-            var field = new PlanetDensityField(Describe(fixture.Seed), Recipe);
+            var field = (PlanetDensityField)PlanetTerrainGenerator.Create(Describe(fixture.Seed), landform: Recipe);
             var point = new LatticeCoordinate(-128, -17, 5);
             Assert.AreEqual(fixture.Density, field.SampleDensity(point));
             Assert.AreEqual(fixture.Material, field.SampleMaterial(point));
