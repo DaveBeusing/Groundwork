@@ -16,6 +16,15 @@ public sealed class VolumeCheckpointTests
     private static readonly PlanetDescriptor Planet = new(new Guid("7ab2e4df-06c5-4933-b82b-355ed45584bc"),
         new Guid("f5624df5-53da-4e55-b07d-b5554fc3dca6"), 17, 1, 1, 1, new string('a', 64), 100);
 
+    private static readonly PlanetGeologyRecipe Geology = new(
+        new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19),
+        12, 100, 19, 0, 7, 0, 8, 112, 65536, 0, 21, 22, 23, 24);
+    private static readonly PlanetDescriptor PlanetV2 = new(Planet.WorldId, Planet.PlanetId,
+        42, PlanetGeologyField.GeneratorVersion, Planet.TerrainSchemaVersion, 2, Geology.ParameterSha256, 128);
+
+    private const long Depleted = 1L << 16;
+    private const long Placed = 1L << 17;
+
     [TestMethod]
     public void CodecPreservesEditsAndClassifiesTruncation()
     {
@@ -35,6 +44,101 @@ public sealed class VolumeCheckpointTests
         bytes[^1] ^= 1;
         Assert.AreEqual(VolumeCheckpointStatus.DamagedCompatible,
             VolumeCheckpointCodec.Decode(bytes, Slot, Lineage, Planet).Status);
+    }
+
+    [TestMethod]
+    public void V2CodecKeepsFlagsAndRejectsForeignGeneratorOrNoncanonicalRows()
+    {
+        var checkpoint = CreateV2(2);
+        var bytes = VolumeCheckpointCodec.Encode(checkpoint);
+        Assert.IsTrue(bytes.AsSpan(0, 8).SequenceEqual("GWVOLCP2"u8));
+        Assert.AreEqual((ushort)2, BinaryPrimitives.ReadUInt16LittleEndian(bytes.AsSpan(8)));
+        var loaded = VolumeCheckpointCodec.Decode(bytes, Slot, Lineage, PlanetV2);
+        Assert.AreEqual(VolumeCheckpointStatus.Valid, loaded.Status);
+        Assert.IsNotNull(loaded.Checkpoint);
+        Assert.AreEqual(checkpoint.Player, loaded.Checkpoint.Player);
+        CollectionAssert.AreEqual(checkpoint.Game.ToArray(), loaded.Checkpoint.Game.ToArray());
+        CollectionAssert.AreEqual(checkpoint.Overlay.ToArray(), loaded.Checkpoint.Overlay.ToArray());
+        CollectionAssert.AreEqual(bytes, VolumeCheckpointCodec.Encode(loaded.Checkpoint));
+
+        var v1 = VolumeCheckpointCodec.Encode(Create(2));
+        Assert.IsTrue(v1.AsSpan(0, 8).SequenceEqual("GWVOLCP1"u8));
+        Assert.AreEqual(VolumeCheckpointStatus.Valid, VolumeCheckpointCodec.Decode(v1, Slot, Lineage, Planet).Status);
+        Assert.AreEqual(VolumeCheckpointStatus.Incompatible, VolumeCheckpointCodec.Decode(v1, Slot, Lineage, PlanetV2).Status);
+        Assert.AreEqual(VolumeCheckpointStatus.Incompatible, VolumeCheckpointCodec.Decode(bytes, Slot, Lineage, Planet).Status);
+
+        foreach (var invalidValue in new[] { 22L, Depleted, Placed, (1L << 18) | 22, -1L })
+        {
+            var overlay = checkpoint.Overlay.ToArray();
+            BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(64), invalidValue);
+            Assert.ThrowsExactly<InvalidDataException>(() => new VolumeCheckpoint(checkpoint.Operation, Lineage,
+                PlanetV2, checkpoint.Tick, checkpoint.TerrainRevision, overlay, []));
+            var malformed = (byte[])bytes.Clone();
+            // Overlay is followed by the opaque game bytes and the final SHA-256.
+            var overlayStart = malformed.Length - 32 - checkpoint.Game.Length - overlay.Length;
+            overlay.CopyTo(malformed.AsSpan(overlayStart));
+            SHA256.HashData(malformed.AsSpan(0, malformed.Length - 32), malformed.AsSpan(malformed.Length - 32));
+            Assert.AreEqual(VolumeCheckpointStatus.DamagedCompatible,
+                VolumeCheckpointCodec.Decode(malformed, Slot, Lineage, PlanetV2).Status);
+        }
+
+        var flaggedV1 = checkpoint.Overlay.ToArray();
+        Assert.ThrowsExactly<InvalidDataException>(() => new VolumeCheckpoint(Create(2).Operation, Lineage,
+            Planet, checkpoint.Tick, checkpoint.TerrainRevision, flaggedV1, []));
+    }
+
+    [TestMethod]
+    public void NtfsV2PreservesUnknownSchemaAndDamagedMember()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Requires Windows NTFS.");
+        using var fixture = new Fixture(planet: PlanetV2);
+        var first = CreateV2(0);
+        var second = CreateV2(1);
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(first));
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(second));
+        var firstPath = fixture.Member("volume.a");
+        var secondPath = fixture.Member("volume.b");
+        var firstBytes = File.ReadAllBytes(firstPath);
+        var secondBytes = File.ReadAllBytes(secondPath);
+
+        var unknownRecipe = new PlanetDescriptor(PlanetV2.WorldId, PlanetV2.PlanetId, PlanetV2.Seed,
+            PlanetV2.GeneratorVersion, PlanetV2.TerrainSchemaVersion, PlanetV2.MaterialCatalogVersion,
+            new string('b', 64), PlanetV2.RadiusMeters, PlanetV2.CellSizeMeters);
+        Assert.AreEqual(VolumeCheckpointStatus.Incompatible,
+            VolumeCheckpointCodec.Decode(secondBytes, Slot, Lineage, unknownRecipe).Status);
+        var foreignRecipeSlot = new VolumeCheckpointSlot(fixture.Root, Slot, Lineage, unknownRecipe,
+            static _ => SaveGameValidation.Valid);
+        var proposed = CreateV2(2);
+        var foreignRecipeCut = new VolumeCheckpoint(proposed.Operation, Lineage, unknownRecipe, proposed.Tick,
+            proposed.TerrainRevision, proposed.Overlay, proposed.Game, proposed.CaptureOrdinal, proposed.Player);
+        var reservationPath = fixture.Member("volume.reservation");
+        var reservation = File.ReadAllBytes(reservationPath);
+        AssertStatus(VolumeSlotStatus.Incompatible, foreignRecipeSlot.Load());
+        AssertStatus(VolumeSlotStatus.Incompatible, foreignRecipeSlot.Save(foreignRecipeCut));
+        CollectionAssert.AreEqual(firstBytes, File.ReadAllBytes(firstPath));
+        CollectionAssert.AreEqual(secondBytes, File.ReadAllBytes(secondPath));
+        CollectionAssert.AreEqual(reservation, File.ReadAllBytes(reservationPath));
+
+        var unknown = (byte[])secondBytes.Clone();
+        BinaryPrimitives.WriteUInt16LittleEndian(unknown.AsSpan(8), 3);
+        var headerFields = VolumeCheckpointCodec.HeaderLength - 32;
+        SHA256.HashData(unknown.AsSpan(0, headerFields), unknown.AsSpan(headerFields, 32));
+        SHA256.HashData(unknown.AsSpan(0, unknown.Length - 32), unknown.AsSpan(unknown.Length - 32));
+        File.WriteAllBytes(secondPath, unknown);
+        AssertStatus(VolumeSlotStatus.Incompatible, fixture.Reopen().Load());
+        AssertStatus(VolumeSlotStatus.Incompatible, fixture.Reopen().Save(CreateV2(2)));
+        CollectionAssert.AreEqual(firstBytes, File.ReadAllBytes(firstPath));
+        CollectionAssert.AreEqual(unknown, File.ReadAllBytes(secondPath));
+
+        secondBytes[^1] ^= 1;
+        File.WriteAllBytes(secondPath, secondBytes);
+        var recovered = fixture.Reopen().Load();
+        AssertStatus(VolumeSlotStatus.ReadOnlyRecovery, recovered);
+        CollectionAssert.AreEqual(firstBytes, VolumeCheckpointCodec.Encode(recovered.Checkpoint!));
+        AssertStatus(VolumeSlotStatus.ReadOnlyRecovery, fixture.Reopen().Save(CreateV2(2)));
+        CollectionAssert.AreEqual(firstBytes, File.ReadAllBytes(firstPath));
+        CollectionAssert.AreEqual(secondBytes, File.ReadAllBytes(secondPath));
     }
 
     [TestMethod]
@@ -128,17 +232,27 @@ public sealed class VolumeCheckpointTests
     }
 
     [TestMethod]
-    public async Task NtfsChildProcessInterruptionPreservesTheDurableCut()
+    public Task NtfsChildProcessInterruptionPreservesTheDurableCut() =>
+        VerifyChildProcessInterruption(v2: false);
+
+    [TestMethod]
+    public Task NtfsV2ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut() =>
+        VerifyChildProcessInterruption(v2: true);
+
+    private static async Task VerifyChildProcessInterruption(bool v2)
     {
         if (!OperatingSystem.IsWindows())
             Assert.Inconclusive("Requires Windows NTFS.");
         const string childVariable = "GROUNDWORK_D02_CHILD";
+        var planet = v2 ? PlanetV2 : Planet;
+        var oldBasis = v2 ? 1UL : 0UL;
+        var proposed = Checkpoint(oldBasis + 1);
         var childRoot = Environment.GetEnvironmentVariable(childVariable);
         if (childRoot is not null)
         {
             var stage = Enum.Parse<SaveWriteStage>(Environment.GetEnvironmentVariable("GROUNDWORK_D02_STAGE")!);
-            var slot = new VolumeCheckpointSlot(childRoot, Slot, Lineage, Planet, static _ => SaveGameValidation.Valid);
-            var result = slot.Save(Create(1), reached =>
+            var slot = new VolumeCheckpointSlot(childRoot, Slot, Lineage, planet, static _ => SaveGameValidation.Valid);
+            var result = slot.Save(proposed, reached =>
             {
                 if (reached != stage)
                     return;
@@ -150,17 +264,24 @@ public sealed class VolumeCheckpointTests
             Assert.Fail($"Child returned {result.Status} before termination.");
         }
 
-        foreach (var stage in new[] { SaveWriteStage.PartialBody, SaveWriteStage.BeforeFlush,
-            SaveWriteStage.AfterFlush, SaveWriteStage.BeforePublish, SaveWriteStage.PartialIntent, SaveWriteStage.AfterIntent, SaveWriteStage.AfterPublish, SaveWriteStage.BeforeAcknowledge })
+        SaveWriteStage[] stages = v2
+            ? [SaveWriteStage.PartialBody, SaveWriteStage.AfterIntent, SaveWriteStage.AfterPublish, SaveWriteStage.BeforeAcknowledge]
+            : [SaveWriteStage.PartialBody, SaveWriteStage.BeforeFlush, SaveWriteStage.AfterFlush, SaveWriteStage.BeforePublish,
+                SaveWriteStage.PartialIntent, SaveWriteStage.AfterIntent, SaveWriteStage.AfterPublish, SaveWriteStage.BeforeAcknowledge];
+        foreach (var stage in stages)
         {
-            using var fixture = new Fixture();
-            AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Create(0)));
+            using var fixture = new Fixture(planet: planet);
+            AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Checkpoint(0)));
+            if (v2)
+                AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Checkpoint(oldBasis)));
             var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true };
             start.Environment[childVariable] = fixture.Root;
             start.Environment["GROUNDWORK_D02_STAGE"] = stage.ToString();
             start.ArgumentList.Add("vstest");
             start.ArgumentList.Add(typeof(VolumeCheckpointTests).Assembly.Location);
-            start.ArgumentList.Add($"/TestCaseFilter:FullyQualifiedName={typeof(VolumeCheckpointTests).FullName}.{nameof(NtfsChildProcessInterruptionPreservesTheDurableCut)}");
+            var childTest = v2 ? nameof(NtfsV2ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut)
+                : nameof(NtfsChildProcessInterruptionPreservesTheDurableCut);
+            start.ArgumentList.Add($"/TestCaseFilter:FullyQualifiedName={typeof(VolumeCheckpointTests).FullName}.{childTest}");
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start writer.");
             var ready = Path.Combine(fixture.Root, "ready");
             using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(35));
@@ -182,14 +303,25 @@ public sealed class VolumeCheckpointTests
             }
 
             var published = stage is SaveWriteStage.AfterPublish or SaveWriteStage.BeforeAcknowledge;
-            var loaded = await WaitForInterruptedWriter(fixture.Reopen(), timeout.Token);
+            var reopened = fixture.Reopen();
+            var loaded = await WaitForInterruptedWriter(reopened, timeout.Token);
             AssertStatus(VolumeSlotStatus.Loaded, loaded);
-            CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(Create(published ? 1UL : 0UL)),
+            var expected = published ? proposed : Checkpoint(oldBasis);
+            CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(expected),
                 VolumeCheckpointCodec.Encode(loaded.Checkpoint!));
-            AssertStatus(published ? VolumeSlotStatus.AlreadyCommitted : VolumeSlotStatus.Committed,
-                fixture.Reopen().Save(Create(1)));
+            if (v2)
+            {
+                CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(published ? proposed : Checkpoint(0)),
+                    File.ReadAllBytes(fixture.Member("volume.a")));
+                CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(Checkpoint(oldBasis)),
+                    File.ReadAllBytes(fixture.Member("volume.b")));
+            }
+            var saved = await WaitForInterruptedWriter(() => reopened.Save(proposed), timeout.Token);
+            AssertStatus(published ? VolumeSlotStatus.AlreadyCommitted : VolumeSlotStatus.Committed, saved);
             Assert.IsEmpty(Directory.EnumerateFileSystemEntries(fixture.Member("staging")));
         }
+
+        VolumeCheckpoint Checkpoint(ulong basis) => v2 ? CreateV2(basis) : Create(basis);
     }
 
     [TestMethod]
@@ -232,15 +364,20 @@ public sealed class VolumeCheckpointTests
         CollectionAssert.AreEqual(new byte[] { 1 }, File.ReadAllBytes(intent));
     }
 
-    private static async Task<VolumeSlotResult> WaitForInterruptedWriter(VolumeCheckpointSlot slot, CancellationToken token)
+    private static Task<VolumeSlotResult> WaitForInterruptedWriter(VolumeCheckpointSlot slot, CancellationToken token) =>
+        WaitForInterruptedWriter(slot.Load, token);
+
+    private static async Task<VolumeSlotResult> WaitForInterruptedWriter(Func<VolumeSlotResult> operation, CancellationToken token)
     {
         // Windows can signal process exit before closing both the slot lease and the renamed intent handle.
         while (true)
         {
-            var result = slot.Load();
+            var result = operation();
             var intentLocked = result is { Status: VolumeSlotStatus.Indeterminate, Member: "volume.intent", Error: IOException error } &&
                 (error.HResult & 0xffff) is 32 or 33;
-            if (result.Status != VolumeSlotStatus.Busy && !intentLocked)
+            var leaseLocked = result is { Status: VolumeSlotStatus.Busy, Error: IOException leaseError } &&
+                (leaseError.HResult & 0xffff) is 32 or 33;
+            if (!leaseLocked && !intentLocked)
                 return result;
             try
             {
@@ -601,21 +738,44 @@ public sealed class VolumeCheckpointTests
         return new(new(Slot, generation, nonce), Lineage, Planet, 21 + generation, 4, overlay, [game], player: new(new(0, 0, 107), new(1, 0, 0), new(0, 0, -2)));
     }
 
+    private static VolumeCheckpoint CreateV2(ulong basis)
+    {
+        var overlay = new byte[72];
+        BinaryPrimitives.WriteInt32LittleEndian(overlay, 1);
+        BinaryPrimitives.WriteInt32LittleEndian(overlay.AsSpan(4), 1);
+        BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(8), 63);
+        BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(16), 47);
+        BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(24), 20);
+        BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(32), basis < 2 ? 128 : -128);
+        overlay.AsSpan(8, 24).CopyTo(overlay.AsSpan(40));
+        var material = basis < 2 ? Placed | 24 : Depleted | Placed | 22;
+        BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(64), material);
+
+        var game = new byte[8];
+        BinaryPrimitives.WriteInt32LittleEndian(game, 2);
+        BinaryPrimitives.WriteInt32LittleEndian(game.AsSpan(4), basis < 2 ? 0 : 1);
+        var nonce = new Guid((int)basis + 1, 0, 0, new byte[8]);
+        return new(new(Slot, basis, nonce), Lineage, PlanetV2, 21 + basis, 4 + basis, overlay, game,
+            player: new(new(64 + (double)basis, 33, 26), new(0, 0, 1), new(0, 0, -0.25)));
+    }
+
     private sealed class Fixture : IDisposable
     {
         private readonly DirectoryInfo _temp = Directory.CreateTempSubdirectory("groundwork-volume-slot-");
         private readonly string _root;
         private readonly Func<VolumeCheckpoint, SaveGameValidation> _validate;
-        public Fixture(Func<VolumeCheckpoint, SaveGameValidation>? validate = null)
+        private readonly PlanetDescriptor _planet;
+        public Fixture(Func<VolumeCheckpoint, SaveGameValidation>? validate = null, PlanetDescriptor? planet = null)
         {
             _root = _temp.CreateSubdirectory("v2").FullName;
             _validate = validate ?? Validate;
-            Slot = VolumeCheckpointSlot.Reserve(_root, VolumeCheckpointTests.Slot, Lineage, Planet, _validate);
+            _planet = planet ?? Planet;
+            Slot = VolumeCheckpointSlot.Reserve(_root, VolumeCheckpointTests.Slot, Lineage, _planet, _validate);
         }
         public string Root => _root;
         public VolumeCheckpointSlot Slot { get; }
         public string Member(string name) => Path.Combine(_root, VolumeCheckpointTests.Slot.ToString("N"), name);
-        public VolumeCheckpointSlot Reopen() => new(_root, VolumeCheckpointTests.Slot, Lineage, Planet, _validate);
+        public VolumeCheckpointSlot Reopen() => new(_root, VolumeCheckpointTests.Slot, Lineage, _planet, _validate);
         public void Dispose() => _temp.Delete(recursive: true);
         private static SaveGameValidation Validate(VolumeCheckpoint _) => SaveGameValidation.Valid;
     }

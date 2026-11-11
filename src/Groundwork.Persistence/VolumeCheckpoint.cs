@@ -7,7 +7,7 @@ namespace Groundwork.Persistence;
 
 public readonly record struct VolumeSaveOperation(Guid SlotId, ulong BaseGeneration, Guid Nonce);
 
-/// <summary>An immutable WP11 checkpoint. Generation is derived from the operation's fixed base.</summary>
+/// <summary>An immutable volume checkpoint. Generation is derived from the operation's fixed base.</summary>
 public sealed class VolumeCheckpoint
 {
     public const int MaximumOverlayRows = VolumeStreamingCoordinator.MaximumOverlaySamples;
@@ -21,7 +21,8 @@ public sealed class VolumeCheckpoint
         ArgumentNullException.ThrowIfNull(planet);
         if (operation.SlotId == Guid.Empty || operation.Nonce == Guid.Empty ||
             operation.BaseGeneration == ulong.MaxValue || lineage == Guid.Empty || tick is 0 or ulong.MaxValue || revision == 0 || captureOrdinal == 0 ||
-            game.Length > MaximumGameBytes || !IsCanonicalOverlay(overlay) || !ValidPlayer(player))
+            game.Length > MaximumGameBytes || !VolumeCheckpointCodec.Supports(planet) ||
+            !IsCanonicalOverlay(overlay, planet.GeneratorVersion) || !ValidPlayer(player))
             throw new InvalidDataException("Invalid volume checkpoint.");
         (Operation, Lineage, Planet, Tick, TerrainRevision) = (operation, lineage, planet, tick, revision);
         CaptureOrdinal = captureOrdinal;
@@ -77,7 +78,7 @@ public sealed class VolumeCheckpoint
 
     private static bool Finite(PlanetVector vector) =>
         double.IsFinite(vector.X) && double.IsFinite(vector.Y) && double.IsFinite(vector.Z);
-    internal static bool IsCanonicalOverlay(ReadOnlySpan<byte> bytes)
+    internal static bool IsCanonicalOverlay(ReadOnlySpan<byte> bytes, uint generatorVersion)
     {
         if (bytes.Length < 8)
             return false;
@@ -95,7 +96,7 @@ public sealed class VolumeCheckpoint
             var value = BinaryPrimitives.ReadInt64LittleEndian(row[24..]);
             if (!InRange(key.Item1) || !InRange(key.Item2) || !InRange(key.Item3) ||
                 i != 0 && i != density && previous.CompareTo(key) >= 0 ||
-                (i < density ? value is not (-128 or 128) : value is < 1 or > ushort.MaxValue))
+                (i < density ? value is not (-128 or 128) : !ValidMaterialRow(value, generatorVersion)))
                 return false;
             previous = key;
         }
@@ -103,6 +104,16 @@ public sealed class VolumeCheckpoint
 
         static bool InRange(long coordinate) =>
             coordinate >= -PlanetDensityField.MaximumCoordinate && coordinate <= PlanetDensityField.MaximumCoordinate;
+    }
+
+    private static bool ValidMaterialRow(long value, uint generatorVersion)
+    {
+        // V2 stores material in bits 0–15, natural depletion in bit 16 and placement in bit 17.
+        // The selected generator checks palette IDs and natural deposit eligibility when it restores the overlay.
+        const long flags = (1L << 16) | (1L << 17);
+        return generatorVersion == PlanetGeologyField.GeneratorVersion
+            ? (value & ushort.MaxValue) != 0 && (value & flags) != 0 && (value & ~(flags | ushort.MaxValue)) == 0
+            : value is >= 1 and <= ushort.MaxValue;
     }
 }
 
@@ -113,22 +124,34 @@ public readonly record struct VolumeCheckpointRead(VolumeCheckpointStatus Status
 public static class VolumeCheckpointCodec
 {
     public const ushort Schema = 1;
+    public const ushort GeologySchema = 2;
     private const int HeaderFields = 170;
     private const int BodyFields = 97;
     internal const int HeaderLength = HeaderFields + 32;
     public const int MaximumBytes = HeaderLength + BodyFields + 8 + 32 * VolumeCheckpoint.MaximumOverlayRows +
         VolumeCheckpoint.MaximumGameBytes + 32;
 
-    internal static bool Supports(PlanetDescriptor planet) =>
-        planet.GeneratorVersion == PlanetDensityField.GeneratorVersion &&
-        planet.TerrainSchemaVersion == PlanetDensityField.TerrainSchemaVersion;
+    internal static bool Supports(PlanetDescriptor planet) => SchemaFor(planet) != 0;
+
+    private static ushort SchemaFor(PlanetDescriptor planet) =>
+        planet.TerrainSchemaVersion != PlanetDensityField.TerrainSchemaVersion ? (ushort)0 : planet.GeneratorVersion switch
+        {
+            PlanetDensityField.GeneratorVersion => Schema,
+            PlanetGeologyField.GeneratorVersion => GeologySchema,
+            _ => (ushort)0,
+        };
+
+    private static ReadOnlySpan<byte> Magic(ushort schema) =>
+        schema == Schema ? "GWVOLCP1"u8 : "GWVOLCP2"u8;
+
     public static byte[] Encode(VolumeCheckpoint checkpoint)
     {
         ArgumentNullException.ThrowIfNull(checkpoint);
         var bytes = new byte[HeaderLength + BodyFields + checkpoint.Overlay.Length + checkpoint.Game.Length + 32];
         var h = bytes.AsSpan();
-        "GWVOLCP1"u8.CopyTo(h);
-        BinaryPrimitives.WriteUInt16LittleEndian(h[8..], Schema);
+        var schema = SchemaFor(checkpoint.Planet);
+        Magic(schema).CopyTo(h);
+        BinaryPrimitives.WriteUInt16LittleEndian(h[8..], schema);
         checkpoint.Operation.SlotId.TryWriteBytes(h[10..]);
         checkpoint.Lineage.TryWriteBytes(h[26..]);
         BinaryPrimitives.WriteUInt64LittleEndian(h[42..], checkpoint.Operation.BaseGeneration);
@@ -159,8 +182,9 @@ public static class VolumeCheckpointCodec
     public static VolumeCheckpointRead Decode(ReadOnlySpan<byte> bytes, Guid slot, Guid lineage, PlanetDescriptor planet)
     {
         ArgumentNullException.ThrowIfNull(planet);
-        if (!Supports(planet) || bytes.Length < HeaderLength || bytes.Length > MaximumBytes ||
-            !bytes[..8].SequenceEqual("GWVOLCP1"u8) || BinaryPrimitives.ReadUInt16LittleEndian(bytes[8..]) != Schema ||
+        var schema = SchemaFor(planet);
+        if (schema == 0 || bytes.Length < HeaderLength || bytes.Length > MaximumBytes ||
+            !bytes[..8].SequenceEqual(Magic(schema)) || BinaryPrimitives.ReadUInt16LittleEndian(bytes[8..]) != schema ||
             !HashMatches(bytes[..HeaderFields], bytes[HeaderFields..HeaderLength]))
             return new(VolumeCheckpointStatus.Incompatible);
 
@@ -192,7 +216,7 @@ public static class VolumeCheckpointCodec
         var poseBytes = body[24..BodyFields];
         var player = ReadPlayer(poseBytes);
         return poseBytes[0] > 1 || poseBytes[0] == 0 && poseBytes[1..].ContainsAnyExcept((byte)0) ||
-            !VolumeCheckpoint.ValidPlayer(player) || tick is 0 or ulong.MaxValue || revision == 0 || captureOrdinal == 0 || !VolumeCheckpoint.IsCanonicalOverlay(overlay)
+            !VolumeCheckpoint.ValidPlayer(player) || tick is 0 or ulong.MaxValue || revision == 0 || captureOrdinal == 0 || !VolumeCheckpoint.IsCanonicalOverlay(overlay, planet.GeneratorVersion)
             ? new(VolumeCheckpointStatus.DamagedCompatible)
             : new(VolumeCheckpointStatus.Valid,
                 new VolumeCheckpoint(operation, lineage, planet, tick, revision, overlay, body[(BodyFields + overlayLength)..], captureOrdinal, player));

@@ -87,6 +87,7 @@ internal static class VolumeWalker
     private const double Height = PlanetSurfaceWalker.BodyHeight;
     private const double Dt = PlanetSurfaceWalker.StepSeconds;
     private const double Walkable = 0.7071067811865476;
+    private const double SupportReach = 0.02;
     private static CollisionVector Up(PlanetVector position)
     {
         var p = new CollisionVector(position); var length = p.Length;
@@ -102,6 +103,20 @@ internal static class VolumeWalker
         if (!Valid(state)) return new(VolumeQueryStatus.Invalid, 0, default, g.Info, 0);
         return VolumeCollision.Sweep(g, Body(state), default, limits);
     }
+    internal static bool ValidateRestore(VolumeGeneration generation, PlanetWalkState state, VolumeQueryLimits limits)
+    {
+        var clearance = Validate(generation, state, limits);
+        var remaining = limits.TriangleTests - clearance.TriangleTests;
+        if (clearance.Status != VolumeQueryStatus.Clear || remaining <= 0)
+            return false;
+
+        // Use the same downward support reach as movement. Airborne saves can have clear
+        // space below them, but the support query itself must have admitted fine coverage.
+        var support = VolumeCollision.Sweep(generation, Body(state), (Up(state.Position) * -SupportReach).Planet,
+            new VolumeQueryLimits(remaining, limits.Iterations));
+        return support.Status is VolumeQueryStatus.Clear or VolumeQueryStatus.Contact;
+    }
+
     private static bool Valid(PlanetWalkState state) => new CollisionVector(state.Position).Finite &&
         new CollisionVector(state.Velocity).Finite && new CollisionVector(state.Heading).Finite &&
         Up(state.Position).Finite && new CollisionVector(state.Heading).Length > 0 &&
@@ -135,7 +150,7 @@ internal static class VolumeWalker
             remaining -= result.TriangleTests;
             return result;
         }
-        var support = Query(state, (up * -0.02).Planet);
+        var support = Query(state, (up * -SupportReach).Planet);
         status = support.Status;
         if (status is not (VolumeQueryStatus.Clear or VolumeQueryStatus.Contact)) return held;
         var grounded = status == VolumeQueryStatus.Contact && CollisionVector.Dot(new CollisionVector(support.Normal), up) >= Walkable;
@@ -164,7 +179,7 @@ internal static class VolumeWalker
         if (lateralBlocked) { travel = default; tangent = default; }
         var next = state with { Position = (new CollisionVector(state.Position) + travel).Planet };
         // Ground support must be checked at the destination as well: a ledge begins falling.
-        support = Query(next, (up * -0.02).Planet);
+        support = Query(next, (up * -SupportReach).Planet);
         status = support.Status;
         if (status is not (VolumeQueryStatus.Clear or VolumeQueryStatus.Contact)) return held;
         grounded = status == VolumeQueryStatus.Contact && CollisionVector.Dot(new CollisionVector(support.Normal), up) >= Walkable;

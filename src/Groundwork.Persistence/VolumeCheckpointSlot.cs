@@ -12,7 +12,7 @@ public enum VolumeSlotStatus
 public sealed record VolumeSlotResult(VolumeSlotStatus Status, VolumeCheckpoint? Checkpoint = null,
     string? Member = null, Exception? Error = null);
 
-/// <summary>Two committed members in a dedicated, explicitly reserved WP11 namespace.</summary>
+/// <summary>Two committed members in a dedicated, explicitly reserved volume namespace.</summary>
 public sealed class VolumeCheckpointSlot
 {
     private const string First = "volume.a";
@@ -46,6 +46,8 @@ public sealed class VolumeCheckpointSlot
         _directory = Path.Combine(root, slot.ToString("N"));
         if (reserved)
         {
+            if (!VolumeCheckpointCodec.Supports(planet))
+                throw new ArgumentException("Unsupported volume generator or terrain schema.", nameof(planet));
             using var pin = new VolumeNtfsDirectory(root);
             VolumeNtfsDirectory.Reserve(_directory);
             using var reservedDirectory = new VolumeNtfsDirectory(_directory);
@@ -68,6 +70,12 @@ public sealed class VolumeCheckpointSlot
     /// <summary>Claims the only admission authority for this slot until the writer settles and closes.</summary>
     public VolumeCheckpointWriter? OpenWriter(out VolumeSlotResult result)
     {
+        if (!VolumeCheckpointCodec.Supports(_planet))
+        {
+            result = new(VolumeSlotStatus.Incompatible);
+            return null;
+        }
+
         WriterLease? ownership = null;
         try
         {
