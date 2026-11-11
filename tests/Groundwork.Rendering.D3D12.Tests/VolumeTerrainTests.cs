@@ -447,27 +447,37 @@ public sealed partial class PresentationSmokeTests
     private sealed class VolumeRun : IDisposable
     {
         internal const long NativeBytes = 4 * 1024 * 1024;
-        private const long MeshBytes = 8 * 1024 * 1024;
+        internal const long CaveNativeBytes = 32 * 1024 * 1024;
+        private readonly long _meshBytes;
+        private readonly PlanetVector _camera;
+        private readonly PlanetVector _forward;
+        private readonly PlanetVector _displacement;
         private readonly VolumeStreamingSelection _selection;
         private readonly VolumeResources _unit;
-        private readonly VolumeFixtureSource? _editSource;
+        private readonly IPlanetBrickSource? _editSource;
         private ulong _tick;
         internal CoreRuntimeFixture Fixture { get; } = new(new VolumeClock());
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
 
         internal VolumeRun(int readers = 8, bool editable = false,
-            PlanetVector? camera = null, PlanetVector? forward = null)
+            PlanetVector? camera = null, PlanetVector? forward = null,
+            PlanetGeologyField? geology = null, PlanetVector displacement = default)
         {
             World = Fixture.OpenWorld();
-            var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
+            var descriptor = geology?.Descriptor ?? new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
                 new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
-            _selection = VolumeStreamingSelection.Select(descriptor, camera ?? new PlanetVector(0, 32, 0),
-                forward ?? new PlanetVector(-1, 0, 0));
-            const int overlayRows = 1024;
-            _editSource = editable ? new VolumeFixtureSource(descriptor, false) : null;
-            _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, MeshBytes) + (editable ? 64L * overlayRows + 4096 : 0),
-                NativeBytes, NativeBytes, NativeBytes, 1, 1, 1, 64, 1);
+            _camera = camera ?? new PlanetVector(0, 32, 0);
+            _forward = forward ?? new PlanetVector(-1, 0, 0);
+            _displacement = displacement;
+            _selection = geology is null ? VolumeStreamingSelection.Select(descriptor, _camera, _forward) :
+                SelectCave(descriptor);
+            var overlayRows = geology is null ? 1024 : 4096;
+            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false) : null);
+            _meshBytes = geology is null ? 8 * 1024 * 1024 : 32 * 1024 * 1024;
+            var native = geology is null ? NativeBytes : CaveNativeBytes;
+            _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, _meshBytes) + (_editSource is not null ? 64L * overlayRows + 4096 : 0),
+                native, native, native, 1, 1, 1, 64, 1);
             var baseline = _unit.Retained + _unit.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
             var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
@@ -475,19 +485,23 @@ public sealed partial class PresentationSmokeTests
             Terrain = _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
         }
 
+        private VolumeStreamingSelection SelectCave(PlanetDescriptor descriptor, VolumeEditDependencies? edit = null) =>
+            VolumeStreamingSelection.SelectCave(descriptor, _camera, _forward, new(_camera, _camera with { Z = _camera.Z + 1 }, 0.5),
+                _displacement, edit);
+
         internal PlanetDescriptor Descriptor => _selection.Descriptor;
 
         internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut, IPlanetBrickSource? source = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(kind, _selection, sourceRevision,
-                targetRevision, MeshBytes, _unit, source ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                targetRevision, _meshBytes, _unit, source ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             return work;
         }
         internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection,
-                revision - 1, revision, MeshBytes, _unit, _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                revision - 1, revision, _meshBytes, _unit, _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             using (work)
             {
@@ -514,43 +528,61 @@ public sealed partial class PresentationSmokeTests
             }
         }
 
-        internal async Task<VolumeViewIdentity> CutFloor(D3D12Renderer renderer, CancellationToken token)
+        internal async Task<VolumeViewIdentity> CutFloor(D3D12Renderer? renderer, CancellationToken token,
+            VolumeBrushIntent? brush = null, PlanetVector? rebase = null)
         {
             var begin = await BeginHeldTick();
             Assert.IsTrue(Terrain.BeginTick(begin));
-            var edit = new VolumeBrushIntent(begin.Tick, 1, 1, new(28, 28, -2), new(36, 36, 1), VolumeBrushOperation.Remove);
+            var edit = brush is { } requested ? requested with { Tick = begin.Tick } :
+                new VolumeBrushIntent(begin.Tick, 1, 1, new(28, 28, -2), new(36, 36, 1), VolumeBrushOperation.Remove);
+            var selection = _selection;
+            if (_editSource is PlanetGeologyField && VolumeStreamingCoordinator.TryGetEditDependencies(edit, out var footprint))
+                selection = SelectCave(_selection.Descriptor, footprint);
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.SealEditTick(begin.Tick, _selection.Descriptor, [edit]));
             var view = Terrain.View;
-            Assert.IsTrue(view.Frame.TryRebase(new PlanetVector(32, 32, 0), out var frame));
+            Assert.IsTrue(view.Frame.TryRebase(rebase ?? new PlanetVector(32, 32, 0), out var frame));
             var next = Terrain.ChangeView(frame, view.RendererEpoch);
-            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, 3, Vector4.Zero));
-            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStageEdit(begin.Tick, edit.Id, _selection, MeshBytes, _unit, out var work));
+            if (renderer is null)
+                Assert.IsTrue(Terrain.ConfirmMask(next));
+            else
+                Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, 3, Vector4.Zero));
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStageEdit(begin.Tick, edit.Id, selection, _meshBytes, _unit, out var work));
             Assert.IsNotNull(work);
             using (work)
             {
                 Assert.IsTrue(work.Execute(token));
-                Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
-                await AwaitStatus(renderer, state => state.LastPresentedSequence == 3 && renderer.IsVolumeTerrainReady(work.Generation), token);
-                var nativeReady = false;
-                while (Terrain.TryReadEvent(out var evidence))
+                if (renderer is not null)
                 {
-                    if (evidence.Kind != VolumeEventKind.NativeReady)
-                        continue;
-                    Assert.AreEqual(edit, evidence.Edit);
-                    Assert.AreEqual(next, evidence.View);
-                    Assert.AreEqual(begin, evidence.Stamp);
-                    nativeReady = true;
+                    Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
+                    await AwaitStatus(renderer, state => state.LastPresentedSequence == 3 && renderer.IsVolumeTerrainReady(work.Generation), token);
+                    var nativeReady = false;
+                    while (Terrain.TryReadEvent(out var evidence))
+                    {
+                        if (evidence.Kind != VolumeEventKind.NativeReady)
+                            continue;
+                        Assert.AreEqual(edit, evidence.Edit);
+                        Assert.AreEqual(next, evidence.View);
+                        Assert.AreEqual(begin, evidence.Stamp);
+                        nativeReady = true;
+                    }
+                    Assert.IsTrue(nativeReady);
                 }
-                Assert.IsTrue(nativeReady);
                 var sealedCut = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
-                Assert.IsNull(renderer.TryPrepareVolumePublication(work.Generation, sealedCut, [], out _));
+                Assert.IsNull(renderer is null ? Terrain.TryPreparePublication(work.Generation, sealedCut, []) :
+                    renderer.TryPrepareVolumePublication(work.Generation, sealedCut, [], out _));
                 var unchanged = World.Publication.Finalization.TryFinalize(CoreRuntimeFixture.Prepare(World, sealedCut, []));
                 Assert.AreEqual(BarrierStatus.Unchanged, unchanged.Status);
                 CoreRuntimeFixture.PublishObserver(World, unchanged.Stamp!.Value, (int)_tick);
                 await BeginHeldTick();
                 var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
-                var prepared = renderer.TryPrepareVolumePublication(work.Generation, candidates, [], out var result);
-                Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, result);
+                PreparedBarrierPublication? prepared;
+                if (renderer is null)
+                    prepared = Terrain.TryPreparePublication(work.Generation, candidates, []);
+                else
+                {
+                    prepared = renderer.TryPrepareVolumePublication(work.Generation, candidates, [], out var result);
+                    Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, result);
+                }
                 Assert.IsNotNull(prepared);
                 var committed = World.Publication.Finalization.TryFinalize(prepared);
                 Assert.AreEqual(BarrierStatus.Committed, committed.Status);
@@ -567,7 +599,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsFalse(Terrain.ConfirmMask(view));
             Assert.IsTrue(Terrain.ConfirmMask(view, authority, 1));
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection, 0, 1,
-                MeshBytes, _unit, new VolumeFixtureSource(_selection.Descriptor, false), out var work));
+                _meshBytes, _unit, new VolumeFixtureSource(_selection.Descriptor, false), out var work));
             Assert.IsNotNull(work);
             using (work)
             {

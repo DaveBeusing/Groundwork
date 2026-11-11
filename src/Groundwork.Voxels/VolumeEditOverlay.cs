@@ -9,6 +9,19 @@ public enum VolumeBrushOperation { Add = 1, Remove }
 public readonly record struct VolumeBrushIntent(ulong Tick, ulong Id, ulong ExpectedRevision, LatticeCoordinate Minimum,
     LatticeCoordinate Maximum, VolumeBrushOperation Operation, ushort Material = 0);
 
+/// <summary>Natural deposits consumed by one terrain publication.</summary>
+public readonly record struct VolumeOreDepletion(VolumeBrushIntent Edit, ushort Material, int Deposits);
+
+/// <summary>Host state that stages the dependent inventory change at the terrain commit cut.</summary>
+public interface IVolumeOreInventoryState : Groundwork.Core.IWorldStateRoot
+{
+    /// <summary>Version of the inventory scope affected by depletion. Ordinary writes advance it.</summary>
+    ulong OreInventoryRevision { get; }
+
+    /// <summary>Returns a new immutable state or null on conflict or capacity failure. Must be bounded and side-effect free.</summary>
+    Groundwork.Core.IWorldStateRoot? StageOreDepletion(in VolumeOreDepletion depletion);
+}
+
 public enum VolumeEditStatus { Pending, Building, Committed, Rejected, Stale }
 
 /// <summary>A conservative brick dependency box, including normal and 2:1 transition stencils.</summary>
@@ -17,6 +30,9 @@ public readonly record struct VolumeEditDependencies(LatticeBrick Minimum, Latti
 internal sealed class VolumeEditOverlay : IPlanetBrickSource
 {
     // A row is 32 bytes in both the in-memory payload and the canonical encoding.
+    private const long Depleted = 1L << 16;
+    private const long Placed = 1L << 17;
+    private const long MaterialMask = ushort.MaxValue;
     private readonly record struct Row(LatticeCoordinate Key, long Value);
     private readonly IPlanetBrickSource _baseline;
     private readonly Row[] _density;
@@ -83,7 +99,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
                 i > 0 && Compare(rows[i - 1].Key, key) >= 0)
                 throw new InvalidDataException("Invalid overlay sample key.");
             if (supportsMaterial is null ? value is not (-128 or 128) || value == baseline.SampleDensity(key) :
-                value is < 1 or > ushort.MaxValue || !supportsMaterial((ushort)value) || value == baseline.SampleMaterial(key))
+                !ValidMaterial(baseline, key, value, supportsMaterial))
                 throw new InvalidDataException("Invalid overlay sample value.");
             rows[i] = new Row(key, value);
         }
@@ -91,6 +107,20 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
 
         static bool InRange(long value) =>
             value >= -PlanetDensityField.MaximumCoordinate && value <= PlanetDensityField.MaximumCoordinate;
+    }
+
+    private static bool ValidMaterial(IPlanetBrickSource baseline, LatticeCoordinate key, long value, Func<ushort, bool> supports)
+    {
+        var material = (ushort)(value & MaterialMask);
+        var flags = value & ~MaterialMask;
+        if (material == 0 || !supports(material))
+            return false;
+        var natural = baseline.SampleMaterial(key);
+        if (flags == 0)
+            return baseline is not PlanetGeologyField && material != natural;
+        return baseline is PlanetGeologyField geology && (flags & ~(Depleted | Placed)) == 0 &&
+            ((flags & Depleted) == 0 || natural == geology.OreMaterial) &&
+            ((flags & Placed) != 0 || material == geology.OreHostMaterial);
     }
 
     public PlanetDescriptor Descriptor => _baseline.Descriptor;
@@ -101,12 +131,15 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         TryRead(_density, _densityCount, vertex, out var density) ? density : _baseline.SampleDensity(vertex);
 
     public ushort SampleMaterial(LatticeCoordinate cell) =>
-        TryRead(_materials, _materialCount, cell, out var material) ? (ushort)material : _baseline.SampleMaterial(cell);
+        TryRead(_materials, _materialCount, cell, out var material) ? (ushort)(material & MaterialMask) : _baseline.SampleMaterial(cell);
 
     internal static long ReservedBytes(int limit) => 64L * limit;
 
-    internal VolumeEditOverlay? Apply(VolumeBrushIntent brush, int limit, Action check)
+    internal VolumeEditOverlay? Apply(VolumeBrushIntent brush, int limit, Action check, out VolumeOreDepletion depletion)
     {
+        depletion = default;
+        var deposits = 0;
+        var geology = _baseline as PlanetGeologyField;
         var density = new Row[limit];
         var materials = new Row[limit];
         var min = brush.Minimum;
@@ -117,7 +150,44 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         // Include all cells incident to modified vertices so their material is resolved at the same cut.
         var materialMin = new LatticeCoordinate(min.X - 1, min.Y - 1, min.Z - 1);
         var materialCount = Merge(_materials, _materialCount, materials, limit - densityCount, materialMin, max, density: false);
-        return materialCount < 0 ? null : new VolumeEditOverlay(_baseline, density, densityCount, materials, materialCount, check);
+        if (materialCount < 0)
+            return null;
+        if (deposits > 0)
+            depletion = new(brush, geology!.OreMaterial, deposits);
+        return new VolumeEditOverlay(_baseline, density, densityCount, materials, materialCount, check);
+
+        long EditMaterial(LatticeCoordinate key, long baseline, long previous)
+        {
+            if (geology is null)
+                return brush.Operation == VolumeBrushOperation.Add ? brush.Material : baseline;
+
+            var spent = previous & Depleted;
+            if (brush.Operation == VolumeBrushOperation.Add)
+                return brush.Material | spent | Placed;
+            if ((previous & Placed) == 0 && (spent != 0 || baseline != geology.OreMaterial))
+                return previous;
+
+            // A cell depletes only on the transition from any solid corner to all empty.
+            var hadSolid = false;
+            for (var z = 0; z <= 1; z++)
+            for (var y = 0; y <= 1; y++)
+            for (var x = 0; x <= 1; x++)
+            {
+                var corner = new LatticeCoordinate(key.X + x, key.Y + y, key.Z + z);
+                var prior = SampleDensity(corner);
+                hadSolid |= prior < 0;
+                if (prior < 0 && (corner.X < min.X || corner.X > max.X ||
+                    corner.Y < min.Y || corner.Y > max.Y || corner.Z < min.Z || corner.Z > max.Z))
+                    return previous;
+            }
+            if (!hadSolid)
+                return previous;
+            if (baseline != geology.OreMaterial)
+                return baseline;
+            if ((previous & (Placed | Depleted)) == 0)
+                deposits++;
+            return geology.OreHostMaterial | Depleted;
+        }
 
         int Merge(Row[] previous, int previousCount, Row[] destination, int budget,
             LatticeCoordinate lower, LatticeCoordinate upper, bool density)
@@ -149,7 +219,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
                     value = brush.Operation == VolumeBrushOperation.Add ? Math.Min(value, -strength) : Math.Max(value, strength);
                 }
                 else
-                    value = brush.Operation == VolumeBrushOperation.Add ? brush.Material : baseline;
+                    value = EditMaterial(key, baseline, value);
                 if (value == baseline)
                     continue;
                 if (written == budget)

@@ -35,8 +35,21 @@ internal static class VolumeCollision
     internal static bool Covers(VolumeGeneration generation, CollisionVector low, CollisionVector high)
     {
         var extent = generation.Selection.Width * 32;
-        return low.Finite && high.Finite && low.X >= 0 && low.Y >= 0 && low.Z >= 0 &&
+        var inside = low.Finite && high.Finite && low.X >= 0 && low.Y >= 0 && low.Z >= 0 &&
             high.X <= extent && high.Y <= extent && high.Z <= extent;
+        if (!inside || !generation.Selection.RequiresFineCoverage)
+            return inside;
+
+        var plan = generation.Artifacts!.Plan;
+        for (var z = First(low.Z); z <= Last(high.Z); z++)
+        for (var y = First(low.Y); y <= Last(high.Y); y++)
+        for (var x = First(low.X); x <= Last(high.X); x++)
+            if (plan.Stride((z * plan.Height + y) * plan.Width + x) != 1)
+                return false;
+        return true;
+
+        static int First(double coordinate) => Math.Max(0, (int)Math.Ceiling(coordinate / 32) - 1);
+        int Last(double coordinate) => Math.Min(generation.Selection.Width - 1, (int)(coordinate / 32));
     }
     internal static CollisionVector Local(VolumeGeneration generation, PlanetVector p)
     {

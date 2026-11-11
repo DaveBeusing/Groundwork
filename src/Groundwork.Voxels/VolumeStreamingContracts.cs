@@ -30,6 +30,7 @@ public sealed class VolumeWorldRoot : IWorldStateRoot
     internal VolumeGeneration Generation { get; }
     public VolumePublicationInfo Terrain => Generation.Info;
     public VolumeBrushIntent? CommittedEdit => Generation.Edit;
+    public VolumeOreDepletion? CommittedOreDepletion => Generation.OreDepletion.Deposits > 0 ? Generation.OreDepletion : null;
     public VolumeWorldRoot WithState(IWorldStateRoot state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -69,6 +70,7 @@ internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStr
     public VolumeArtifacts? Artifacts { get; set; }
     public VolumeEditOverlay? Overlay { get; set; }
     public VolumeBrushIntent? Edit { get; set; }
+    public VolumeOreDepletion OreDepletion { get; set; }
     public ulong EditReadyTick { get; set; }
     public ulong? NativeReadyTick { get; set; }
     public RootChangePermit? Permit { get; set; }
@@ -107,6 +109,7 @@ public sealed class VolumeStreamingWork : IDisposable
         {
             Check(cancellationToken);
             var overlay = _generation.Overlay;
+            VolumeOreDepletion depletion = default;
             void CheckEditCancellation()
             {
                 cancellationToken.ThrowIfCancellationRequested();
@@ -115,7 +118,7 @@ public sealed class VolumeStreamingWork : IDisposable
             }
             if (_generation.Edit is { } edit)
             {
-                overlay = overlay!.Apply(edit, _overlayLimit, CheckEditCancellation);
+                overlay = overlay!.Apply(edit, _overlayLimit, CheckEditCancellation, out depletion);
                 if (overlay is null)
                     return _owner.Complete(_generation, null);
             }
@@ -161,7 +164,7 @@ public sealed class VolumeStreamingWork : IDisposable
                 }
             }
             Check(cancellationToken);
-            var accepted = _owner.Complete(_generation, artifacts, overlay);
+            var accepted = _owner.Complete(_generation, artifacts, overlay, depletion);
             artifacts = null;
             return accepted;
         }

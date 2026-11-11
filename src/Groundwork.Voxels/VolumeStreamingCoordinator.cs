@@ -172,7 +172,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         ArgumentNullException.ThrowIfNull(source);
         work = null;
         if (kind is VolumeWorkClass.Baseline || !Enum.IsDefined(kind) || selection.Descriptor != _descriptor ||
-            source.Descriptor != _descriptor || targetRevision == 0 || targetRevision < sourceRevision ||
+            source.Descriptor != _descriptor || _descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion && !selection.RequiresFineCoverage ||
+            targetRevision == 0 || targetRevision < sourceRevision ||
             !resources.IsNonnegative || resources.CpuBytes < RequiredEditableCpuBytes(selection, meshBytes) ||
             resources.LeaseSlots < selection.Requests.Length || resources.DensityJobs < 1 ||
             resources.MeshJobs < 1 || resources.QueueSlots < 1 || resources.RetirementSlots < 1)
@@ -210,7 +211,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
-    internal bool Complete(VolumeGeneration entry, VolumeArtifacts? artifacts, VolumeEditOverlay? overlay = null)
+    internal bool Complete(VolumeGeneration entry, VolumeArtifacts? artifacts, VolumeEditOverlay? overlay = null,
+        VolumeOreDepletion depletion = default)
     {
         lock (_gate)
         {
@@ -237,6 +239,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (entry.Edit is not null)
                 entry.EditReadyTick = ready.Tick;
             entry.Overlay = overlay;
+            entry.OreDepletion = depletion;
             entry.Artifacts = artifacts;
             entry.Info = new VolumePublicationInfo(entry.Id, entry.TargetRevision, entry.View, entry.Selection.Minimum,
                 entry.Selection.Width, artifacts.Plan.Identity);
@@ -338,13 +341,32 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             }
             if (!HasJournalSpace())
                 return null;
-            var current = _world.Publication.Committed.Read().Root;
+            var committed = _world.Publication.Committed.Read();
+            var current = committed.Root;
             if (current is VolumeWorldRoot foreign && foreign.Owner != this)
                 return null;
-            var state = composedState ?? (current is VolumeWorldRoot volume ? volume.State : current);
+            var currentState = current is VolumeWorldRoot volume ? volume.State : current;
+            var state = composedState ?? currentState;
             var player = current is VolumeWorldRoot previousRoot ? previousRoot.Player : _initialPlayer;
             if (player is { } pose && VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
                 return null;
+            if (entry.OreDepletion.Deposits > 0)
+            {
+                if (candidates.Request.Entry != committed.Stamp || dispositions.IsDefault)
+                    return null;
+                var before = currentState as IVolumeOreInventoryState;
+                var composed = state as IVolumeOreInventoryState;
+                var inventory = before is not null && composed is not null &&
+                    before.OreInventoryRevision == composed.OreInventoryRevision
+                    ? composed.StageOreDepletion(entry.OreDepletion) as IVolumeOreInventoryState : null;
+                if (inventory is null || inventory.World != current.World ||
+                    inventory.OreInventoryRevision <= composed!.OreInventoryRevision)
+                {
+                    Cancel(entry);
+                    return null;
+                }
+                state = inventory;
+            }
             var root = new VolumeWorldRoot(state, this, entry, player);
             var permit = _world.Publication.RootChanges.TryReserve(candidates, root);
             if (permit is null)
@@ -469,8 +491,15 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            return !_stopped && _movementOpen && _active is { } active &&
-                IsCurrentRoot(active) && active.Selection.Contains(_descriptor.SampleAt(position).Vertex);
+            if (_stopped || !_movementOpen || _active is not { } active || !IsCurrentRoot(active) ||
+                !active.Selection.Contains(_descriptor.SampleAt(position).Vertex))
+                return false;
+            if (!active.Selection.RequiresFineCoverage)
+                return true;
+            var point = VolumeCollision.Local(active, position);
+            var halo = active.Selection.SupportCells;
+            var padding = new CollisionVector(halo, halo, halo);
+            return VolumeCollision.Covers(active, point - padding, point + padding);
         }
     }
 

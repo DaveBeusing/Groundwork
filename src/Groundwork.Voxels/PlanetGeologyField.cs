@@ -38,6 +38,8 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
     }
 
     public PlanetDescriptor Descriptor { get; }
+    internal ushort OreMaterial => _recipe.Ore;
+    internal ushort OreHostMaterial => _recipe.MiddleRock;
 
     public long SampleDensity(LatticeCoordinate vertex) => Carve(vertex, _landform.SampleDensity(vertex));
 

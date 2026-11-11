@@ -85,6 +85,8 @@ public sealed partial class VolumeStreamingCoordinator
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumOverlaySamples);
+        if (baseline.Descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion && baseline is not PlanetGeologyField)
+            throw new ArgumentException("Editable V2 terrain requires its natural geology source.", nameof(baseline));
         return baseline.Descriptor;
     }
 
@@ -209,7 +211,8 @@ public sealed partial class VolumeStreamingCoordinator
             }
             if (_movementOpen || active.View == _view || _prepared is not null)
                 return VolumeAdmission.Backpressure;
-            if (!TryGetEditDependencies(intent, out var footprint) || !Contains(selection, footprint))
+            if (!TryGetEditDependencies(intent, out var footprint) || !Contains(selection, footprint) ||
+                selection.RequiresFineCoverage && !selection.CoversFine(footprint))
                 return VolumeAdmission.Invalid;
 
             var result = Stage(VolumeWorkClass.FirstEdit, selection, intent.ExpectedRevision, intent.ExpectedRevision + 1,
