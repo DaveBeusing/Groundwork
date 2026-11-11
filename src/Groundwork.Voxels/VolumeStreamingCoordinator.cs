@@ -403,7 +403,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0, stamp: stamp);
                 return null;
             }
-            Record(VolumeEventKind.CheckpointReserved, _active?.Id ?? 0, stamp: stamp);            _checkpoint = new VolumeCheckpointReservation(this, cut);
+            Record(VolumeEventKind.CheckpointReserved, _active?.Id ?? 0, stamp: stamp);
+            _checkpoint = new VolumeCheckpointReservation(this, cut);
             _readers++;
             _used[(int)VolumeWorkClass.Baseline] += ReaderCharge;
             UpdatePeak();
@@ -434,16 +435,17 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         if (captured.Root is not VolumeWorldRoot root || root.Owner != this ||
             root.Generation is not { Overlay: not null } entry)
         {
-            CancelCheckpoint(reservation);
+            CancelCheckpoint(reservation, captured.Stamp);
             return;
-        }        entry.Readers++;
+        }
+        entry.Readers++;
         reservation.Lease.Attach(entry);
         reservation.Bound = captured;
         Record(VolumeEventKind.CheckpointCaptured, entry.Id, view: entry.View,
             terrainRevision: entry.TargetRevision, stamp: captured.Stamp);
         reservation.Cut.Release();
     }
-    internal void CancelCheckpoint(VolumeCheckpointReservation reservation)
+    internal void CancelCheckpoint(VolumeCheckpointReservation reservation, BarrierStamp? deniedAt = null)
     {
         lock (_gate)
         {
@@ -458,7 +460,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             }
             _readers--;
             _used[(int)VolumeWorkClass.Baseline] -= ReaderCharge;
-            Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0);
+            Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0, stamp: deniedAt);
         }
     }
     /// <summary>Tests the admitted support halo. C02 additionally validates body contacts against this density revision.</summary>

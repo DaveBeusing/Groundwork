@@ -445,6 +445,24 @@ public sealed class VolumeEditTests
         Assert.DoesNotContain(VolumeEventKind.EditQueued, events);
         Assert.Contains(VolumeEventKind.CheckpointCaptured, events);
     }
+    [TestMethod]
+    public async Task DelayedBootstrapDenialRecordsTheActualFinalizedCut()
+    {
+        using var run = new EditRun();
+        var begin = await run.Begin();
+        using var reservation = run.Coordinator.TryReserveCheckpoint(begin.Tick);
+        Assert.IsNotNull(reservation);
+        await run.CommitUnchanged();
+        var finalized = run.World.Publication.Committed.Read().Stamp;
+        await run.Begin();
+        Assert.IsNull(reservation.TryTake());
+        Assert.AreEqual(0, run.Coordinator.Statistics.Readers);
+        var events = new List<VolumeStreamingEvent>();
+        while (run.Coordinator.TryReadEvent(out var item))
+            events.Add(item);
+        var denied = events.Single(item => item.Kind == VolumeEventKind.CheckpointDenied);
+        Assert.AreEqual(finalized, denied.Stamp);
+    }
     private static VolumeBrushIntent Brush(ulong tick, ulong id, ulong revision, VolumeBrushOperation operation) =>
         new(tick, id, revision, new(-1, -1, -1), new(1, 1, 1), operation,
             operation == VolumeBrushOperation.Add ? (ushort)7 : (ushort)0);
