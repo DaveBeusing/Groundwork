@@ -43,9 +43,9 @@ the lease lock throughout its read so plan data cannot be released mid-query.
    a non-penetrating spawn. The returned draft is an unforgeable proposal; no
    authoritative root has changed yet. Paused/faulted/stopped worlds reject it.
 3. Reserve bounded semantic evidence when preparing movement. A permit-backed
-   MovementCommit/MovementRejected record retains input, prior pose, result,
+   MovementCommit/MovementRejected record retains the originating BeginTick stamp, input, prior pose, result,
    complete terrain/view identity and finalized outcome/stamp. A pending outcome
-   cannot be handed off. A full journal stops this epoch before any pose swap;
+   cannot be handed off. The attempt stamp is preserved separately from the nullable committed outcome stamp, including rejection. A full journal stops this epoch before any pose swap;
    the separate terminal cell remains available. Revocation before a swap and
    Stop after a swap cannot erase or mislabel the eventual record.
 4. Seal the same tick's CommitResults and call `TryPrepareMovement`, supplying

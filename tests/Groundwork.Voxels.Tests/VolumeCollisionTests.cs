@@ -386,6 +386,37 @@ public sealed class VolumeCollisionTests
         Assert.IsGreaterThanOrEqualTo(16 - 1e-4, lowerCenter - 0.25);
     }
 
+    [TestMethod]
+    public async Task RejectedMovementEvidencePreservesDistinctAttemptTicks()
+    {
+        using var run = new Run(p => p.Z - 16); await run.Publish(); using var frame = await run.Open();
+        var state = new PlanetWalkState(P(0, 0, 16), P(1, 0, 0), default);
+        var attempts = new List<BarrierStamp>();
+        for (var i = 0; i < 2; i++)
+        {
+            attempts.Add(run.World.Publication.Committed.Read().Stamp);
+            var draft = run.Coordinator.TryPlanMovement(state, 1, 0, out _); Assert.IsNotNull(draft);
+            var candidates = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+            Assert.IsNull(run.Coordinator.TryPrepareMovement(draft, candidates, default));
+            var fallback = CoreRuntimeFixture.Prepare(run.World, candidates, []);
+            var outcome = run.World.Publication.Finalization.TryFinalize(fallback);
+            Assert.AreEqual(BarrierStatus.Unchanged, outcome.Status);
+            CoreRuntimeFixture.PublishObserver(run.World, outcome.Stamp!.Value, (int)run.Tick);
+            if (i == 0) await run.Begin();
+        }
+        var rejected = new List<VolumeStreamingEvent>();
+        while (run.Coordinator.TryReadEvent(out var record))
+            if (record.Kind == VolumeEventKind.MovementRejected) rejected.Add(record);
+        Assert.HasCount(2, rejected);
+        for (var i = 0; i < 2; i++)
+        {
+            Assert.IsNull(rejected[i].Stamp);
+            Assert.AreEqual(attempts[i], rejected[i].Movement!.Value.AttemptStamp);
+            Assert.AreEqual(state, rejected[i].Movement!.Value.Before);
+        }
+        Assert.AreNotEqual(attempts[0].Tick, attempts[1].Tick);
+    }
+
     private sealed class Source(Func<LatticeCoordinate, long> density) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => VolumeCollisionTests.Descriptor;

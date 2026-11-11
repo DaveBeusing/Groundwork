@@ -37,7 +37,7 @@ public sealed partial class VolumeStreamingCoordinator
             if (root.Player is { } player && player != state) { status = VolumeQueryStatus.Invalid; return null; }
             var result = VolumeWalker.Step(active, state, forward, right, limits ?? VolumeQueryLimits.Default, out status);
             return status is VolumeQueryStatus.Clear or VolumeQueryStatus.Contact
-                ? new VolumeMovementDraft(root, committed.Stamp, new VolumeMovementEvidence(state, forward, right, result)) : null;
+                ? new VolumeMovementDraft(root, committed.Stamp, new VolumeMovementEvidence(committed.Stamp, state, forward, right, result)) : null;
         }
     }
 
