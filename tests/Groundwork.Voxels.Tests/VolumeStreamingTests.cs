@@ -5,7 +5,7 @@ using Groundwork.Jobs;
 namespace Groundwork.Voxels.Tests;
 
 [TestClass]
-public sealed class VolumeStreamingTests
+public sealed partial class VolumeStreamingTests
 {
     [TestMethod]
     public async Task ProtectedPathsProgressUnderFullSpeculationWhileOldGeometryIsRetained()
@@ -448,7 +448,7 @@ public sealed class VolumeStreamingTests
         new Guid("00112233-4455-6677-8899-aabbccddeeff"), new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"),
         42, 1, 1, 1, new string('a', 64), 128);
 
-    private sealed class Source(Action? first = null) : IPlanetBrickSource
+    private sealed class Source(Action? first = null, long threshold = 297) : IPlanetBrickSource
     {
         private int _started;
         public PlanetDescriptor Descriptor => VolumeStreamingTests.Descriptor;
@@ -456,7 +456,7 @@ public sealed class VolumeStreamingTests
         {
             if (Interlocked.Exchange(ref _started, 1) == 0)
                 first?.Invoke();
-            return 10 * (p.X * p.X + p.Y * p.Y + p.Z * p.Z) - 297;
+            return 10 * (p.X * p.X + p.Y * p.Y + p.Z * p.Z) - threshold;
         }
         public ushort SampleMaterial(LatticeCoordinate cell) => 7;
     }
@@ -509,9 +509,12 @@ public sealed class VolumeStreamingTests
             return work;
         }
 
+        public Task<BarrierStamp> BeginTick() =>
+            CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++_tick, BarrierKind.BeginTick);
+
         public async Task Publish(VolumeStreamingWork work)
         {
-            await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++_tick, BarrierKind.BeginTick);
+            await BeginTick();
             var candidates = await CoreRuntimeFixture.SealAsync(World, _tick, BarrierKind.CommitResults);
             var prepared = Coordinator.TryPreparePublication(work.Generation, candidates, []);
             Assert.IsNotNull(prepared);
@@ -525,7 +528,7 @@ public sealed class VolumeStreamingTests
             var registration = Coordinator.TryRegisterFrame(generation, Coordinator.View, frame);
             Assert.IsNotNull(registration);
             Assert.IsTrue(Coordinator.AcknowledgeFrame(registration));
-            var begin = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++_tick, BarrierKind.BeginTick);
+            var begin = await BeginTick();
             Assert.IsTrue(Coordinator.BeginTick(begin));
             var committed = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, _tick, BarrierKind.CommitResults);
             CoreRuntimeFixture.PublishObserver(World, committed, (int)_tick);
