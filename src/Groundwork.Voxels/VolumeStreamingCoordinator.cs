@@ -352,7 +352,9 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                     return false;
                 record = record with
                 {
-                    Kind = status == RootChangeStatus.Committed ? VolumeEventKind.Commit : VolumeEventKind.Rejected,
+                    Kind = record.Movement is not null
+                        ? status == RootChangeStatus.Committed ? VolumeEventKind.MovementCommit : VolumeEventKind.MovementRejected
+                        : status == RootChangeStatus.Committed ? VolumeEventKind.Commit : VolumeEventKind.Rejected,
                     Stamp = permit.CommittedStamp
                 };
             }
@@ -461,13 +463,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
 
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
-        VolumeViewIdentity? view = null, ulong terrainRevision = 0)
+        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, _lastFrame);
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, _lastFrame, movement);
         _journalPermits[index] = permit;
         return true;
     }

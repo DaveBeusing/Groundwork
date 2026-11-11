@@ -120,34 +120,65 @@ public sealed class VolumeCollisionTests
     }
 
     [TestMethod]
-    public async Task EveryCubeEdgeAndCornerUsesCanonicalMixedLodCollisionAcrossRebase()
+    public async Task EveryCubeEdgeAndCornerHitsActualTransitionGeometryAcrossRevisionAndRebase()
     {
+        static long Sample(LatticeCoordinate p, int axis) => axis == 0 ? p.X : axis == 1 ? p.Y : p.Z;
+        static PlanetVector Axis(int axis, double amount) => axis == 0 ? P(amount, 0, 0) : axis == 1 ? P(0, amount, 0) : P(0, 0, amount);
+        static PlanetVector Add(PlanetVector a, PlanetVector b) => P(a.X + b.X, a.Y + b.Y, a.Z + b.Z);
         var points = new HashSet<LatticeCoordinate>();
         foreach (var (face, edge, _, _) in PlanetCoordinateTests.Seams)
         {
-            var direction = PlanetCoordinates.Direction(PlanetCoordinates.SampleEdge(new PlanetPatchKey(face, 0, 0, 0), edge, 8));
-            points.Add(new LatticeCoordinate((long)Math.Round(direction.X * 32), (long)Math.Round(direction.Y * 32), (long)Math.Round(direction.Z * 32)));
+            var d = PlanetCoordinates.Direction(PlanetCoordinates.SampleEdge(new PlanetPatchKey(face, 0, 0, 0), edge, 8));
+            var scale = 32 / Math.Max(Math.Abs(d.X), Math.Max(Math.Abs(d.Y), Math.Abs(d.Z)));
+            points.Add(new LatticeCoordinate((long)Math.Round(d.X * scale), (long)Math.Round(d.Y * scale), (long)Math.Round(d.Z * scale)));
         }
         for (var x = -1; x <= 1; x += 2) for (var y = -1; y <= 1; y += 2) for (var z = -1; z <= 1; z += 2)
-            points.Add(new LatticeCoordinate(x * 18, y * 18, z * 18));
+            points.Add(new LatticeCoordinate(x * 32, y * 32, z * 32));
         Assert.HasCount(20, points);
         foreach (var point in points)
         {
-            var center = P(point.X, point.Y, point.Z);
-            using var run = new Run(p => p.Z - point.Z, center); await run.Publish(); using var frame = await run.Open();
+            var seam = P(point.X, point.Y, point.Z);
+            var axis = point.X != 0 ? 0 : 1;
+            var normalAxis = (axis + 1) % 3;
+            var normal = Axis(normalAxis, 1);
+            var camera = Add(seam, Axis(axis, -Sample(point, axis)));
+            var forward = Axis(axis, -Math.Sign(Sample(point, axis)));
+            using var run = new Run(p => Sample(p, normalAxis) - Sample(point, normalAxis), camera, forward: forward);
+            await run.Publish(); using var frame = await run.Open();
             using var retained = run.Coordinator.TryRead(); Assert.IsNotNull(retained);
-            Assert.IsTrue(retained.Meshes.ToArray().Any(m => m.LodMask != 0));
-            var start = P(point.X, point.Y, point.Z + 4); var end = P(point.X, point.Y, point.Z - 4);
-            var ray = retained.Raycast(start, end, new VolumeRayHit[4]);
+            Assert.IsTrue(retained.Meshes.ToArray().Any(m => m.Triangles.ToArray().Any(t => t.IsTransition)));
+            var start = Add(seam, Axis(normalAxis, 4)); var end = Add(seam, Axis(normalAxis, -4));
+            var hits = new VolumeRayHit[8];
+            var ray = retained.Raycast(start, end, hits);
             Assert.AreEqual(VolumeQueryStatus.Contact, ray.Status); Assert.AreEqual(1, ray.Count);
+            Assert.IsTrue(hits[0].IsTransition, $"Ray must cross transition at {point}");
+            Assert.AreEqual(4, hits[0].Distance, 2e-4);
+            Assert.AreEqual(1, retained.Raycast(end, start, hits).Count);
+            Assert.IsTrue(hits[0].IsTransition);
             var sphere = new VolumeCapsule(start, start, 0.25);
-            var before = retained.Sweep(sphere, P(0, 0, -8));
+            var before = retained.Sweep(sphere, Axis(normalAxis, -8));
             Assert.AreEqual(VolumeQueryStatus.Contact, before.Status);
+            Assert.IsTrue(before.IsTransition, $"Sphere must hit transition at {point}");
             Assert.AreEqual(3.75 / 8, before.Fraction, 2e-4);
-            var origin = PlanetLocalFrame.Create(center); Assert.IsTrue(origin.TryRebase(P(point.X + 24, point.Y, point.Z), out origin));
+            var body = sphere with { A = Add(start, Axis((normalAxis + 1) % 3, -0.3)), B = Add(start, Axis((normalAxis + 1) % 3, 0.3)) };
+            Assert.AreEqual(VolumeQueryStatus.Contact, retained.Sweep(body, Axis(normalAxis, -8)).Status);
+            run.Coordinator.ChangeView(run.Coordinator.View.Frame, 1);
+            Assert.IsTrue(run.Coordinator.ConfirmMask(run.Coordinator.View));
+            Assert.IsFalse(run.Coordinator.HasAdmittedCoverage(camera));
+            await run.Publish(new Source(p => 4 * (Sample(p, normalAxis) - Sample(point, normalAxis)) - 1), 1, 2);
+            Assert.IsFalse(run.Coordinator.HasAdmittedCoverage(camera));
+            using var edited = run.Coordinator.TryRead(); Assert.IsNotNull(edited);
+            var changed = edited.Raycast(start, end, hits);
+            Assert.AreEqual(VolumeQueryStatus.Contact, changed.Status);
+            Assert.AreEqual(2UL, changed.Terrain.TerrainRevision);
+            Assert.AreEqual(3.75, hits[0].Distance, 2e-4);
+            using var newFrame = await run.Open(); Assert.IsTrue(run.Coordinator.HasAdmittedCoverage(camera));
+            var origin = PlanetLocalFrame.Create(camera);
+            Assert.IsTrue(origin.TryRebase(Add(camera, Axis(axis, 24)), out origin));
             run.Coordinator.ChangeView(origin, 2);
-            Assert.IsNull(run.Coordinator.TryPlanMovement(new(start, P(1, 0, 0), default), 0, 0, out _));
-            Assert.AreEqual(before, retained.Sweep(sphere, P(0, 0, -8)));
+            Assert.IsFalse(run.Coordinator.HasAdmittedCoverage(camera));
+            Assert.AreEqual(before, retained.Sweep(sphere, Axis(normalAxis, -8)));
+            Assert.AreEqual(1UL, retained.Info.TerrainRevision);
         }
     }
 
@@ -245,6 +276,116 @@ public sealed class VolumeCollisionTests
         Assert.AreEqual(0L, bytes, "Warmed query must not allocate managed memory.");
     }
 
+    [TestMethod]
+    public async Task FullSemanticJournalStopsMovementBeforeAnyPoseSwap()
+    {
+        using var run = new Run(p => p.Z - 16, journal: 7);
+        await run.Publish(); using var frame = await run.Open();
+        var draft = run.Coordinator.TryPlanMovement(new(P(0, 0, 16), P(1, 0, 0), default), 1, 0, out _);
+        Assert.IsNotNull(draft);
+        var candidates = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+        Assert.IsNull(run.Coordinator.TryPrepareMovement(draft, candidates, []));
+        Assert.IsTrue(run.Coordinator.Statistics.Stopped);
+        Assert.IsNotNull(run.Coordinator.TerminalEvidence);
+        var fallback = CoreRuntimeFixture.Prepare(run.World, candidates, []);
+        Assert.AreEqual(BarrierStatus.Unchanged, run.World.Publication.Finalization.TryFinalize(fallback).Status);
+        Assert.IsNull(((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Player);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MovementEvidenceKeepsSwapOrRevocationOutcomeBeforeHandoff(bool swapFirst)
+    {
+        using var run = new Run(p => p.Z - 16, journal: 8);
+        await run.Publish(); using var frame = await run.Open();
+        var state = new PlanetWalkState(P(0, 0, 16), P(1, 0, 0), default);
+        var draft = run.Coordinator.TryPlanMovement(state, 1, 0, out _); Assert.IsNotNull(draft);
+        var candidates = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+        var prepared = run.Coordinator.TryPrepareMovement(draft, candidates, []); Assert.IsNotNull(prepared);
+        for (var i = 0; i < 7; i++) Assert.IsTrue(run.Coordinator.TryReadEvent(out _));
+        Assert.IsFalse(run.Coordinator.TryReadEvent(out _), "Pending movement outcome cannot be handed off.");
+        BarrierOutcome outcome;
+        if (swapFirst) { outcome = run.World.Publication.Finalization.TryFinalize(prepared); run.Coordinator.Stop(); }
+        else { run.Coordinator.Stop(); outcome = run.World.Publication.Finalization.TryFinalize(prepared); }
+        Assert.AreEqual(swapFirst ? BarrierStatus.Committed : BarrierStatus.Unchanged, outcome.Status);
+        Assert.IsTrue(run.Coordinator.TryReadEvent(out var record));
+        Assert.AreEqual(swapFirst ? VolumeEventKind.MovementCommit : VolumeEventKind.MovementRejected, record.Kind);
+        Assert.IsNotNull(record.Movement);
+        Assert.AreEqual(state, record.Movement.Value.Before);
+        Assert.AreEqual(draft.Result, record.Movement.Value.Result);
+        Assert.AreEqual(swapFirst ? outcome.Stamp : null, record.Stamp);
+    }
+
+    [TestMethod]
+    public async Task FailedPreparationCanRetryTheSameSealedBarrier()
+    {
+        using var run = new Run(p => p.Z - 16); await run.Publish(); using var frame = await run.Open();
+        var draft = run.Coordinator.TryPlanMovement(new(P(0, 0, 16), P(1, 0, 0), default), 1, 0, out _);
+        Assert.IsNotNull(draft);
+        var candidates = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+        Assert.IsNull(run.Coordinator.TryPrepareMovement(draft, candidates, default));
+        var prepared = run.Coordinator.TryPrepareMovement(draft, candidates, []); Assert.IsNotNull(prepared);
+        Assert.AreEqual(BarrierStatus.Committed, run.World.Publication.Finalization.TryFinalize(prepared).Status);
+        var records = new List<VolumeStreamingEvent>();
+        while (run.Coordinator.TryReadEvent(out var record)) records.Add(record);
+        Assert.AreEqual(1, records.Count(r => r.Kind == VolumeEventKind.MovementRejected));
+        Assert.AreEqual(1, records.Count(r => r.Kind == VolumeEventKind.MovementCommit));
+    }
+
+    [TestMethod]
+    public async Task SubUlpRadiusAtUpperCoverageFacesEdgesAndCornerReturnsAStatus()
+    {
+        using var run = new Run(_ => 1); await run.Publish();
+        using var lease = run.Coordinator.TryRead(); Assert.IsNotNull(lease);
+        foreach (var point in new[] { P(64, 0, 20), P(64, 64, 20), P(64, 64, 64) })
+            Assert.AreEqual(VolumeQueryStatus.Clear, lease.Sweep(new VolumeCapsule(point, point, 1e-16), default).Status);
+    }
+
+    [TestMethod]
+    public async Task AirborneWallContactDoesNotSuppressGravityAcrossTicks()
+    {
+        using var run = new Run(p => 3 - 10 * p.X); await run.Publish(); using var frame = await run.Open();
+        var state = new PlanetWalkState(P(0, 0, 20), P(1, 0, 0), default);
+        for (var i = 0; i < 8; i++)
+        {
+            var draft = run.Coordinator.TryPlanMovement(state, 1, 0, out var status);
+            Assert.IsNotNull(draft, $"Wall gravity: {status}");
+            Assert.IsLessThan(state.Position.Z, draft.Result.State.Position.Z);
+            Assert.IsLessThan(0, draft.Result.State.Velocity.Z);
+            Assert.AreEqual(state.Position.X, draft.Result.State.Position.X, 1e-10);
+            var candidates = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+            var prepared = run.Coordinator.TryPrepareMovement(draft, candidates, []); Assert.IsNotNull(prepared);
+            var outcome = run.World.Publication.Finalization.TryFinalize(prepared);
+            Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
+            CoreRuntimeFixture.PublishObserver(run.World, outcome.Stamp!.Value, (int)run.Tick);
+            state = draft.Result.State;
+            if (i < 7) await run.Begin();
+        }
+    }
+
+    [TestMethod]
+    public async Task SteepContactIsNotGroundAndOffAxisLandingRemainsNonPenetrating()
+    {
+        using (var steep = new Run(p => p.Z - 16 - 4 * p.X))
+        {
+            await steep.Publish(); using var frame = await steep.Open();
+            var foot = 16 + 0.25 * (Math.Sqrt(17) - 1);
+            var draft = steep.Coordinator.TryPlanMovement(new(P(0, 0, foot), P(1, 0, 0), default), 1, 0, out var status);
+            Assert.IsNotNull(draft, $"Steep contact: {status}");
+            Assert.IsFalse(draft.Result.Grounded);
+            Assert.AreEqual(0, draft.Result.State.Position.X, 1e-10);
+        }
+        using var run = new Run(p => p.Z - 16); await run.Publish(); using var visible = await run.Open();
+        var falling = new PlanetWalkState(P(3, 0, 30), P(1, 0, 0), P(-120, 0, -1200));
+        var result = run.Coordinator.TryPlanMovement(falling, 0, 0, out var fallStatus);
+        Assert.IsNotNull(result, $"Off-axis landing: {fallStatus}");
+        var position = result.Result.State.Position;
+        var length = Math.Sqrt(position.X * position.X + position.Z * position.Z);
+        var lowerCenter = position.Z + 0.25 * position.Z / length;
+        Assert.IsGreaterThanOrEqualTo(16 - 1e-4, lowerCenter - 0.25);
+    }
+
     private sealed class Source(Func<LatticeCoordinate, long> density) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => VolumeCollisionTests.Descriptor;
@@ -262,21 +403,27 @@ public sealed class VolumeCollisionTests
         private readonly VolumeStreamingSelection _selection;
         private readonly VolumeResources _unit;
         private ulong _generation;
+        private ulong _frame;
         public VolumeStreamingSelection Selection => _selection;
         public VolumeResources Unit => _unit;
-        public Run(Func<LatticeCoordinate, long> density, PlanetVector center = default)
+        public Run(Func<LatticeCoordinate, long> density, PlanetVector center = default, int journal = 1024, PlanetVector? forward = null)
         {
             World = Fixture.OpenWorld(); _source = new Source(density);
-            _selection = VolumeStreamingSelection.Select(Descriptor, center, P(1, 0, 0));
+            _selection = VolumeStreamingSelection.Select(Descriptor, center, forward ?? P(1, 0, 0));
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, 10_000_000), 100, 20, 100, 1, 1, 1, 64, 1);
             var baseline = _unit.Retained + _unit.Retained; baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 16 };
-            var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit, baseline, _unit, _unit, _unit, _unit, 16, 16, 1024);
+            var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit, baseline, _unit, _unit, _unit, _unit, 16, 16, journal);
             Coordinator = new(World, Descriptor, limits);
             Assert.IsTrue(Coordinator.ConfirmMask(Coordinator.View));
         }
-        public async Task Publish()
+        public async Task Publish(Source? source = null, ulong sourceRevision = 0, ulong targetRevision = 1)
         {
-            Assert.AreEqual(VolumeAdmission.Accepted, Coordinator.TryStage(VolumeWorkClass.Movement, _selection, 0, 1, 10_000_000, _unit, _source, out var work));
+            if (Tick != 0 && World.Publication.Committed.Read().Stamp.Kind == BarrierKind.BeginTick)
+            {
+                var completed = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, Tick, BarrierKind.CommitResults);
+                CoreRuntimeFixture.PublishObserver(World, completed, (int)Tick);
+            }
+            Assert.AreEqual(VolumeAdmission.Accepted, Coordinator.TryStage(VolumeWorkClass.Movement, _selection, sourceRevision, targetRevision, 10_000_000, _unit, source ?? _source, out var work));
             Assert.IsNotNull(work);
             using (work)
             {
@@ -291,7 +438,7 @@ public sealed class VolumeCollisionTests
         public async Task Begin() => await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++Tick, BarrierKind.BeginTick);
         public async Task<VolumeFrameRegistration> Open()
         {
-            var frame = Coordinator.TryRegisterFrame(_generation, Coordinator.View, 1); Assert.IsNotNull(frame);
+            var frame = Coordinator.TryRegisterFrame(_generation, Coordinator.View, ++_frame); Assert.IsNotNull(frame);
             Assert.IsTrue(Coordinator.AcknowledgeFrame(frame)); await Begin();
             Assert.IsTrue(Coordinator.BeginTick(World.Publication.Committed.Read().Stamp)); return frame;
         }

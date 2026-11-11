@@ -1,12 +1,12 @@
 namespace Groundwork.Voxels;
 
 public enum VolumeQueryStatus { Clear, Contact, InitialOverlap, CoverageUnavailable, BudgetExceeded, Invalid }
-public readonly record struct VolumeRayHit(double Distance, PlanetVector Position, PlanetVector Normal, ushort Material);
+public readonly record struct VolumeRayHit(double Distance, PlanetVector Position, PlanetVector Normal, ushort Material, bool IsTransition = false);
 public readonly record struct VolumeRayResult(VolumeQueryStatus Status, int Count, VolumePublicationInfo Terrain, int TriangleTests);
 /// <summary>Axis segment endpoints and radius in planet-centered metres. Equal endpoints form a sphere.</summary>
 public readonly record struct VolumeCapsule(PlanetVector A, PlanetVector B, double Radius);
 public readonly record struct VolumeSweepResult(VolumeQueryStatus Status, double Fraction,
-    PlanetVector Normal, VolumePublicationInfo Terrain, int TriangleTests);
+    PlanetVector Normal, VolumePublicationInfo Terrain, int TriangleTests, bool IsTransition = false);
 /// <summary>Hard per-query ceilings. Exhaustion fails closed, never reports empty terrain.</summary>
 public readonly record struct VolumeQueryLimits(int TriangleTests = 2_000_000, int Iterations = 64)
 {
@@ -69,12 +69,16 @@ internal static class VolumeCollision
                 if (!Intersect(a, delta, x, y, z, out var fraction)) continue;
                 var distance = fraction * length * g.Selection.Descriptor.CellSizeMeters;
                 var duplicate = false;
-                for (var i = 0; i < count; i++) if (Math.Abs(hits[i].Distance - distance) <= 1e-7) { duplicate = true; break; }
+                for (var i = 0; i < count; i++) if (Math.Abs(hits[i].Distance - distance) <= 1e-7 * g.Selection.Descriptor.CellSizeMeters)
+                {
+                    if (t.IsTransition) hits[i] = hits[i] with { IsTransition = true };
+                    duplicate = true; break;
+                }
                 if (duplicate) continue;
                 if (count == hits.Length) return new(VolumeQueryStatus.BudgetExceeded, 0, g.Info, tests);
                 var n = CollisionVector.Cross(y - x, z - x); n /= n.Length;
                 var point = new CollisionVector(start) + (new CollisionVector(end) - new CollisionVector(start)) * fraction;
-                var hit = new VolumeRayHit(distance, point.Planet, n.Planet, t.A.Material);
+                var hit = new VolumeRayHit(distance, point.Planet, n.Planet, t.A.Material, t.IsTransition);
                 var slot = count++;
                 while (slot > 0 && hits[slot - 1].Distance > distance) { hits[slot] = hits[slot - 1]; slot--; }
                 hits[slot] = hit;
@@ -102,6 +106,7 @@ internal static class VolumeCollision
         for (var iteration = 0; iteration < limits.Iterations; iteration++)
         {
             var nearest = double.PositiveInfinity; var normal = default(CollisionVector);
+            var nearestTransition = false;
             foreach (var mesh in g.Artifacts!.Meshes)
                 foreach (var triangle in mesh.Triangles)
                 {
@@ -124,13 +129,14 @@ internal static class VolumeCollision
                     var n = distance > 1e-12 ? separation / distance : CollisionVector.Cross(y - x, z - x);
                     if (n.Length > 0) n /= n.Length;
                     if (fraction == 0 && distance < r - skin) return new(VolumeQueryStatus.InitialOverlap, 0, n.Planet, g.Info, tests);
-                    if (distance < nearest) { nearest = distance; normal = n; }
+                    if (distance < nearest - 1e-10) { nearest = distance; normal = n; nearestTransition = triangle.IsTransition; }
+                    else if (Math.Abs(distance - nearest) <= 1e-10 && triangle.IsTransition) nearestTransition = true;
                 }
-            if (nearest <= r + skin) return new(VolumeQueryStatus.Contact, fraction, normal.Planet, g.Info, tests);
+            if (nearest <= r + skin) return new(VolumeQueryStatus.Contact, fraction, normal.Planet, g.Info, tests, nearestTransition);
             if (speed == 0 || double.IsPositiveInfinity(nearest)) return new(VolumeQueryStatus.Clear, 1, default, g.Info, tests);
             var advance = (nearest - r - skin) / speed;
             if (fraction + advance > 1) return new(VolumeQueryStatus.Clear, 1, default, g.Info, tests);
-            if (advance <= 1e-12) return new(VolumeQueryStatus.Contact, fraction, normal.Planet, g.Info, tests);
+            if (advance <= 1e-12) return new(VolumeQueryStatus.Contact, fraction, normal.Planet, g.Info, tests, nearestTransition);
             fraction += advance;
         }
         return new(VolumeQueryStatus.BudgetExceeded, 0, default, g.Info, tests);
@@ -142,9 +148,15 @@ internal static class VolumeCollision
         // exact committed mesh, including its Transvoxel transition triangles.
         var x = (int)Math.Floor(p.X); var y = (int)Math.Floor(p.Y); var z = (int)Math.Floor(p.Z);
         var value = 0d;
-        for (var k = 0; k < 2; k++) for (var j = 0; j < 2; j++) for (var i = 0; i < 2; i++)
-            value += (double)g.Artifacts!.Plan.Read(new System.Numerics.Vector3(x + i, y + j, z + k)) *
-                (i == 0 ? 1 - (p.X - x) : p.X - x) * (j == 0 ? 1 - (p.Y - y) : p.Y - y) * (k == 0 ? 1 - (p.Z - z) : p.Z - z);
+        for (var k = 0; k < 2; k++)
+            for (var j = 0; j < 2; j++)
+                for (var i = 0; i < 2; i++)
+                {
+                    var weight = (i == 0 ? 1 - (p.X - x) : p.X - x) *
+                        (j == 0 ? 1 - (p.Y - y) : p.Y - y) * (k == 0 ? 1 - (p.Z - z) : p.Z - z);
+                    if (weight != 0)
+                        value += (double)g.Artifacts!.Plan.Read(new System.Numerics.Vector3(x + i, y + j, z + k)) * weight;
+                }
         return value < 0;
     }
     private static bool Intersect(CollisionVector p, CollisionVector d, CollisionVector a, CollisionVector b, CollisionVector c, out double t)

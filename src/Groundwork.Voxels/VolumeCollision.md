@@ -9,7 +9,7 @@ render floats and cube charts never select a separate collision surface.
 
 `VolumeStreamingLease.Raycast(start, end, hits)` returns all distinct ordered
 surface intersections (including floor and ceiling), outward geometric normals
-and material IDs. The caller owns the hit buffer (at most 256 entries). An
+and material IDs. The caller owns the hit buffer (at most 256 entries). `IsTransition` identifies actual transition-cell contact geometry (including a tie at shared edges). An
 insufficient buffer or work ceiling returns `BudgetExceeded` with Count 0;
 never consume a partial buffer as a complete query. A coplanar ray has no
 isolated crossing and returns no contact. Use a finite shape sweep for movement.
@@ -42,22 +42,27 @@ the lease lock throughout its read so plan data cannot be released mid-query.
    pose and this tick's forward/right input. The first accepted call can establish
    a non-penetrating spawn. The returned draft is an unforgeable proposal; no
    authoritative root has changed yet. Paused/faulted/stopped worlds reject it.
-3. Seal the same tick's CommitResults and call `TryPrepareMovement`, supplying
+3. Reserve bounded semantic evidence when preparing movement. A permit-backed
+   MovementCommit/MovementRejected record retains input, prior pose, result,
+   complete terrain/view identity and finalized outcome/stamp. A pending outcome
+   cannot be handed off. A full journal stops this epoch before any pose swap;
+   the separate terminal cell remains available. Revocation before a swap and
+   Stop after a swap cannot erase or mislabel the eventual record.
+4. Seal the same tick's CommitResults and call `TryPrepareMovement`, supplying
    the ordinary gameplay root and batch dispositions if applicable. Core
    finalization atomically publishes `VolumeWorldRoot.Player` with that state and
    the same terrain. `WithState` preserves the player. Observe the committed
    barrier before advancing the next tick, as for any Core publication.
-4. A view/rebase, root/generation change, wrong tick, stale supplied pose or Stop
+5. A view/rebase, root/generation change, wrong tick, stale supplied pose or Stop
    rejects/revokes the proposal. Failed queries preserve the last pose and discard
    only this tick's movement. They never queue movement for later replay.
 
 The walker uses the existing 60 Hz, 4 m/s, 0.25 m-radius, 1.7 m-height and radial
 9.81 m/s² defaults. It checks initial clearance, current support, the full lateral
 sweep, destination support and gravity/ceiling contact under one shared work
-budget. Walkable contact is within 45 degrees of radial up. Steeper contacts and
-walls stop movement conservatively. Body endpoints change continuously with
+budget. Walkable contact is within 45 degrees of radial up. Steeper contacts and walls stop the lateral component conservatively while known-covered gravity still integrates. Body endpoints change continuously with
 radial orientation; support-plane transport is included in that finite sweep.
-A movement through the planet center is rejected rather than flipping the body.
+A movement through the planet center is rejected rather than flipping the body. The final reconstructed capsule is revalidated after a partial contact.
 The API does not implement rigid bodies, step climbing, wall sliding or jumping.
 
 A terrain replacement carries the committed player and must pass initial capsule
@@ -75,7 +80,12 @@ or `./scripts/Verify-Bootstrap.ps1` for the complete shipping graph and CI filte
 wall/roof contact, a solid between capsule endpoints, tangency, budgets, unknown
 coverage, all twelve canonical chart edges/eight corners with mixed-LOD plans,
 retained queries across rebase, Core-only pose mutation, stale drafts, view/stop
-revocation, gentle slope, gravity and edit replacement veto.
+revocation, gentle/steep slopes, airborne wall gravity, final off-axis landing
+clearance, journal saturation, outcome handoff ordering, invalid-preparation retry,
+sub-ULP boundary radii and edit replacement veto. The seam tests position a real
+2:1 boundary at each canonical edge/corner and assert transition ray/sphere hits,
+both ray directions, finite capsule contact, an immutable changed field revision,
+movement hold and re-admission. They do not implement D01 edit transactions.
 
 The warmed-query smoke records environment, 64 samples, p50/p95/p99 and managed
 allocation bytes in its TRX output. This is a portable correctness/overhead probe;

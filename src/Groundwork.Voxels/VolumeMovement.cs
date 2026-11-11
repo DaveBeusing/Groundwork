@@ -6,11 +6,12 @@ namespace Groundwork.Voxels;
 /// <summary>Unforgeable, one-tick movement proposal. Only Core finalization changes the player root.</summary>
 public sealed class VolumeMovementDraft
 {
-    internal VolumeMovementDraft(VolumeWorldRoot root, BarrierStamp stamp, PlanetWalkResult result)
-    { Root = root; Stamp = stamp; Result = result; }
+    internal VolumeMovementDraft(VolumeWorldRoot root, BarrierStamp stamp, VolumeMovementEvidence evidence)
+    { Root = root; Stamp = stamp; Evidence = evidence; }
     internal VolumeWorldRoot Root { get; }
     internal BarrierStamp Stamp { get; }
-    public PlanetWalkResult Result { get; }
+    internal VolumeMovementEvidence Evidence { get; }
+    public PlanetWalkResult Result => Evidence.Result;
     public VolumePublicationInfo Terrain => Root.Terrain;
 }
 
@@ -36,7 +37,7 @@ public sealed partial class VolumeStreamingCoordinator
             if (root.Player is { } player && player != state) { status = VolumeQueryStatus.Invalid; return null; }
             var result = VolumeWalker.Step(active, state, forward, right, limits ?? VolumeQueryLimits.Default, out status);
             return status is VolumeQueryStatus.Clear or VolumeQueryStatus.Contact
-                ? new VolumeMovementDraft(root, committed.Stamp, result) : null;
+                ? new VolumeMovementDraft(root, committed.Stamp, new VolumeMovementEvidence(state, forward, right, result)) : null;
         }
     }
 
@@ -64,8 +65,11 @@ public sealed partial class VolumeStreamingCoordinator
             var state = composedState ?? draft.Root.State;
             if (state.World != draft.Root.World) return null;
             var root = new VolumeWorldRoot(state, this, draft.Root.Generation, draft.Result.State);
+            if (!HasJournalSpace()) return null;
             var permit = _world.Publication.RootChanges.TryReserve(candidates, root);
             if (permit is null) return null;
+            Record(VolumeEventKind.MovementCommit, draft.Terrain.Generation, permit,
+                terrainRevision: draft.Terrain.TerrainRevision, movement: draft.Evidence);
             var result = _world.Publication.Preparation.TryPrepare(new BarrierPublicationDraft(
                 candidates, root, _world.State.Read().PendingFaultGeneration, dispositions, permit));
             if (result.Publication is not { } prepared) { permit.Revoke(); return null; }
@@ -156,7 +160,8 @@ internal static class VolumeWalker
         status = horizontal.Status;
         if (status is not (VolumeQueryStatus.Clear or VolumeQueryStatus.Contact)) return held;
         // Walls stop this action. No accumulated displacement, hidden snap or penetration recovery.
-        if (status == VolumeQueryStatus.Contact) return new(state, PlanetWalkStatus.Held, grounded);
+        var lateralBlocked = status == VolumeQueryStatus.Contact;
+        if (lateralBlocked) { travel = default; tangent = default; }
         var next = state with { Position = (new CollisionVector(state.Position) + travel).Planet };
         // Ground support must be checked at the destination as well: a ledge begins falling.
         support = Query(next, (up * -0.02).Planet);
@@ -175,6 +180,11 @@ internal static class VolumeWalker
             grounded = vertical < 0 && CollisionVector.Dot(new CollisionVector(fall.Normal), up) >= Walkable;
             vertical = 0;
         }
+        // A partial contact interpolates endpoints along the sweep. Verify the capsule
+        // reconstructed from the published radial pose as well, under the same work budget.
+        var clearance = Query(next, default);
+        status = clearance.Status;
+        if (status != VolumeQueryStatus.Clear) return held;
         var nextUp = Up(next.Position);
         heading -= nextUp * CollisionVector.Dot(heading, nextUp);
         if (heading.Length < 1e-9) { status = VolumeQueryStatus.Invalid; return held; }

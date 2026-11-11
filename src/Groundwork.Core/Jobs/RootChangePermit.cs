@@ -63,7 +63,14 @@ internal sealed partial class WorldPublicationAuthority
     {
         lock (_control.Gate)
             if (permit.State == RootChangeStatus.Pending)
+            {
                 permit.State = RootChangeStatus.Revoked;
+                // A failed preparation has no published candidate to fence. Return its slot
+                // so the sealed barrier can retry or publish unchanged. Prepared attempts
+                // retain their revocation fence until Core settles that exact attempt.
+                if (ReferenceEquals(_rootChange, permit) && _prepared is null)
+                    _rootChange = null;
+            }
     }
 
     private bool ValidRootChange(BarrierPublicationDraft draft) =>
