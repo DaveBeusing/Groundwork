@@ -95,7 +95,7 @@ dotnet test tests/Groundwork.Rendering.D3D12.Tests -c Release --no-build --no-re
 $archive = Join-Path $evidence 'groundwork-archive'
 $installer = Join-Path $evidence 'installer'
 gh release download archive-groundwork-0.1.0-dev.43032545158.1-immutable --repo DaveBeusing/Groundwork --dir $archive
-$verify = `{
+$verify = @{
     ArtifactDirectory = $archive
     ExpectedManifestSha256 = '564B16515EA2312ED841FF4D3FBCC57AD7BD950D5B145CBC8FA787A49CB83E5C'
     ExpectedSourceCommit = '3578bcc7143e33c9450f1eeb7e5dc586a0828b25'
@@ -112,4 +112,4 @@ $verify = `{
 ./eng/Test-OfflineInstaller.ps1 -InstallerDirectory $installer -ExpectedManifestSha256 $approvedInstallerManifestHash -PlanetPlaytest
 ~~~
 
-The last command uses the independently recorded digest of the installer manifest under test. WYU's installed test writes its screenshots and bounded logs to the temporary directory it prints.
+The frozen [WYU workflow](https://github.com/DaveBeusing/wyu/blob/5df3e45fa2463c826973f224780cb375f2ad42ad/.github/workflows/verified-groundwork-consumer.yml) contains the release metadata and download checks. Set $approvedInstallerManifestHash to the independently recorded digest for the installer manifest under test. For a rebuilt installer, use the digest recorded for that build. WYU's installed test writes its screenshots and bounded logs to the temporary directory it prints.
