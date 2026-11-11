@@ -43,7 +43,11 @@ public sealed partial class RendererFrameAdmission
 
     public RenderSubmissionResult TrySubmit(in RenderFrame frame) => TrySubmit(frame, pairedGeneration: 0);
 
-    private RenderSubmissionResult TrySubmit(in RenderFrame frame, ulong pairedGeneration)
+    /// <summary>Queues the clear-only mask for a paired terrain presentation.</summary>
+    public RenderSubmissionResult TrySubmitPairedMask(in RenderFrame frame) =>
+        _pairedRegionFrames && frame.Scene is null ? TrySubmit(frame, 0, pairedMask: true) : RenderSubmissionResult.InvalidFrame;
+
+    private RenderSubmissionResult TrySubmit(in RenderFrame frame, ulong pairedGeneration, bool pairedMask = false)
     {
         lock (_gate)
         {
@@ -57,7 +61,7 @@ public sealed partial class RendererFrameAdmission
                 return RenderSubmissionResult.NotRunning;
             }
 
-            if (!frame.IsValid || (_pairedRegionFrames &&
+            if (!frame.IsValid || (_pairedRegionFrames && !pairedMask &&
                 (!frame.Scene.HasValue || !MeshRegionReplacement!.CanUpdatePairedCamera(pairedGeneration))))
             {
                 return RenderSubmissionResult.InvalidFrame;

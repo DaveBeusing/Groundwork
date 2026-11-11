@@ -253,6 +253,7 @@ public sealed partial class D3D12Renderer : IRenderer
 
     private void CloseAdmission()
     {
+        CloseVolumeAdmission();
         lock (_lifecycle)
         {
             _admission.BeginStop();
@@ -294,6 +295,7 @@ public sealed partial class D3D12Renderer : IRenderer
             _wake?.Set();
         }
 
+        CloseVolumeAdmission();
         _ready.TrySetResult();
         try
         {

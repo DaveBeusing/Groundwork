@@ -111,6 +111,15 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
+    public bool CanRequestMask(VolumeViewIdentity view)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            return !_stopped && !_movementOpen && !_maskReady && view == _view && _active?.View != view;
+        }
+    }
+
     public bool ConfirmMask(VolumeViewIdentity view)
     {
         lock (_gate)
@@ -184,6 +193,28 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             entry.Artifacts = artifacts;
             entry.Info = new VolumePublicationInfo(entry.Id, entry.TargetRevision, entry.View, entry.Selection.Minimum,
                 entry.Selection.Width, artifacts.Plan.Identity);
+            return true;
+        }
+    }
+
+    /// <summary>Reads the size and identity of a completed private candidate without exposing its geometry.</summary>
+    public bool TryReadPreparedGeometry(ulong generation, out VolumePublicationInfo info,
+        out int triangles, out VolumeResources credits)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            info = default;
+            triangles = 0;
+            credits = default;
+            var entry = Array.Find(_entries, candidate => candidate?.Id == generation);
+            if (_stopped || entry is not { Artifacts: { } artifacts, Outstanding: false, Cancelled: false } ||
+                entry == _active || entry.View != _view || entry.SourceRevision != CurrentRevision())
+                return false;
+            foreach (var mesh in artifacts.Meshes)
+                triangles = checked(triangles + mesh.Triangles.Length);
+            info = entry.Info;
+            credits = entry.Resources;
             return true;
         }
     }
@@ -267,7 +298,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            if (_stopped || _active is not { } active || active.Id != generation || active.View != view || view != _view ||
+            if (_stopped || _active is not { } active || active.Id != generation || active.View != view || view != _view || !IsCurrentRoot(active) ||
                 frame <= _lastFrame || !HasJournalSpace())
                 return null;
             var lease = Acquire(active);
@@ -280,6 +311,29 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
+    /// <summary>Rechecks a provider's retained registration at installation and submission.</summary>
+    public bool IsCurrentFrame(VolumeFrameRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        lock (_gate)
+        {
+            Refresh();
+            return !_stopped && registration.Owner == this && !registration.Disposed &&
+                registration.Generation == _active && registration.Info.View == _view &&
+                IsCurrentRoot(registration.Generation);
+        }
+    }
+
+    /// <summary>Closes admission for a renderer that can no longer present. A newer renderer is unaffected.</summary>
+    public void InvalidateRenderer(ulong epoch)
+    {
+        lock (_gate)
+        {
+            if (!_stopped && _view.RendererEpoch == epoch)
+                ChangeView(_view.Frame, epoch);
+        }
+    }
+
     /// <summary>Provider Present and queue Signal succeeded for this registered frame. Native ownership remains pinned.</summary>
     public bool AcknowledgeFrame(VolumeFrameRegistration registration)
     {
@@ -288,7 +342,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             Refresh();
             if (_stopped || registration.Owner != this || registration.Disposed || registration.Acknowledged ||
-                registration.Generation != _active || registration.Info.View != _view ||
+                registration.Generation != _active || registration.Info.View != _view || !IsCurrentRoot(registration.Generation) ||
                 registration.Frame != _lastFrame || !Record(VolumeEventKind.Accepted, registration.Info.Generation))
                 return false;
             registration.Acknowledged = true;
@@ -304,7 +358,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             Refresh();
             if (_stopped || stamp.Kind != BarrierKind.BeginTick || stamp != _world.Publication.Committed.Read().Stamp ||
-                _accepted is not { } accepted || accepted.Generation != _active || accepted.Info.View != _view ||
+                _accepted is not { } accepted || accepted.Generation != _active || accepted.Info.View != _view || !IsCurrentRoot(accepted.Generation) ||
                 !Record(VolumeEventKind.Opened, accepted.Info.Generation))
                 return false;
             _movementOpen = true;

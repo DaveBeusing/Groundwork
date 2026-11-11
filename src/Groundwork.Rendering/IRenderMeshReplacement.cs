@@ -11,7 +11,8 @@ public enum MeshReplacementSubmissionResult
     DuplicateGeneration,
     NotRunning,
     Closed,
-    InvalidRegion
+    InvalidRegion,
+    Backpressure
 }
 
 /// <summary>One coherent observation of the mesh replacement lifecycle.</summary>

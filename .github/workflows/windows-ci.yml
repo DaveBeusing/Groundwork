@@ -50,7 +50,7 @@ jobs:
             'WarpRegionReplacementReadbackKeepsTheSeamAndClearsLeavingGeometry',
             'WarpRegionReadbackUsesVertexColorsAndPreservesNearestDepth',
             'WarpPlanetTerrainReadbackSurvivesLodAndOriginChange',
-            'WarpFlightTerrainReadbackSurvivesBothViewAndOriginTransitions',
+            'WarpFlightTerrainReadbackSurvivesBothViewAndOriginTransitions', 'WarpVolumeReadbackCoversTransitionAndCavityAcrossRebase',
             'WarpLandingPadColorAndSilhouetteAreVisibleOnApproach')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }

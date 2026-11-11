@@ -273,6 +273,7 @@ public sealed class VolumeFrameRegistration : IDisposable
         Generation = generation;
         Lease = lease;
         Frame = frame;
+        Resources = generation.Resources;
     }
     internal VolumeStreamingCoordinator Owner { get; }
     internal VolumeGeneration Generation { get; }
@@ -280,6 +281,7 @@ public sealed class VolumeFrameRegistration : IDisposable
     internal bool Acknowledged { get; set; }
     internal bool Disposed { get; set; }
     public ulong Frame { get; }
+    public VolumeResources Resources { get; }
     public VolumePublicationInfo Info => Lease.Info;
     public ReadOnlySpan<PlanetVolumeMesh> Meshes => Lease.Meshes;
     public void Dispose() => Owner.ReleaseFrame(this);
