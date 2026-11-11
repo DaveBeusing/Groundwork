@@ -456,12 +456,14 @@ public sealed partial class PresentationSmokeTests
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
 
-        internal VolumeRun(int readers = 8, bool editable = false)
+        internal VolumeRun(int readers = 8, bool editable = false,
+            PlanetVector? camera = null, PlanetVector? forward = null)
         {
             World = Fixture.OpenWorld();
             var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
                 new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
-            _selection = VolumeStreamingSelection.Select(descriptor, new PlanetVector(0, 32, 0), new PlanetVector(-1, 0, 0));
+            _selection = VolumeStreamingSelection.Select(descriptor, camera ?? new PlanetVector(0, 32, 0),
+                forward ?? new PlanetVector(-1, 0, 0));
             const int overlayRows = 1024;
             _editSource = editable ? new VolumeFixtureSource(descriptor, false) : null;
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, MeshBytes) + (editable ? 64L * overlayRows + 4096 : 0),
@@ -473,10 +475,12 @@ public sealed partial class PresentationSmokeTests
             Terrain = _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
         }
 
-        internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut)
+        internal PlanetDescriptor Descriptor => _selection.Descriptor;
+
+        internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut, IPlanetBrickSource? source = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(kind, _selection, sourceRevision,
-                targetRevision, MeshBytes, _unit, new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                targetRevision, MeshBytes, _unit, source ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             return work;
         }
