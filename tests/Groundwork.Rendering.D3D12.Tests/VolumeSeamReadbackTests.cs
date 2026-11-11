@@ -10,32 +10,40 @@ public sealed partial class PresentationSmokeTests
     [TestMethod]
     public async Task WarpCubeSphereTransitionsMatchCollisionAcrossRebase()
     {
-        using var gpu = new GpuDevice(warp: true);
-        AssertPlanetAdapter(gpu.Adapter, useWarp: true);
-
-        // Directions with exactly two maximal components are edge midpoints.
-        // Directions with three maximal components are corners.
-        var edges = 0;
-        var corners = 0;
-        foreach (var x in new[] { -32, 0, 32 })
-        foreach (var y in new[] { -32, 0, 32 })
-        foreach (var z in new[] { -32, 0, 32 })
+        var gpu = new GpuDevice(warp: true);
+        try
         {
-            var components = (x != 0 ? 1 : 0) + (y != 0 ? 1 : 0) + (z != 0 ? 1 : 0);
-            if (components < 2)
-                continue;
-            if (components == 2)
-                edges++;
-            else
-                corners++;
-            await VerifySeam(gpu, new(x, y, z));
-        }
+            AssertPlanetAdapter(gpu.Adapter, useWarp: true);
 
-        Assert.AreEqual(12, edges);
-        Assert.AreEqual(8, corners);
-        gpu.ActiveMeshGeometry?.Dispose();
-        gpu.ActiveMeshGeometry = null;
-        Assert.AreEqual(0L, gpu.LiveMeshBytes);
+            // Directions with exactly two maximal components are edge midpoints.
+            // Directions with three maximal components are corners.
+            var edges = 0;
+            var corners = 0;
+            foreach (var x in new[] { -32, 0, 32 })
+            foreach (var y in new[] { -32, 0, 32 })
+            foreach (var z in new[] { -32, 0, 32 })
+            {
+                var components = (x != 0 ? 1 : 0) + (y != 0 ? 1 : 0) + (z != 0 ? 1 : 0);
+                if (components < 2)
+                    continue;
+                if (components == 2)
+                    edges++;
+                else
+                    corners++;
+                await VerifySeam(gpu, new(x, y, z));
+            }
+
+            Assert.AreEqual(12, edges);
+            Assert.AreEqual(8, corners);
+            gpu.ActiveMeshGeometry?.Dispose();
+            gpu.ActiveMeshGeometry = null;
+            Assert.AreEqual(0L, gpu.LiveMeshBytes);
+        }
+        finally
+        {
+            if (gpu.IsIdle || gpu.IsRemoved)
+                gpu.Dispose();
+        }
     }
 
     private static async Task VerifySeam(GpuDevice gpu, PlanetVector seam)
@@ -54,16 +62,28 @@ public sealed partial class PresentationSmokeTests
         var source = new SeamPlane(run.Descriptor, normalAxis, (long)Component(seam, normalAxis));
         var origin = run.Terrain.View.Frame;
         var firstView = run.Terrain.ChangeView(origin, 1);
-        using var original = await PublishSeam(run, source, firstView, 0);
+        await PublishSeam(run, source, firstView, 0);
+        using var original = run.Terrain.TryRead();
+        Assert.IsNotNull(original);
+        Assert.AreEqual(firstView, original.Info.View);
+        Assert.AreEqual(1UL, original.Info.TerrainRevision);
         var hit = CheckCollision(original, eye, farPoint, sphere, displacement, seam);
         var first = RenderSeam(gpu, original, firstView, eye, normal, hit.Distance, seam);
-        using var firstFrame = await AdmitReadback(run, original, center);
+        using var firstFrame = run.Terrain.TryRegisterFrame(original.Info.Generation, firstView, 1);
+        Assert.IsNotNull(firstFrame);
+        await AdmitReadback(run, firstFrame, center);
+        using var pendingOldFrame = run.Terrain.TryRegisterFrame(original.Info.Generation, firstView, 2);
+        Assert.IsNotNull(pendingOldFrame);
+        Assert.IsTrue(run.Terrain.IsCurrentFrame(pendingOldFrame));
 
         Assert.IsTrue(origin.TryRebase(Add(center, Axis(axis, 24)), out var rebased));
         var nextView = run.Terrain.ChangeView(rebased, 1);
         Assert.IsFalse(run.Terrain.HasAdmittedCoverage(center));
-        Assert.IsFalse(run.Terrain.AcknowledgeFrame(firstFrame));
-        using var replacement = await PublishSeam(run, source, nextView, 1);
+        Assert.IsFalse(run.Terrain.AcknowledgeFrame(pendingOldFrame));
+        await PublishSeam(run, source, nextView, 1);
+        using var replacement = run.Terrain.TryRead();
+        Assert.IsNotNull(replacement);
+        Assert.AreEqual(nextView, replacement.Info.View);
         Assert.IsFalse(run.Terrain.HasAdmittedCoverage(center));
         Assert.AreNotEqual(original.Info.Generation, replacement.Info.Generation);
         Assert.AreEqual(original.Info.TerrainRevision, replacement.Info.TerrainRevision);
@@ -72,23 +92,21 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(hit, CheckCollision(original, eye, farPoint, sphere, displacement, seam));
         var second = RenderSeam(gpu, replacement, nextView, eye, normal, hit.Distance, seam);
         Assert.AreEqual(first, second, 1e-6f, $"Center pixel depth changed at {seam}.");
-        using var secondFrame = await AdmitReadback(run, replacement, center);
+        using var secondFrame = run.Terrain.TryRegisterFrame(replacement.Info.Generation, nextView, 3);
+        Assert.IsNotNull(secondFrame);
+        await AdmitReadback(run, secondFrame, center);
     }
 
     // The offscreen test supplies the ACK only after color and depth have been read back.
-    private static async Task<VolumeFrameRegistration> AdmitReadback(VolumeRun run, VolumeStreamingLease terrain,
-        PlanetVector center)
+    private static async Task AdmitReadback(VolumeRun run, VolumeFrameRegistration registration, PlanetVector center)
     {
-        var view = terrain.Info.View;
-        var registration = run.Terrain.TryRegisterFrame(terrain.Info.Generation, view, view.View);
-        Assert.IsNotNull(registration);
         Assert.IsTrue(run.Terrain.AcknowledgeFrame(registration));
         Assert.IsFalse(run.Terrain.HasAdmittedCoverage(center));
         await run.OpenMovement();
         Assert.IsTrue(run.Terrain.HasAdmittedCoverage(center));
-        return registration;
     }
-    private static async Task<VolumeStreamingLease> PublishSeam(VolumeRun run, SeamPlane source,
+
+    private static async Task PublishSeam(VolumeRun run, SeamPlane source,
         VolumeViewIdentity view, ulong previousRevision)
     {
         Assert.IsTrue(run.Terrain.ConfirmMask(view));
@@ -101,11 +119,6 @@ public sealed partial class PresentationSmokeTests
         var committed = run.World.Publication.Finalization.TryFinalize(prepared);
         Assert.AreEqual(BarrierStatus.Committed, committed.Status);
         CoreRuntimeFixture.PublishObserver(run.World, committed.Stamp!.Value, (int)tick.Tick);
-        var lease = run.Terrain.TryRead();
-        Assert.IsNotNull(lease);
-        Assert.AreEqual(view, lease.Info.View);
-        Assert.AreEqual(1UL, lease.Info.TerrainRevision);
-        return lease;
     }
 
     private static VolumeRayHit CheckCollision(VolumeStreamingLease terrain, PlanetVector eye, PlanetVector far,
