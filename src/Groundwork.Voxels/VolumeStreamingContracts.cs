@@ -251,6 +251,20 @@ public sealed class VolumeStreamingLease : IDisposable
         }
     }
 
+    internal VolumeFrameRegistration? TransferToFrame(VolumeStreamingCoordinator owner,
+        VolumeRendererAuthority renderer, ulong frame)
+    {
+        lock (_gate)
+        {
+            if (_owner != owner || _generation is not { } generation)
+                return null;
+            var registration = owner.RegisterRetainedFrame(generation, renderer, frame);
+            if (registration is not null)
+                _generation = null; // The registration now owns the existing reader charge.
+            return registration;
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
@@ -261,6 +275,13 @@ public sealed class VolumeStreamingLease : IDisposable
             _owner.ReleaseReader(generation);
         }
     }
+}
+
+/// <summary>Exclusive provider authority for one renderer epoch.</summary>
+public sealed class VolumeRendererAuthority
+{
+    internal VolumeRendererAuthority(ulong epoch) => Epoch = epoch;
+    public ulong Epoch { get; }
 }
 
 /// <summary>Retains submitted geometry until the provider settles it, independently of view revocation.</summary>
@@ -278,6 +299,8 @@ public sealed class VolumeFrameRegistration : IDisposable
     internal VolumeGeneration Generation { get; }
     internal VolumeStreamingLease Lease { get; }
     internal bool Acknowledged { get; set; }
+    internal ulong AcknowledgedTick { get; set; }
+    internal ulong LastCameraFrame { get; set; }
     internal bool Disposed { get; set; }
     public ulong Frame { get; }
     public VolumePublicationInfo Info => Lease.Info;

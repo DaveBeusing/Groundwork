@@ -4,4 +4,5 @@ namespace Groundwork.Rendering.D3D12;
 /// <remarks>Callbacks run on the GPU owner. A simulated signal failure leaves retirement unproved.</remarks>
 internal sealed record GpuRetirementTestHooks(
     Func<GpuDevice, ulong, int?>? SignalFailure = null,
-    Func<GpuDevice, ulong, ulong>? CompletedValue = null);
+    Func<GpuDevice, ulong, ulong>? CompletedValue = null,
+    Func<GpuDevice, int?>? PresentFailure = null);

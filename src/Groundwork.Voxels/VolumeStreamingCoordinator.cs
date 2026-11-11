@@ -28,6 +28,9 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     private ulong _generation;
     private ulong _sequence;
     private ulong _lastFrame;
+    private ulong _invalidRendererEpoch;
+    private VolumeRendererAuthority? _rendererAuthority;
+    private bool PresentationEpochOpen => _view.RendererEpoch > _invalidRendererEpoch;
     private int _journalHead;
     private int _journalCount;
     private int _readers;
@@ -90,7 +93,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            if (_stopped)
+            if (_stopped || rendererEpoch <= _invalidRendererEpoch)
                 return _view;
             if (rendererEpoch < _view.RendererEpoch || frame.Revision < _view.Frame.Revision ||
                 frame.Revision == _view.Frame.Revision && frame != _view.Frame)
@@ -111,11 +114,41 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
-    public bool ConfirmMask(VolumeViewIdentity view)
+    /// <summary>Binds a single provider to a fresh held renderer epoch.</summary>
+    public VolumeRendererAuthority? TryBindRenderer(ulong epoch)
     {
         lock (_gate)
         {
-            if (_stopped || _movementOpen || view != _view || !Record(VolumeEventKind.Accepted, 0))
+            Refresh();
+            if (_stopped || !PresentationEpochOpen || _view.RendererEpoch != epoch ||
+                _rendererAuthority?.Epoch == epoch || _maskReady || _prepared is not null || _active?.View == _view)
+                return null;
+            return _rendererAuthority = new VolumeRendererAuthority(epoch);
+        }
+    }
+
+    private bool OwnsPresentation(VolumeRendererAuthority? renderer) =>
+        _rendererAuthority is null ? renderer is null :
+        ReferenceEquals(_rendererAuthority, renderer) && renderer!.Epoch == _view.RendererEpoch;
+
+    public bool CanRequestMask(VolumeViewIdentity view)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            return !_stopped && PresentationEpochOpen && !_movementOpen && !_maskReady && view == _view && _active?.View != view;
+        }
+    }
+
+    public bool ConfirmMask(VolumeViewIdentity view) => ConfirmMask(view, null);
+
+    public bool ConfirmMask(VolumeViewIdentity view, VolumeRendererAuthority? renderer, ulong frame = 0)
+    {
+        lock (_gate)
+        {
+            if (_stopped || !PresentationEpochOpen || !OwnsPresentation(renderer) ||
+                renderer is not null && frame == 0 || _movementOpen || view != _view ||
+                !Record(VolumeEventKind.Accepted, 0, frame: frame == 0 ? null : frame))
                 return false;
             _maskReady = true;
             return true;
@@ -138,7 +171,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            if (_stopped)
+            if (_stopped || !PresentationEpochOpen)
                 return VolumeAdmission.Closed;
             if (sourceRevision != CurrentRevision())
                 return VolumeAdmission.Stale;
@@ -188,16 +221,62 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
+    /// <summary>Pins completed private geometry for bounded provider preparation.</summary>
+    public VolumeStreamingLease? TryAcquirePreparedGeometry(VolumeRendererAuthority renderer, ulong generation, out VolumeResources credits,
+        out long packingBytes)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        lock (_gate)
+        {
+            Refresh();
+            credits = default;
+            packingBytes = 0;
+            var entry = FindPresentationCandidate(generation);
+            if (!OwnsPresentation(renderer) || entry is null || entry == _active)
+                return null;
+            long meshBytes = 0;
+            foreach (var mesh in entry.Artifacts!.Meshes)
+                meshBytes += (long)mesh.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes;
+            credits = entry.Resources;
+            packingBytes = credits.CpuBytes - RequiredCpuBytes(entry.Selection, meshBytes);
+            return Acquire(entry);
+        }
+    }
+
+    /// <summary>Checks that a prepared or newly committed candidate still owns its view.</summary>
+    public bool IsCurrentPresentationCandidate(VolumePublicationInfo info)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            return FindPresentationCandidate(info.Generation)?.Info == info;
+        }
+    }
+
+    private VolumeGeneration? FindPresentationCandidate(ulong generation)
+    {
+        if (_stopped || !PresentationEpochOpen)
+            return null;
+        var entry = Array.Find(_entries, candidate => candidate?.Id == generation);
+        return entry is { Artifacts: not null, Outstanding: false, Cancelled: false, Retired: false } &&
+            entry.Kind != VolumeWorkClass.Speculative && entry.View == _view &&
+            (entry == _active ? IsCurrentRoot(entry) : entry.SourceRevision == CurrentRevision()) ? entry : null;
+    }
+
     /// <summary>Composes a terrain root at Core's sealed CommitResults boundary. Core finalizes it separately.</summary>
     public PreparedBarrierPublication? TryPreparePublication(ulong generation, CandidateSet candidates,
-        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState = null)
+        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState = null) =>
+        TryPreparePublication(generation, candidates, dispositions, composedState, null);
+
+    public PreparedBarrierPublication? TryPreparePublication(ulong generation, CandidateSet candidates,
+        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState, VolumeRendererAuthority? renderer)
     {
         ArgumentNullException.ThrowIfNull(candidates);
         lock (_gate)
         {
             Refresh();
             var entry = Array.Find(_entries, e => e?.Id == generation);
-            if (_stopped || !_maskReady || _prepared is not null || entry is null || entry.Outstanding ||
+            if (_stopped || !PresentationEpochOpen || !OwnsPresentation(renderer) || !_maskReady || _prepared is not null || entry is null || entry.Outstanding ||
                 entry.Artifacts is null || entry.Cancelled || entry.Kind == VolumeWorkClass.Speculative ||
                 entry.View != _view || entry.SourceRevision != CurrentRevision() ||
                 _active is not null && entry.View.View <= _active.View.View ||
@@ -267,16 +346,88 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            if (_stopped || _active is not { } active || active.Id != generation || active.View != view || view != _view ||
-                frame <= _lastFrame || !HasJournalSpace())
+            if (_active is not { } active || active.Id != generation || active.View != view ||
+                !CanRegisterFrame(active, frame, null))
                 return null;
             var lease = Acquire(active);
-            if (lease is null)
+            return lease is null ? null : RegisterFrame(active, frame, lease);
+        }
+    }
+
+    /// <summary>Transfers the provider's private reader into its committed frame without another reader credit.</summary>
+    public VolumeFrameRegistration? TryRegisterPreparedFrame(VolumeRendererAuthority renderer,
+        VolumeStreamingLease prepared, ulong frame)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(prepared);
+        return prepared.TransferToFrame(this, renderer, frame);
+    }
+
+    internal VolumeFrameRegistration? RegisterRetainedFrame(VolumeGeneration generation,
+        VolumeRendererAuthority renderer, ulong frame)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            if (!CanRegisterFrame(generation, frame, renderer))
                 return null;
-            var registration = new VolumeFrameRegistration(this, active, lease, frame);
-            _lastFrame = frame;
-            Record(VolumeEventKind.Registered, generation);
-            return registration;
+            return RegisterFrame(generation, frame, new VolumeStreamingLease(this, generation));
+        }
+    }
+
+    private bool CanRegisterFrame(VolumeGeneration generation, ulong frame, VolumeRendererAuthority? renderer) =>
+        !_stopped && PresentationEpochOpen && OwnsPresentation(renderer) && generation == _active &&
+        generation.View == _view && IsCurrentRoot(generation) && frame > _lastFrame && HasJournalSpace();
+
+    private VolumeFrameRegistration RegisterFrame(VolumeGeneration generation, ulong frame, VolumeStreamingLease lease)
+    {
+        var registration = new VolumeFrameRegistration(this, generation, lease, frame);
+        _lastFrame = frame;
+        Record(VolumeEventKind.Registered, generation.Id);
+        return registration;
+    }
+
+    /// <summary>Rechecks a provider's retained registration at installation and submission.</summary>
+    public bool IsCurrentFrame(VolumeFrameRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        lock (_gate)
+        {
+            Refresh();
+            return !_stopped && PresentationEpochOpen && registration.Owner == this && !registration.Disposed &&
+                registration.Generation == _active && registration.Info.View == _view &&
+                IsCurrentRoot(registration.Generation);
+        }
+    }
+
+    /// <summary>Registers the exact camera frame against an already held generation before drawing it.</summary>
+    public bool AuthorizeCameraFrame(VolumeFrameRegistration registration, ulong sequence)
+    {
+        ArgumentNullException.ThrowIfNull(registration);
+        lock (_gate)
+        {
+            if (!IsCurrentFrame(registration) || !registration.Acknowledged || sequence < _lastFrame)
+                return false;
+            if (sequence == _lastFrame)
+                return registration.LastCameraFrame == sequence;
+            if (!Record(VolumeEventKind.Registered, registration.Info.Generation, frame: sequence))
+                return false;
+            _lastFrame = sequence;
+            registration.LastCameraFrame = sequence;
+            return true;
+        }
+    }
+
+    /// <summary>Closes admission for a renderer that can no longer present. A newer renderer is unaffected.</summary>
+    public void InvalidateRenderer(ulong epoch)
+    {
+        lock (_gate)
+        {
+            if (!_stopped && PresentationEpochOpen && _view.RendererEpoch == epoch)
+            {
+                ChangeView(_view.Frame, epoch);
+                _invalidRendererEpoch = epoch;
+            }
         }
     }
 
@@ -287,10 +438,11 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         lock (_gate)
         {
             Refresh();
-            if (_stopped || registration.Owner != this || registration.Disposed || registration.Acknowledged ||
-                registration.Generation != _active || registration.Info.View != _view ||
+            if (_stopped || !PresentationEpochOpen || registration.Owner != this || registration.Disposed || registration.Acknowledged ||
+                registration.Generation != _active || registration.Info.View != _view || !IsCurrentRoot(registration.Generation) ||
                 registration.Frame != _lastFrame || !Record(VolumeEventKind.Accepted, registration.Info.Generation))
                 return false;
+            registration.AcknowledgedTick = _world.Publication.Committed.Read().Stamp.Tick;
             registration.Acknowledged = true;
             _accepted = registration;
             return true;
@@ -304,7 +456,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             Refresh();
             if (_stopped || stamp.Kind != BarrierKind.BeginTick || stamp != _world.Publication.Committed.Read().Stamp ||
-                _accepted is not { } accepted || accepted.Generation != _active || accepted.Info.View != _view ||
+                _accepted is not { } accepted || stamp.Tick <= accepted.AcknowledgedTick || accepted.Generation != _active || accepted.Info.View != _view || !IsCurrentRoot(accepted.Generation) ||
                 !Record(VolumeEventKind.Opened, accepted.Info.Generation))
                 return false;
             _movementOpen = true;
@@ -463,13 +615,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     }
 
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
-        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null)
+        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null, ulong? frame = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, _lastFrame, movement);
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement);
         _journalPermits[index] = permit;
         return true;
     }
@@ -518,8 +670,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private void Release(VolumeGeneration entry)
     {
-        if (entry.Released || entry.Outstanding || entry.Readers != 0)
+        if (entry.Released || entry.Outstanding)
             return;
+        if (entry.Readers != 0)
+        {
+            entry.Retired = true;
+            return;
+        }
         entry.Artifacts?.Dispose();
         entry.Artifacts = null;
         entry.Released = true;

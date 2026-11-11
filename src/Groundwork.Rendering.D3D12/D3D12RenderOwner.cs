@@ -87,6 +87,7 @@ public sealed partial class D3D12Renderer
         RenderFrame? current = null;
         var redraw = false;
         var pendingRetirement = false;
+        RenderFrame? volumePresented = null;
         var occluded = false;
         var lastProbe = 0L;
 
@@ -111,7 +112,15 @@ public sealed partial class D3D12Renderer
                 pendingRetirement = false;
                 if (ShouldStop(target))
                     break;
+                if (volumePresented is { } retired)
+                {
+                    RecordRetiredVolumeFrame(retired);
+                    volumePresented = null;
+                }
             }
+
+            if (!ServiceVolumeStage(gpu, watchdog, ref stage))
+                break;
 
             if (!IsDrawable(snapshot))
             {
@@ -203,6 +212,12 @@ public sealed partial class D3D12Renderer
                 continue;
             }
 
+            if (!CanDrawVolume(frame))
+            {
+                redraw = false;
+                continue;
+            }
+
             if (!chain!.CanBeginFrame())
             {
                 _wake!.WaitOne(ProgressPollMilliseconds);
@@ -230,7 +245,9 @@ public sealed partial class D3D12Renderer
                 break;
             if (result == PresentResult.Presented)
             {
-                if (frame.Scene.HasValue && _admission.MeshRegionReplacement is { } meshAdmission)
+                if (_volume is not null)
+                    volumePresented = frame;
+                else if (frame.Scene.HasValue && _admission.MeshRegionReplacement is { } meshAdmission)
                     meshAdmission.RecordPresented(frame.Sequence, meshAdmission.ReadMeshReplacement().InstalledGeneration);
                 else
                     _admission.RecordPresented(frame.Sequence);
@@ -253,8 +270,11 @@ public sealed partial class D3D12Renderer
     {
         GpuDevice.MeshGeometry? prepared = null;
         var retry = false;
+        var installed = false;
         try
         {
+            if (!CanInstallVolume(candidate.Generation))
+                return false;
             using var operation = TryBegin(target);
             if (operation is null || !Matches(operation.Snapshot, chain) ||
                 !CanCommitMesh(target, operation.Snapshot, watchdog))
@@ -268,21 +288,25 @@ public sealed partial class D3D12Renderer
             if (!gpu.IsIdle)
                 throw new InvalidOperationException("Cannot replace geometry before GPU retirement.");
 
-            prepared = gpu.PrepareMeshGeometry(candidate.Region);
+            prepared = _volume is null ? gpu.PrepareMeshGeometry(candidate.Region) : GetVolumeNativeCandidate(candidate.Generation);
+            if (prepared is null)
+                return false;
             _beforeMeshInstallation?.Invoke(gpu);
-            var installed = meshes.TryInstall<GpuDevice.MeshGeometry?>(candidate, ref gpu.ActiveMeshGeometry, ref prepared,
-                () => CanCommitMesh(target, operation.Snapshot, watchdog));
+            installed = meshes.TryInstall<GpuDevice.MeshGeometry?>(candidate, ref gpu.ActiveMeshGeometry, ref prepared,
+                () => CanCommitMesh(target, operation.Snapshot, watchdog) && CanInstallVolume(candidate.Generation));
             if (installed)
                 _afterMeshInstallation?.Invoke();
-            retry = !installed;
+            retry = !installed && CanInstallVolume(candidate.Generation);
             return installed;
         }
         finally
         {
             // On success this is the retired old handle. Otherwise this is
             // private, unsubmitted geometry. Neither needs a new queue signal.
-            prepared?.Dispose();
+            if (_volume is null || installed)
+                prepared?.Dispose();
             meshes.ReleaseCandidate(candidate, retry);
+            SettleVolumeCandidate(candidate.Generation, installed, retry);
         }
     }
 
@@ -325,7 +349,9 @@ public sealed partial class D3D12Renderer
             watchdog.Dispose();
             chain?.Dispose();
             target?.Dispose();
+            ReleasePrivateVolumeCustody();
             gpu?.Dispose();
+            ReleaseVolumeCustody();
             if (gpu?.FinalDebugSummary is { } debugMessages)
                 Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
             lifetime?.Dispose();
@@ -367,7 +393,7 @@ public sealed partial class D3D12Renderer
     {
         using var operation = TryBegin(target);
         return operation is not null && Matches(operation.Snapshot, chain) && watchdog.TryAdvance(RendererStage.Submit) &&
-            gpu.TryRender(chain.CurrentBuffer, frame);
+            AuthorizeVolumeDraw(frame) && gpu.TryRender(chain.CurrentBuffer, frame);
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,

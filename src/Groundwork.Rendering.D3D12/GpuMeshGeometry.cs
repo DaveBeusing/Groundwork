@@ -17,10 +17,10 @@ internal sealed unsafe partial class GpuDevice
     internal MeshGeometry PrepareMeshGeometry(RenderMeshPair meshes) =>
         PrepareMeshGeometry([meshes.First, meshes.Second]);
 
-    internal MeshGeometry PrepareMeshGeometry(RenderMeshRegion region) =>
-        PrepareMeshGeometry(region.Instances);
+    internal MeshGeometry PrepareMeshGeometry(RenderMeshRegion region, long nativeLimit = long.MaxValue) =>
+        PrepareMeshGeometry(region.Instances, nativeLimit);
 
-    private MeshGeometry PrepareMeshGeometry(ReadOnlySpan<RenderMeshInstance> meshes)
+    private MeshGeometry PrepareMeshGeometry(ReadOnlySpan<RenderMeshInstance> meshes, long nativeLimit = long.MaxValue)
     {
         var bytes = 0;
         foreach (ref readonly var instance in meshes)
@@ -35,7 +35,7 @@ internal sealed unsafe partial class GpuDevice
         // Query the native allocation, which includes the device's buffer alignment.
         var description = Buffer((ulong)bytes);
         var allocation = _device->GetResourceAllocationInfo(1, 1, &description);
-        if (allocation.SizeInBytes < (ulong)bytes || allocation.SizeInBytes > (ulong)(MaximumNativeMeshBytes - LiveMeshBytes))
+        if (allocation.SizeInBytes < (ulong)bytes || allocation.SizeInBytes > (ulong)Math.Min(nativeLimit, MaximumNativeMeshBytes - LiveMeshBytes))
             throw new InvalidOperationException("The prepared mesh exceeds the native geometry budget.");
 
         var allocationBytes = (long)allocation.SizeInBytes;

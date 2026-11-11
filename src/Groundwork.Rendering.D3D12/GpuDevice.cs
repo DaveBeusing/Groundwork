@@ -151,6 +151,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal ulong BeginQueueWork() => _retirement.BeginSubmission();
 
+    internal int? InjectedPresentFailure() => _retirementHooks?.PresentFailure?.Invoke(this);
+
     internal HRESULT SignalQueueWork(ulong value)
     {
         if (_retirementHooks?.SignalFailure?.Invoke(this, value) is int failure)
