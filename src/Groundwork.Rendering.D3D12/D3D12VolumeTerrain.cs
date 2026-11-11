@@ -348,6 +348,7 @@ public sealed partial class D3D12Renderer
         stage = RendererStage.MeshReplacement;
         if (!watchdog.Begin(stage, null, _operationTimeout))
             return false;
+        _retirementHooks?.BeforeVolumeUpload?.Invoke(gpu);
         var prepared = gpu.PrepareMeshGeometry(candidate.Region, candidate.NativeLimit);
         if (!watchdog.Complete())
         {

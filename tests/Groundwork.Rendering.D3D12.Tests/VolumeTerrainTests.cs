@@ -473,6 +473,13 @@ public sealed partial class PresentationSmokeTests
             Terrain = _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
         }
 
+        internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut)
+        {
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(kind, _selection, sourceRevision,
+                targetRevision, MeshBytes, _unit, new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+            Assert.IsNotNull(work);
+            return work;
+        }
         internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection,

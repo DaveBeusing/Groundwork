@@ -5,4 +5,5 @@ namespace Groundwork.Rendering.D3D12;
 internal sealed record GpuRetirementTestHooks(
     Func<GpuDevice, ulong, int?>? SignalFailure = null,
     Func<GpuDevice, ulong, ulong>? CompletedValue = null,
-    Func<GpuDevice, int?>? PresentFailure = null);
+    Func<GpuDevice, int?>? PresentFailure = null,
+    Action<GpuDevice>? BeforeVolumeUpload = null);

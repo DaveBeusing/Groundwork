@@ -68,6 +68,7 @@ try {
         '../../src/Groundwork.Jobs/Groundwork.Jobs.csproj'
     )
     $approvedTests['tests/Groundwork.Voxels.Tests/Groundwork.Voxels.Tests.csproj'] += @('../../src/Groundwork.Jobs/Groundwork.Jobs.csproj')
+    $approvedTests['tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj'] += @('../../src/Groundwork.Jobs/Groundwork.Jobs.csproj')
     Assert-True ($testPaths -contains 'tests/Groundwork.Core.Tests/Groundwork.Core.Tests.csproj') 'Core tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.Tests/Groundwork.Rendering.Tests.csproj') 'Rendering tests are missing from the solution.'
     Assert-True ($testPaths -contains 'tests/Groundwork.Rendering.D3D12.Tests/Groundwork.Rendering.D3D12.Tests.csproj') 'D3D12 tests are missing from the solution.'
