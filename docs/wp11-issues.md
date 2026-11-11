@@ -1,6 +1,6 @@
 # WP11 implementation issue map
 
-**Status: implementation in progress.** The contract was accepted and merged in [PR #77](https://github.com/DaveBeusing/Groundwork/pull/77), and C00 (#78) is closed. A01–A03, B01 and C01 are merged via PRs #91–#95. C02 (#84) is the next implementation; see [collision and movement](../src/Groundwork.Voxels/VolumeCollision.md). Later packages remain planned until their dependencies and scoped gates pass. The [contract](architecture/wp11-procedural-planet-contract.md) holds requirements R01–R09 and milestone acceptance gates.
+**Status: workstation integration verified.** The contract and C00 are complete. Groundwork A01â€“A03, B01, C01â€“C03 and D01â€“D02 and WYU W01â€“W05 are merged. The [workstation handover](wp11-handover.md) records the exact inputs and tests. Q01, Q02 and G00 remain open through reference qualification and owner acceptance.
 
 **Breaking-change decision:** Old radial-only code APIs, 64 m prototype, incompatible checkpoint formats and obsolete tests **may be replaced rather than adapted**. New tests must cover the relevant correctness and safety invariants. Old unsupported saves are explicitly identified and preserved, with no silent overwrite or automatic migration.
 
