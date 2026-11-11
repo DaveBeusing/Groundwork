@@ -105,7 +105,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     }
 
     // Version 1 value noise interpolates X, then Y, then Z with Euclidean grid coordinates.
-    private int Noise(LatticeCoordinate vertex, int scale, ulong stream)
+    internal int Noise(LatticeCoordinate vertex, int scale, ulong stream)
     {
         var (x, dx) = Grid(vertex.X, scale);
         var (y, dy) = Grid(vertex.Y, scale);
@@ -132,7 +132,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     }
 
     // SplitMix64 increment and finalizer, with intentional modulo-2^64 arithmetic.
-    private static ulong Mix(ulong value)
+    internal static ulong Mix(ulong value)
     {
         unchecked
         {
@@ -143,7 +143,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         }
     }
 
-    private static (long Index, long Remainder) Grid(long axis, int scale)
+    internal static (long Index, long Remainder) Grid(long axis, int scale)
     {
         var (index, remainder) = Math.DivRem(axis, scale);
         return remainder < 0 ? (index - 1, remainder + scale) : (index, remainder);
@@ -152,7 +152,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     private static long Interpolate(long a, long b, long weight, int scale) =>
         RoundDivide(a * (scale - weight) + b * weight, scale);
 
-    private static long RoundDivide(long numerator, int denominator)
+    internal static long RoundDivide(long numerator, int denominator)
     {
         var (quotient, remainder) = Math.DivRem(numerator, denominator);
         var twice = 2 * Math.Abs(remainder);
@@ -163,7 +163,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
 
     private static UInt128 Square(long axis) => (UInt128)((Int128)axis * axis);
 
-    private static long NearestSquareRoot(UInt128 squared)
+    internal static long NearestSquareRoot(UInt128 squared)
     {
         if (squared == 0)
             return 0;
