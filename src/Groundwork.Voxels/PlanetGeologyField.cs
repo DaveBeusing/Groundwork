@@ -17,6 +17,7 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
     private static readonly LatticeCoordinate Hub = new(HalfEdge, HalfEdge, HalfEdge);
     private readonly PlanetDensityField _landform;
     private readonly PlanetGeologyRecipe _recipe;
+    private readonly long _portalDepthMargin;
 
     public PlanetGeologyField(PlanetDescriptor descriptor, PlanetGeologyRecipe recipe)
     {
@@ -29,6 +30,7 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
 
         Descriptor = descriptor;
         _recipe = recipe;
+        _portalDepthMargin = PortalDepthMargin(recipe.Landform);
         _landform = new PlanetDensityField(new PlanetDescriptor(descriptor.WorldId, descriptor.PlanetId,
             descriptor.Seed, PlanetDensityField.GeneratorVersion, descriptor.TerrainSchemaVersion,
             descriptor.MaterialCatalogVersion, recipe.Landform.ParameterSha256, descriptor.RadiusMeters,
@@ -112,7 +114,35 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
         var distance = Math.Min(DistanceSquared(local, face, approach), DistanceSquared(local, approach, turn));
         distance = Math.Min(distance, DistanceSquared(local, turn, spine));
         distance = Math.Min(distance, DistanceSquared(local, spine, Hub));
+        if (distance >= (PassageRadius + Fade / Unit) * (PassageRadius + Fade / Unit))
+            return baseline;
+
+        // Both halves make the same admission decision before carving their paths.
+        var centre = new LatticeCoordinate(key.X * CellEdge + face.X, key.Y * CellEdge + face.Y,
+            key.Z * CellEdge + face.Z);
+        var depth = -_landform.SampleDensity(centre);
+        if (depth < (long)_recipe.MinimumCaveDepth * Unit + _portalDepthMargin ||
+            depth > (long)_recipe.MaximumCaveDepth * Unit - _portalDepthMargin)
+            return baseline;
         return Blend(baseline, distance, PassageRadius, depthWeight);
+    }
+
+    private static long PortalDepthMargin(PlanetLandformRecipe recipe)
+    {
+        // Bound the base field throughout a four-cell box around the common face point.
+        // Its radial displacement is below seven cells. Trilinear noise changes by at
+        // most its corner range times Manhattan displacement / scale, plus rounding.
+        return Fade + 7 * Unit + 1 +
+            ScaledChange((long)recipe.HighElevation - recipe.LowElevation, recipe.ContinentScaleCells, 65535) +
+            ScaledChange(recipe.Mountains.Amplitude, recipe.Mountains.ScaleCells, 32768) +
+            ScaledChange(recipe.Valleys.Amplitude, recipe.Valleys.ScaleCells, 32768) +
+            ScaledChange(recipe.Detail.Amplitude, recipe.Detail.ScaleCells, 32768);
+
+        static long ScaledChange(long amplitude, int scale, int divisor)
+        {
+            var noiseChange = Math.Min(65535, (65535L * 12 + scale - 1) / scale + 3);
+            return amplitude == 0 ? 0 : (amplitude * noiseChange + divisor - 1) / divisor + 1;
+        }
     }
 
     private static long Blend(long baseline, long squared, int radius, long depthWeight)

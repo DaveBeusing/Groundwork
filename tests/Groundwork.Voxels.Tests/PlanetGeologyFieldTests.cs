@@ -17,9 +17,9 @@ public sealed class PlanetGeologyFieldTests
         var recipe = Recipe(shaftChance: 32768);
         (ulong Seed, double Radius, LatticeBrick Brick, string Hash)[] fixtures =
         [
-            (0, 96, new(-2, 0, 0), "588854EB35C4E44A729D34DBEB21227AE3D03E2FF1CD5EFCED249045CFF1D66A"),
+            (0, 96, new(-2, 0, 0), "20B1874C340408A1110782FE457DD01CFB97C5C0E503D64A4FFA9C2E51A227A6"),
             (42, 170, new(2, -2, 0), "C790D73556F922CAC1ACA28C36B407362F6F755A57ECCD5DC4DAF0866E840362"),
-            (ulong.MaxValue, PlanetDescriptor.MaximumRadiusMeters, new(199996, -2, 0), "35D7CB770F87D91E0EACD93B525C2797DEF4AEC0FC2F0DC489D7D773B94DC45D"),
+            (ulong.MaxValue, PlanetDescriptor.MaximumRadiusMeters, new(199996, -2, 0), "3B9B9B94275526C97C88375BDA116DF66849E171280010E31A35A3B2C9D13E96"),
         ];
         var actual = new List<string>();
         foreach (var fixture in fixtures)
@@ -75,6 +75,21 @@ public sealed class PlanetGeologyFieldTests
                 point = Offset(Offset(point, (axis + 1) % 3, a), (axis + 2) % 3, b);
                 Assert.IsGreaterThan(0L, field.SampleDensity(point), $"Blocked aperture at {point}.");
             }
+        }
+    }
+
+    [TestMethod]
+    public void SharedPortalClosesBothApproachesWhenTheDepthFadeWouldBlockTheAperture()
+    {
+        var recipe = Recipe();
+        var field = new PlanetGeologyField(Describe(recipe, 42, 188), recipe);
+        var closedRecipe = Recipe(portalChance: 0);
+        var closed = new PlanetGeologyField(Describe(closedRecipe, 42, 188), closedRecipe);
+        for (var x = 59; x <= 69; x++)
+        {
+            var point = new LatticeCoordinate(x, 33, 26);
+            Assert.AreEqual(closed.SampleDensity(point), field.SampleDensity(point));
+            Assert.IsLessThan(0L, field.SampleDensity(point));
         }
     }
 
