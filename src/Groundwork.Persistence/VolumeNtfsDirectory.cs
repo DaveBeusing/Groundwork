@@ -44,7 +44,7 @@ internal sealed partial class VolumeNtfsDirectory : IDisposable
     {
         var access = candidate ? 0xC0010000u : lease ? 0xC0000000u : 0x80000000u;
         var handle = Open(path, access, candidate || lease ? 0u : 1u, candidate ? 1u : lease ? 4u : 3u,
-            OpenReparsePoint);
+            OpenReparsePoint | BackupSemantics);
         try
         {
             Verify(handle, directory: false);

@@ -6,10 +6,12 @@ namespace Groundwork.Voxels;
 public sealed partial class VolumeStreamingCoordinator
 {
     public const int MaximumEditsPerTick = 32;
+    public const int MaximumOverlaySamples = 65_536;
     public const int MaximumBrushAxis = 16;
     private readonly IPlanetBrickSource? _editBaseline;
-    private readonly VolumeEditOverlay? _initialOverlay;
+    private VolumeEditOverlay? _initialOverlay;
     private readonly ulong _initialTerrainRevision = 1;
+    private readonly PlanetWalkState? _initialPlayer;
     private readonly int _overlayLimit;
     private readonly EditSlot[]? _edits;
     private int _editCount;
@@ -30,26 +32,59 @@ public sealed partial class VolumeStreamingCoordinator
         _edits = new EditSlot[MaximumEditsPerTick];
     }
 
+    private VolumeResources _startupOverlayCharge;
+
     /// <summary>Restores the sparse overlay before admitting the first terrain publication.</summary>
     public VolumeStreamingCoordinator(WorldSafetyPorts world, IPlanetBrickSource baseline, VolumeStreamingLimits limits,
-        int maximumOverlaySamples, ulong restoredTerrainRevision, ReadOnlySpan<byte> overlay,
-        Func<ushort, bool> supportsMaterial)
-        : this(world, ValidateEditConfiguration(baseline, maximumOverlaySamples), limits)
+        int maximumOverlaySamples, PlanetDescriptor checkpointPlanet, ulong restoredTerrainRevision, ReadOnlySpan<byte> overlay,
+        Func<ushort, bool> supportsMaterial, PlanetWalkState? restoredPlayer = null)
+        : this(world, baseline, limits, maximumOverlaySamples, restoredTerrainRevision, restoredPlayer,
+            ReadInitialOverlay(baseline, limits, maximumOverlaySamples, checkpointPlanet, restoredTerrainRevision, overlay, supportsMaterial))
     {
-        ArgumentOutOfRangeException.ThrowIfZero(restoredTerrainRevision);
-        ArgumentNullException.ThrowIfNull(supportsMaterial);
-        _editBaseline = baseline;
-        _initialOverlay = VolumeEditOverlay.Restore(baseline, maximumOverlaySamples, overlay, supportsMaterial);
-        _initialTerrainRevision = restoredTerrainRevision;
-        _overlayLimit = maximumOverlaySamples;
-        _edits = new EditSlot[MaximumEditsPerTick];
     }
 
+    private VolumeStreamingCoordinator(WorldSafetyPorts world, IPlanetBrickSource baseline, VolumeStreamingLimits limits,
+        int maximumOverlaySamples, ulong restoredTerrainRevision, PlanetWalkState? restoredPlayer, VolumeEditOverlay overlay)
+        : this(world, baseline.Descriptor, limits)
+    {
+        _editBaseline = baseline;
+        _initialOverlay = overlay;
+        _initialTerrainRevision = restoredTerrainRevision;
+        _initialPlayer = restoredPlayer;
+        _overlayLimit = maximumOverlaySamples;
+        _edits = new EditSlot[MaximumEditsPerTick];
+        _startupOverlayCharge = InitialOverlayCharge(overlay.Count);
+        _used[(int)VolumeWorkClass.Baseline] += _startupOverlayCharge;
+        UpdatePeak();
+    }
+
+    private static VolumeEditOverlay ReadInitialOverlay(IPlanetBrickSource baseline, VolumeStreamingLimits limits,
+        int maximumOverlaySamples, PlanetDescriptor checkpointPlanet, ulong revision, ReadOnlySpan<byte> bytes,
+        Func<ushort, bool> supportsMaterial)
+    {
+        if (checkpointPlanet != ValidateEditConfiguration(baseline, maximumOverlaySamples))
+            throw new InvalidDataException("The restored checkpoint belongs to a different generator lineage.");
+        ArgumentOutOfRangeException.ThrowIfZero(revision);
+        ArgumentNullException.ThrowIfNull(limits);
+        ArgumentNullException.ThrowIfNull(supportsMaterial);
+        if (!InitialOverlayCharge(bytes.Length / 32).Fits(limits.Envelope(VolumeWorkClass.Baseline)))
+            throw new InvalidDataException("Restored overlay exceeds baseline custody.");
+        return VolumeEditOverlay.Restore(baseline, maximumOverlaySamples, bytes, supportsMaterial);
+    }
+
+    private static VolumeResources InitialOverlayCharge(int rows) => new(32L * rows, 0, 0, 0, 0, 0, 0, 0, 0);
+
+    private void ReleaseInitialOverlay()
+    {
+        _initialOverlay = null;
+        _used[(int)VolumeWorkClass.Baseline] -= _startupOverlayCharge;
+        _startupOverlayCharge = default;
+    }
     private static PlanetDescriptor ValidateEditConfiguration(IPlanetBrickSource baseline, int limit)
     {
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
-        ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, 262144);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumOverlaySamples);
         return baseline.Descriptor;
     }
 

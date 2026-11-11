@@ -82,7 +82,7 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
             if (!InRange(key.X) || !InRange(key.Y) || !InRange(key.Z) ||
                 i > 0 && Compare(rows[i - 1].Key, key) >= 0)
                 throw new InvalidDataException("Invalid overlay sample key.");
-            if (supportsMaterial is null ? value == baseline.SampleDensity(key) :
+            if (supportsMaterial is null ? value is not (-128 or 128) || value == baseline.SampleDensity(key) :
                 value is < 1 or > ushort.MaxValue || !supportsMaterial((ushort)value) || value == baseline.SampleMaterial(key))
                 throw new InvalidDataException("Invalid overlay sample value.");
             rows[i] = new Row(key, value);

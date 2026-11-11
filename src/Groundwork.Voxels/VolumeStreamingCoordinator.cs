@@ -342,7 +342,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (current is VolumeWorldRoot foreign && foreign.Owner != this)
                 return null;
             var state = composedState ?? (current is VolumeWorldRoot volume ? volume.State : current);
-            var player = (current as VolumeWorldRoot)?.Player;
+            var player = current is VolumeWorldRoot previousRoot ? previousRoot.Player : _initialPlayer;
             if (player is { } pose && VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
                 return null;
             var root = new VolumeWorldRoot(state, this, entry, player);
@@ -388,12 +388,23 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             Refresh();
             var stamp = _world.Publication.Committed.Read().Stamp;
-            if (_stopped || _editBaseline is null || _checkpoint is not null ||
-                stamp.Tick != tick || stamp.Kind != BarrierKind.BeginTick ||
-                _readers == _limits.Readers ||
-                !ReaderCharge.Fits(_limits.Envelope(VolumeWorkClass.Baseline) - _used[(int)VolumeWorkClass.Baseline]))
+            if (_stopped || _editBaseline is null)
                 return null;
-            _checkpoint = new VolumeCheckpointReservation(this, tick);
+            if (_checkpoint is not null || stamp.Tick != tick || stamp.Kind != BarrierKind.BeginTick ||
+                _readers == _limits.Readers || _journalCount >= _journal.Length - 1 ||
+                _sequence >= ulong.MaxValue - 1 ||
+                !ReaderCharge.Fits(_limits.Envelope(VolumeWorkClass.Baseline) - _used[(int)VolumeWorkClass.Baseline]))
+            {
+                Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0, stamp: stamp);
+                return null;
+            }
+            var cut = _world.Publication.TryReserveCommitResultsCut(tick);
+            if (cut is null)
+            {
+                Record(VolumeEventKind.CheckpointDenied, _active?.Id ?? 0, stamp: stamp);
+                return null;
+            }
+            Record(VolumeEventKind.CheckpointReserved, _active?.Id ?? 0, stamp: stamp);            _checkpoint = new VolumeCheckpointReservation(this, cut);
             _readers++;
             _used[(int)VolumeWorkClass.Baseline] += ReaderCharge;
             UpdatePeak();
@@ -409,20 +420,27 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (_checkpoint != reservation)
                 return null;
             Refresh();
-            cut = _world.Publication.Committed.Read();
-            if (!_stopped && cut.Stamp.Kind == BarrierKind.CommitResults && cut.Stamp.Tick == reservation.Tick &&
-                _active is { } active && active.Permit?.Status == RootChangeStatus.Committed &&
-                active.Overlay is not null && cut.Root is VolumeWorldRoot root && root.Generation == active)
-            {
-                _checkpoint = null;
-                active.Readers++;
-                reservation.Lease.Attach(active);
-                return reservation.Lease;
-            }
-            return null;
+            if (reservation.Bound is not { } captured)
+                return null;
+            cut = captured;
+            _checkpoint = null;
+            return reservation.Lease;
         }
     }
 
+    private void BindCheckpoint()
+    {
+        if (_checkpoint is not { Bound: null } reservation ||
+            reservation.Cut.Read() is not { Root: VolumeWorldRoot root } captured ||
+            root.Owner != this || root.Generation is not { Overlay: not null } entry)
+            return;
+        entry.Readers++;
+        reservation.Lease.Attach(entry);
+        reservation.Bound = captured;
+        Record(VolumeEventKind.CheckpointCaptured, entry.Id, view: entry.View,
+            terrainRevision: entry.TargetRevision, stamp: captured.Stamp);
+        reservation.Cut.Release();
+    }
     internal void CancelCheckpoint(VolumeCheckpointReservation reservation)
     {
         lock (_gate)
@@ -430,6 +448,12 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (_checkpoint != reservation)
                 return;
             _checkpoint = null;
+            reservation.Cut.Release();
+            if (reservation.Bound is not null)
+            {
+                reservation.Lease.Dispose();
+                return;
+            }
             _readers--;
             _used[(int)VolumeWorkClass.Baseline] -= ReaderCharge;
         }
@@ -663,6 +687,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private void Refresh()
     {
+        BindCheckpoint();
         if (!_stopped && (_world.State.Read().Conditions & SafetyCondition.TerminalStop) != 0)
         {
             StopInternal();
@@ -678,6 +703,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             var old = _active;
             _active = entry;
+            ReleaseInitialOverlay();
             if (entry.Edit is { } edit)
                 ResolveEdit(edit, VolumeEditStatus.Committed, permit.CommittedStamp);
             if (old is not null)
@@ -718,7 +744,8 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private bool HasJournalSpace()
     {
-        if (_journalCount < _journal.Length && _sequence != ulong.MaxValue)
+        var reserved = _checkpoint is { Bound: null } ? 1 : 0;
+        if (_journalCount < _journal.Length - reserved && _sequence < ulong.MaxValue - (ulong)reserved)
             return true;
         StopInternal();
         return false;
@@ -752,8 +779,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private void StopInternal()
     {
-        if (_checkpoint is { } checkpoint)
-            CancelCheckpoint(checkpoint);
+        BindCheckpoint();
         if (_stopped)
             return;
         _movementPermit?.Revoke();
@@ -770,7 +796,10 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             entry.Cancelled = true;
         }
         Refresh();
+        if (_checkpoint is { Bound: null } checkpoint)
+            CancelCheckpoint(checkpoint);
         RejectUnresolvedEditsOnStop();
+        ReleaseInitialOverlay();
         _terminalEvidence = new VolumeStreamingEvent(_sequence, VolumeEventKind.Stopped, _active?.Id ?? 0,
             _world.Publication.Committed.Read().Stamp, _view, CurrentRevision(), _lastFrame);
         foreach (var entry in _entries)

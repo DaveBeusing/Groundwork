@@ -88,7 +88,7 @@ internal sealed class WorldControl
 
     internal WorldControl(
         RuntimeSafetyAuthority runtime, WorldId world, ResourceQuota quota,
-        IBarrierSupervisorPolicy policy, IWorldStateRoot initialRoot, IJobScopePolicy scopePolicy)
+        IBarrierSupervisorPolicy policy, IWorldStateRoot initialRoot, IJobScopePolicy scopePolicy, ulong completedTick)
     {
         _runtime = runtime;
         _policy = policy;
@@ -97,7 +97,7 @@ internal sealed class WorldControl
         Ledger = new FaultLedger(runtime, world, quota.Diagnostics, StopWorld);
         _evidence = new FaultEvidencePort(Ledger);
         Ownership = new OwnershipScope(runtime, this, quota.OutstandingOperations);
-        Publication = new WorldPublicationAuthority(this, world, initialRoot, scopePolicy, quota.Jobs, runtime.Clock.Provider, Ownership);
+        Publication = new WorldPublicationAuthority(this, world, initialRoot, scopePolicy, quota.Jobs, runtime.Clock.Provider, Ownership, completedTick);
     }
 
     internal object Gate => _runtime.Gate;

@@ -18,6 +18,7 @@ public sealed class VolumeCheckpointSlot
     private const string First = "volume.a";
     private const string Second = "volume.b";
     private const string Intent = "volume.intent";
+    private const string Staging = "staging";
     private readonly string _directory;
     private readonly Guid _slot;
     private readonly Guid _lineage;
@@ -49,6 +50,7 @@ public sealed class VolumeCheckpointSlot
             VolumeNtfsDirectory.Reserve(_directory);
             using var reservedDirectory = new VolumeNtfsDirectory(_directory);
             using var lease = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, "volume.lock"), lease: true);
+            VolumeNtfsDirectory.Reserve(Path.Combine(_directory, Staging));
             using var marker = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, Reservation), candidate: true);
             marker.Write(ReservationBytes());
             marker.Flush(flushToDisk: true);
@@ -59,6 +61,17 @@ public sealed class VolumeCheckpointSlot
         Func<VolumeCheckpoint, SaveGameValidation> validate) =>
         new(existingV2Root, slot, lineage, planet, validate, reserved: true);
 
+    internal Guid SlotId => _slot;
+    internal Guid Lineage => _lineage;
+    internal PlanetDescriptor Planet => _planet;
+
+    /// <summary>Opens the host's writer after a validated disk scan. Use one writer per active slot.</summary>
+    public VolumeCheckpointWriter? OpenWriter(out VolumeSlotResult result)
+    {
+        result = Load();
+        return result.Status is VolumeSlotStatus.Empty or VolumeSlotStatus.Loaded
+            ? new VolumeCheckpointWriter(this, result.Checkpoint) : null;
+    }
     public VolumeSlotResult Load() => WithLease(_ => ReadSettled().Result);
 
     public VolumeSlotResult Save(VolumeCheckpoint checkpoint, CancellationToken cancellationToken = default) =>
@@ -89,15 +102,32 @@ public sealed class VolumeCheckpointSlot
             var validation = _validate(checkpoint);
             if (validation != SaveGameValidation.Valid)
                 return new(validation == SaveGameValidation.Unsupported ? VolumeSlotStatus.Incompatible : VolumeSlotStatus.InvalidCheckpoint);
+            using var staging = new VolumeNtfsDirectory(Path.Combine(_directory, Staging));
+            ClearStaging();
             return Publish(directory, scan, checkpoint, bytes, observe, token);
         });
     }
 
+    private void ClearStaging()
+    {
+        // This directory is reserved exclusively for protocol-owned private candidates.
+        // Validate each entry before cleanup; an unexpected entry fails the write closed.
+        foreach (var file in Directory.EnumerateFileSystemEntries(Path.Combine(_directory, Staging)))
+        {
+            var name = Path.GetFileName(file).AsSpan();
+            if ((!name.StartsWith("stage-", StringComparison.Ordinal) && !name.StartsWith("intent-", StringComparison.Ordinal)) ||
+                !name.EndsWith(".tmp", StringComparison.Ordinal) ||
+                !Guid.TryParseExact(name[(name.IndexOf('-') + 1)..^4], "N", out _))
+                throw new InvalidDataException("Unclassified entry in the checkpoint staging directory.");
+            using (VolumeNtfsDirectory.OpenFile(file)) { }
+            File.Delete(file);
+        }
+    }
     private VolumeSlotResult Publish(VolumeNtfsDirectory directory, SlotScan initial, VolumeCheckpoint checkpoint,
         byte[] bytes, Action<SaveWriteStage>? observe, CancellationToken token)
     {
         var target = checkpoint.Generation % 2 == 1 ? First : Second;
-        var pending = Path.Combine(_directory, $"stage-{Guid.NewGuid():N}.tmp");
+        var pending = Path.Combine(_directory, Staging, $"stage-{Guid.NewGuid():N}.tmp");
         var ownPending = false;
         var publishAttempted = false;
         try
@@ -127,7 +157,11 @@ public sealed class VolumeCheckpointSlot
                 var current = Scan();
                 if (!Same(initial.A, current.A) || !Same(initial.B, current.B))
                     return new(VolumeSlotStatus.Conflict);
-                WriteIntent(current, target, bytes);
+                WriteIntent(directory, current, target, bytes, observe);
+                token.ThrowIfCancellationRequested();
+                var beforeRename = Scan();
+                if (!Same(current.A, beforeRename.A) || !Same(current.B, beforeRename.B))
+                    return new(VolumeSlotStatus.Conflict);
                 publishAttempted = true;
                 directory.Publish(candidate, target, (target == First ? current.A : current.B).Bytes is not null);
                 ownPending = false;
@@ -191,7 +225,8 @@ public sealed class VolumeCheckpointSlot
         return scan;
     }
 
-    private void WriteIntent(SlotScan scan, string target, byte[] bytes)
+    private void WriteIntent(VolumeNtfsDirectory directory, SlotScan scan, string target, byte[] bytes,
+        Action<SaveWriteStage>? observe)
     {
         var marker = new byte[129];
         marker[0] = target == First ? (byte)1 : (byte)2;
@@ -199,9 +234,26 @@ public sealed class VolumeCheckpointSlot
         MemberDigest(scan.B).CopyTo(marker, 33);
         SHA256.HashData(bytes).CopyTo(marker, 65);
         SHA256.HashData(marker.AsSpan(0, 97), marker.AsSpan(97));
-        using var file = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, Intent), candidate: true);
-        file.Write(marker);
-        file.Flush(flushToDisk: true);
+        var pending = Path.Combine(_directory, Staging, $"intent-{Guid.NewGuid():N}.tmp");
+        var owned = false;
+        try
+        {
+            using var file = VolumeNtfsDirectory.OpenFile(pending, candidate: true);
+            owned = true;
+            file.Write(marker.AsSpan(0, 64));
+            observe?.Invoke(SaveWriteStage.PartialIntent);
+            file.Write(marker.AsSpan(64));
+            file.Flush(flushToDisk: true);
+            directory.Publish(file, Intent, replace: false);
+            owned = false;
+            observe?.Invoke(SaveWriteStage.AfterIntent);
+        }
+        finally
+        {
+            if (owned)
+                try { File.Delete(pending); }
+                catch (Exception error) when (StorageException(error)) { }
+        }
     }
 
     private static byte[] MemberDigest(Member member) =>

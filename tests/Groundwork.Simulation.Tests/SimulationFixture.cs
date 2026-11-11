@@ -10,7 +10,7 @@ internal sealed class SimulationFixture : IDisposable
     private readonly RuntimeSafetyAuthority _runtime;
     private readonly EngineModuleContext _context;
 
-    internal SimulationFixture(long frequency, SimulationOptions? options = null)
+    internal SimulationFixture(long frequency, SimulationOptions? options = null, ulong completedTick = 0)
     {
         Clock = new SyntheticClock(frequency);
         var budget = new ProcessResourceBudget(new ProcessResourceLimits(1, Quota));
@@ -20,7 +20,7 @@ internal sealed class SimulationFixture : IDisposable
         var timing = new RuntimeTimingLimits(duration, duration, duration);
         _runtime = RuntimeSafetyAuthority.Create(Clock, timing, reservation);
         _context = new EngineModuleContext(Clock, timing, Faults, _runtime.StopControl);
-        Driver = CreateDriver(options);
+        Driver = new(_context, Input, Pipeline, Safety, Wake, options, faultWorld: null, completedTick);
     }
 
     internal SyntheticClock Clock { get; }

@@ -6,6 +6,21 @@ namespace Groundwork.Simulation.Tests;
 public sealed class FixedStepSimulationTests
 {
     [TestMethod]
+    public async Task RestoredTickContinuesCadenceWithAFreshClockOrigin()
+    {
+        using var run = new SimulationFixture(60000, completedTick: 20);
+        run.Clock.Timestamp = 123_000;
+        var initial = await run.AdvanceAsync();
+        Assert.AreEqual(20UL, initial.CompletedTick);
+        Assert.AreEqual(0, initial.AppliedSteps);
+        Assert.AreEqual(Int128.Zero, initial.RemainingScaledTime);
+        run.Clock.Timestamp += 1000;
+        var first = await run.AdvanceAsync();
+        Assert.AreEqual(21UL, first.CompletedTick);
+        Assert.AreEqual(1, first.AppliedSteps);
+        Assert.HasCount(1, run.Pipeline.Calls.Where(call => call.Tick == 21 && call.Phase == TickPhase.Gameplay));
+    }
+    [TestMethod]
     public async Task OddClockFrequencyAndJitterProduceExactlySixtyTicksAndTwentyGameplaySteps()
     {
         using var run = new SimulationFixture(1001);

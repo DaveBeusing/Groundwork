@@ -4,7 +4,7 @@ namespace Groundwork.Voxels;
 
 public readonly record struct VolumeViewIdentity(ulong RendererEpoch, ulong View, PlanetLocalFrame Frame);
 public enum VolumeAdmission { Accepted, Backpressure, Stale, Closed, Invalid }
-public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected, EditQueued, EditRejected, NativeReady }
+public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected, EditQueued, EditRejected, NativeReady, CheckpointReserved, CheckpointDenied, CheckpointCaptured }
 public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result);
 public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKind Kind, ulong Generation, BarrierStamp? Stamp,
     VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null);
@@ -219,15 +219,16 @@ public sealed class VolumeCheckpointReservation : IDisposable
 {
     private readonly VolumeStreamingCoordinator _owner;
 
-    internal VolumeCheckpointReservation(VolumeStreamingCoordinator owner, ulong tick)
+    internal VolumeCheckpointReservation(VolumeStreamingCoordinator owner, CommittedCut cut)
     {
         _owner = owner;
-        Tick = tick;
+        Cut = cut;
         Lease = new VolumeStreamingLease(owner);
     }
 
     internal VolumeStreamingLease Lease { get; }
-    public ulong Tick { get; }
+    internal CommittedCut Cut { get; }
+    internal CommittedWorldView? Bound { get; set; }
 
     /// <summary>Takes the finalized cut before the next tick, for transfer to the save worker.</summary>
     public VolumeCheckpointCut? TryTake() => _owner.TakeCheckpoint(this, out var publication) is { } terrain

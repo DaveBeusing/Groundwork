@@ -33,7 +33,7 @@ internal sealed partial class WorldPublicationAuthority
     private long _resultBytes;
 
     internal WorldPublicationAuthority(WorldControl control, WorldId world, IWorldStateRoot initialRoot,
-        IJobScopePolicy policy, JobQuota quota, TimeProvider clock, IRuntimeOwnership ownership)
+        IJobScopePolicy policy, JobQuota quota, TimeProvider clock, IRuntimeOwnership ownership, ulong completedTick)
     {
         _control = control;
         _policy = policy;
@@ -41,7 +41,7 @@ internal sealed partial class WorldPublicationAuthority
         _clock = clock;
         _ownership = ownership;
         _root = initialRoot;
-        _stamp = new BarrierStamp(world, 0, 0, 0, 0);
+        _stamp = new BarrierStamp(world, completedTick, 0, 0, 0);
         Ports = new WorldPublicationPorts(this);
     }
 

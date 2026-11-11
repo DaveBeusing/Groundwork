@@ -54,6 +54,7 @@ public sealed class VolumeEditTests
         Assert.AreEqual(2, after.Raycast(new(0, 0, -5), new(0, 0, 5), hits).Count);
         Assert.AreEqual(cut, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).CommittedEdit);
         var bytes = Overlay(after);
+        await run.Begin(); // The finalized cut remains retained after a later tick opens.
         using var post = postCapture;
         Assert.IsNotNull(post);
         using (var retained = post.TryTake())
@@ -70,6 +71,9 @@ public sealed class VolumeEditTests
             await restart.BuildInitial();
             using var restored = restart.Coordinator.TryRead();
             Assert.IsNotNull(restored);
+            Assert.AreEqual(22UL, restart.World.Publication.Committed.Read().Stamp.Tick);
+            var root = (VolumeWorldRoot)restart.World.Publication.Committed.Read().Root;
+            Assert.AreEqual(new PlanetWalkState(new(0, 0, 12), new(1, 0, 0), new(0, 0, -2)), root.Player);
             Assert.AreEqual(2UL, restored.Info.TerrainRevision);
             Assert.AreEqual(restart.Source.Descriptor, restored.EditLineage);
             CollectionAssert.AreEqual(bytes, Overlay(restored));
@@ -77,7 +81,6 @@ public sealed class VolumeEditTests
         }
         before.Dispose();
 
-        await run.OpenTick();
         await run.CommitUnchanged();
         run.Hold();
         await run.StreamAt(new PlanetVector(192, 0, 0), 2);
@@ -447,7 +450,8 @@ public sealed class VolumeEditTests
         private readonly ulong _initialRevision;
         internal EditRun(int limit = 256, int journalRecords = 256, byte[]? restored = null)
         {
-            World = _fixture.OpenWorld();
+            _tick = restored is null ? 0UL : 21UL;
+            World = _fixture.OpenWorld(completedTick: _tick);
             Selection = Select(default);
             _resources = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, MeshBytes) + limit * 64L + 4096,
                 0, 0, 0, 1, 1, 1, 64, 1);
@@ -457,7 +461,8 @@ public sealed class VolumeEditTests
                 baseline, _resources, _resources, _resources, _resources, 12, 8, journalRecords);
             _initialRevision = restored is null ? 1UL : 2UL;
             Coordinator = restored is null ? new(World, Source, limits, limit) :
-                new(World, Source, limits, limit, _initialRevision, restored, static material => material == 7);
+                new(World, Source, limits, limit, Source.Descriptor, _initialRevision, restored, static material => material == 7,
+                    new(new(0, 0, 12), new(1, 0, 0), new(0, 0, -2)));
         }
 
         private VolumeStreamingSelection Select(PlanetVector center) =>

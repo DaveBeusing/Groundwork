@@ -255,9 +255,15 @@ public sealed class RuntimeSafetyAuthority
 
     public WorldSafetyPorts OpenWorld(
         WorldId world, ResourceQuota quota, IBarrierSupervisorPolicy policy,
-        IWorldStateRoot initialRoot, IJobScopePolicy scopePolicy)
+        IWorldStateRoot initialRoot, IJobScopePolicy scopePolicy) =>
+        OpenWorld(world, quota, policy, initialRoot, scopePolicy, completedTick: 0);
+
+    public WorldSafetyPorts OpenWorld(
+        WorldId world, ResourceQuota quota, IBarrierSupervisorPolicy policy,
+        IWorldStateRoot initialRoot, IJobScopePolicy scopePolicy, ulong completedTick)
     {
         ArgumentNullException.ThrowIfNull(policy);
+        ArgumentOutOfRangeException.ThrowIfEqual(completedTick, ulong.MaxValue);
         ArgumentNullException.ThrowIfNull(initialRoot);
         ArgumentNullException.ThrowIfNull(scopePolicy);
         ResourceQuotaUsage.Validate(quota);
@@ -275,7 +281,7 @@ public sealed class RuntimeSafetyAuthority
 
             try
             {
-                var control = new WorldControl(this, world, quota, policy, initialRoot, scopePolicy);
+                var control = new WorldControl(this, world, quota, policy, initialRoot, scopePolicy, completedTick);
                 var ports = new WorldSafetyPorts(control);
                 _worlds.Add(world, control);
                 _pendingWorlds.Remove(world);
