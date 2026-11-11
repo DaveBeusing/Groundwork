@@ -4,10 +4,10 @@ namespace Groundwork.Voxels;
 
 public readonly record struct VolumeViewIdentity(ulong RendererEpoch, ulong View, PlanetLocalFrame Frame);
 public enum VolumeAdmission { Accepted, Backpressure, Stale, Closed, Invalid }
-public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected }
+public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected, EditQueued, EditRejected, NativeReady }
 public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result);
 public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKind Kind, ulong Generation, BarrierStamp? Stamp,
-    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null);
+    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null);
 public readonly record struct VolumePublicationInfo(ulong Generation, ulong TerrainRevision,
     VolumeViewIdentity View, LatticeBrick Minimum, int Width, string PlanIdentity);
 public readonly record struct VolumeStreamingStatistics(VolumeResources Used, VolumeResources Peak,
@@ -29,6 +29,7 @@ public sealed class VolumeWorldRoot : IWorldStateRoot
     internal VolumeStreamingCoordinator Owner { get; }
     internal VolumeGeneration Generation { get; }
     public VolumePublicationInfo Terrain => Generation.Info;
+    public VolumeBrushIntent? CommittedEdit => Generation.Edit;
     public VolumeWorldRoot WithState(IWorldStateRoot state)
     {
         ArgumentNullException.ThrowIfNull(state);
@@ -66,6 +67,10 @@ internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStr
     public VolumeResources Resources { get; set; } = resources;
     public VolumeWorkClass Envelope { get; set; } = kind;
     public VolumeArtifacts? Artifacts { get; set; }
+    public VolumeEditOverlay? Overlay { get; set; }
+    public VolumeBrushIntent? Edit { get; set; }
+    public ulong EditReadyTick { get; set; }
+    public ulong? NativeReadyTick { get; set; }
     public RootChangePermit? Permit { get; set; }
     public bool Outstanding { get; set; } = true;
     public volatile bool Cancelled;
@@ -81,12 +86,14 @@ public sealed class VolumeStreamingWork : IDisposable
     private readonly VolumeStreamingCoordinator _owner;
     private readonly VolumeGeneration _generation;
     private readonly IPlanetBrickSource _source;
+    private readonly int _overlayLimit;
     private int _state;
-    internal VolumeStreamingWork(VolumeStreamingCoordinator owner, VolumeGeneration generation, IPlanetBrickSource source)
+    internal VolumeStreamingWork(VolumeStreamingCoordinator owner, VolumeGeneration generation, IPlanetBrickSource source, int overlayLimit)
     {
         _owner = owner;
         _generation = generation;
         _source = source;
+        _overlayLimit = overlayLimit;
     }
     public ulong Generation => _generation.Id;
     public bool IsCancellationRequested => _owner.IsCancelled(_generation);
@@ -99,8 +106,23 @@ public sealed class VolumeStreamingWork : IDisposable
         try
         {
             Check(cancellationToken);
-            var requests = _generation.Selection.Requests;
-            var store = new PlanetBrickStore(_source, (long)requests.Length * PlanetBrickStore.BrickPayloadBytes, requests.Length);
+            var overlay = _generation.Overlay;
+            void CheckEditCancellation()
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                if (_generation.Cancelled)
+                    throw new OperationCanceledException("Terrain edit was superseded or stopped.");
+            }
+            if (_generation.Edit is { } edit)
+            {
+                overlay = overlay!.Apply(edit, _overlayLimit, CheckEditCancellation);
+                if (overlay is null)
+                    return _owner.Complete(_generation, null);
+            }
+            ReadOnlySpan<VolumeMeshRequest> requests = overlay is { Count: > 0 }
+                ? overlay.Refine(_generation.Selection, CheckEditCancellation)
+                : _generation.Selection.Requests;
+            var store = new PlanetBrickStore((IPlanetBrickSource?)overlay ?? _source, (long)requests.Length * PlanetBrickStore.BrickPayloadBytes, requests.Length);
             VolumeMeshPlan? plan = null;
             try
             {
@@ -110,7 +132,7 @@ public sealed class VolumeStreamingWork : IDisposable
                     if (!store.TryGenerate(request.Brick, cancellationToken))
                         throw new InvalidOperationException("Reserved brick quota is insufficient.");
                 }
-                plan = VolumeMeshPlan.TryCreate(store, requests, _generation.TargetRevision, long.MaxValue)
+                plan = VolumeMeshPlan.TryCreate(store, requests, _generation.TargetRevision, long.MaxValue, overlay?.Digest)
                     ?? throw new InvalidOperationException("Reserved plan leases are unavailable.");
                 var meshes = new PlanetVolumeMesh[_generation.Selection.MeshCount];
                 long remaining = _generation.MeshLimit;
@@ -139,7 +161,7 @@ public sealed class VolumeStreamingWork : IDisposable
                 }
             }
             Check(cancellationToken);
-            var accepted = _owner.Complete(_generation, artifacts);
+            var accepted = _owner.Complete(_generation, artifacts, overlay);
             artifacts = null;
             return accepted;
         }
@@ -188,11 +210,14 @@ public sealed class VolumeStreamingLease : IDisposable
     private readonly object _gate = new();
     private readonly VolumeStreamingCoordinator _owner;
     private VolumeGeneration? _generation;
+    public PlanetDescriptor? EditLineage { get; }
     internal VolumeStreamingLease(VolumeStreamingCoordinator owner, VolumeGeneration generation)
     {
         _owner = owner;
         _generation = generation;
         Info = generation.Info;
+        if (generation.Permit?.Status == RootChangeStatus.Committed)
+            EditLineage = generation.Overlay?.Descriptor;
     }
     public VolumePublicationInfo Info { get; }
 
@@ -248,6 +273,17 @@ public sealed class VolumeStreamingLease : IDisposable
         {
             ObjectDisposedException.ThrowIf(_generation is null, this);
             return VolumeCollision.Sweep(_generation, capsule, displacement, limits ?? VolumeQueryLimits.Default);
+        }
+    }
+
+    /// <summary>Writes the committed sparse overlay in canonical order for a checkpoint consumer.</summary>
+    public bool TryWriteEditOverlay(Span<byte> destination, out int written)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_generation is null, this);
+            written = 0;
+            return EditLineage is not null && _generation.Overlay is { } overlay && overlay.TryWrite(destination, out written);
         }
     }
 

@@ -18,11 +18,12 @@ public sealed class VolumeMeshPlan : IDisposable
     private readonly object _gate = new();
     private readonly VolumeMeshInput[] _inputs;
     private readonly bool _ownsLeases;
+    private readonly byte[]? _editDigest;
     private int _readers;
     private bool _disposed;
 
     private VolumeMeshPlan(VolumeMeshInput[] inputs, LatticeBrick minimum, int width, int height, int depth,
-        ulong terrainRevision, bool ownsLeases)
+        ulong terrainRevision, bool ownsLeases, byte[]? editDigest = null)
     {
         _inputs = inputs;
         Minimum = minimum;
@@ -32,6 +33,7 @@ public sealed class VolumeMeshPlan : IDisposable
         TerrainRevision = terrainRevision;
         Descriptor = inputs[0].Brick.Descriptor;
         _ownsLeases = ownsLeases;
+        _editDigest = editDigest;
     }
 
     public PlanetDescriptor Descriptor { get; }
@@ -49,7 +51,11 @@ public sealed class VolumeMeshPlan : IDisposable
     /// Input order does not affect plan identity or output order.
     /// </summary>
     public static VolumeMeshPlan? TryCreate(PlanetBrickStore store, ReadOnlySpan<VolumeMeshRequest> requests,
-        ulong terrainRevision, long metadataByteLimit)
+        ulong terrainRevision, long metadataByteLimit) =>
+        TryCreate(store, requests, terrainRevision, metadataByteLimit, null);
+
+    internal static VolumeMeshPlan? TryCreate(PlanetBrickStore store, ReadOnlySpan<VolumeMeshRequest> requests,
+        ulong terrainRevision, long metadataByteLimit, byte[]? editDigest)
     {
         ArgumentNullException.ThrowIfNull(store);
         ArgumentOutOfRangeException.ThrowIfZero(terrainRevision);
@@ -71,7 +77,7 @@ public sealed class VolumeMeshPlan : IDisposable
                 inputs[index] = new VolumeMeshInput(lease, request.Stride);
             }
 
-            result = new VolumeMeshPlan(inputs, min, width, height, depth, terrainRevision, ownsLeases: true);
+            result = new VolumeMeshPlan(inputs, min, width, height, depth, terrainRevision, ownsLeases: true, editDigest);
             result.Prepare();
             return result;
         }
@@ -263,6 +269,8 @@ public sealed class VolumeMeshPlan : IDisposable
         BinaryPrimitives.WriteUInt32LittleEndian(bytes[44..], PlanetVolumeMesh.MesherVersion);
         hash.AppendData(bytes[..48]);
         hash.AppendData(Convert.FromHexString(Descriptor.ParameterSha256));
+        if (_editDigest is not null)
+            hash.AppendData(_editDigest);
         return Convert.ToHexStringLower(hash.GetHashAndReset());
     }
 

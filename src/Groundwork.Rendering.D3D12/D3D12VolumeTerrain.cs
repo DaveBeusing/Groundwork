@@ -356,7 +356,7 @@ public sealed partial class D3D12Renderer
         }
         lock (_volumeGate)
         {
-            if (VolumeAdmissionOpen && _volume!.IsCurrentPresentationCandidate(candidate.Lease.Info))
+            if (VolumeAdmissionOpen && _volume!.ConfirmPreparedGeometry(_volumeAuthority!, candidate.Lease.Info))
             {
                 candidate.Native = prepared;
                 return true;
