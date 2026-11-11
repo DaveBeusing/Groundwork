@@ -1,6 +1,6 @@
 # WP12-C01 · V2 volume checkpoints
 
-A volume checkpoint stores a finalized terrain revision, canonical edit overlay, player pose and the game bytes encoded from that same immutable world root. The V2 game payload includes the inventory effect of natural ore depletion when the host encodes that state. Restore opens a fresh Core world at the saved completed tick and rebuilds terrain, meshes and collision from the exact saved descriptor and overlay. The host restores its game state from the same decoded cut. Movement waits for the existing terrain, pose and presentation checks.
+A volume checkpoint stores a finalized terrain revision, canonical edit overlay, player pose and the game bytes encoded from that same immutable world root. The V2 game payload includes the inventory effect of natural ore depletion when the host encodes that state. Restore opens a fresh Core world at the saved completed tick and rebuilds terrain, meshes and collision from the exact saved descriptor and overlay. The host restores its game state from the same decoded cut. V2 restoration checks capsule clearance and the radial support footprint before publication. Clear airborne space is valid when the support query has coverage. Movement then waits for the matching presentation acknowledgment.
 
 ## Format and compatibility
 

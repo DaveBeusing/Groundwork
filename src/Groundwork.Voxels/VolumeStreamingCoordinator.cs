@@ -348,8 +348,14 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             var currentState = current is VolumeWorldRoot volume ? volume.State : current;
             var state = composedState ?? currentState;
             var player = current is VolumeWorldRoot previousRoot ? previousRoot.Player : _initialPlayer;
-            if (player is { } pose && VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
-                return null;
+            if (player is { } pose)
+            {
+                var restoringCave = current is not VolumeWorldRoot &&
+                    _descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion;
+                if (restoringCave ? !VolumeWalker.ValidateRestore(entry, pose, VolumeQueryLimits.Default) :
+                    VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
+                    return null;
+            }
             if (entry.OreDepletion.Deposits > 0)
             {
                 if (candidates.Request.Entry != committed.Stamp || dispositions.IsDefault ||

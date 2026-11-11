@@ -209,6 +209,28 @@ public sealed class VolumeShapeRestoreTests
         Assert.IsNull(after.CommittedOreDepletion);
         Assert.AreEqual((byte)1, ((CaveInventory)after.State).Deposits);
 
+        // The saved capsule fits inside the new window, but its radial support query
+        // crosses the X=64 boundary. This publication must remain held.
+        const double boundary = 64;
+        const double radius = PlanetSurfaceWalker.BodyRadius;
+        var footX = boundary + 0.005 + radius * (1 - boundary / Math.Sqrt(boundary * boundary + 33 * 33 + 26 * 26));
+        var edgePose = savedPose with { Position = new(footX, 33, 26), Velocity = default };
+        var upX = footX / Math.Sqrt(footX * footX + 33 * 33 + 26 * 26);
+        var bodyMinimumX = footX + radius * upX - radius;
+        Assert.IsGreaterThan(boundary, bodyMinimumX);
+        Assert.IsLessThan(boundary, bodyMinimumX - 0.02 * upX);
+        var edgeCheckpoint = new VolumeCheckpoint(checkpoint.Operation, checkpoint.Lineage, descriptor, checkpoint.Tick,
+            checkpoint.TerrainRevision, checkpoint.Overlay, checkpoint.Game, checkpoint.CaptureOrdinal, edgePose);
+        var camera = new PlanetVector(128, 33, 26);
+        var interest = new PlanetVector(66, 33, 26);
+        var edgeSelection = VolumeStreamingSelection.SelectCave(descriptor, camera, new(-1, 0, 0),
+            new(interest, interest with { Z = 27 }, 0.5), default);
+        Assert.AreEqual(2L, edgeSelection.Minimum.X);
+        using var held = new ShapeRun(source, edgeCheckpoint, edgeSelection);
+        await held.Build(expectPublication: false);
+        Assert.IsNull(held.Terrain.TryRead());
+        Assert.IsTrue(held.Terrain.Statistics.MovementHeld);
+
         async Task<VolumeCheckpointCut?> Edit(ShapeRun run, ulong revision, VolumeBrushOperation operation, bool save)
         {
             using var lease = run.Read();
@@ -391,7 +413,8 @@ public sealed class VolumeShapeRestoreTests
         private readonly ulong _revision;
         private ulong _tick;
 
-        internal ShapeRun(IPlanetBrickSource source, VolumeCheckpoint? checkpoint = null)
+        internal ShapeRun(IPlanetBrickSource source, VolumeCheckpoint? checkpoint = null,
+            VolumeStreamingSelection? selection = null)
         {
             _source = source;
             _tick = checkpoint?.Tick ?? 0;
@@ -400,7 +423,7 @@ public sealed class VolumeShapeRestoreTests
             MeshLimit = source is PlanetGeologyField ? 32_000_000 : MeshBytes;
             _initialInventory = source is PlanetGeologyField
                 ? new(World.Publication.Committed.Read().Root.World, 1, checkpoint is null ? (byte)0 : checkpoint.Game[0]) : null;
-            Selection = Select();
+            Selection = selection ?? Select();
             Credits = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, MeshLimit) + OverlayLimit * 64 + 4096,
                 0, 0, 0, 1, 1, 1, 64, 1);
             var baseline = Credits.Retained + Credits.Retained;
@@ -427,7 +450,7 @@ public sealed class VolumeShapeRestoreTests
                 new(center, center with { Z = 27 }, 0.5), default, edit);
         }
 
-        internal async Task Build()
+        internal async Task Build(bool expectPublication = true)
         {
             Assert.IsTrue(Terrain.ConfirmMask(Terrain.View));
             Assert.AreEqual(VolumeAdmission.Accepted,
@@ -436,7 +459,15 @@ public sealed class VolumeShapeRestoreTests
             using var owned = work;
             Assert.IsTrue(owned.Execute());
             var begin = await Begin();
-            await Publish(owned, begin.Tick);
+            if (expectPublication)
+                await Publish(owned, begin.Tick);
+            else
+            {
+                var candidates = await CoreRuntimeFixture.SealAsync(World, begin.Tick, BarrierKind.CommitResults);
+                Assert.IsNull(Terrain.TryPreparePublication(owned.Generation, candidates, []));
+                var unchanged = World.Publication.Finalization.TryFinalize(CoreRuntimeFixture.Prepare(World, candidates, []));
+                Assert.AreEqual(BarrierStatus.Unchanged, unchanged.Status);
+            }
         }
 
         internal VolumeStreamingLease Read() => Terrain.TryRead() ?? throw new AssertFailedException("Missing committed terrain.");
