@@ -4,9 +4,10 @@ namespace Groundwork.Voxels;
 
 public readonly record struct VolumeViewIdentity(ulong RendererEpoch, ulong View, PlanetLocalFrame Frame);
 public enum VolumeAdmission { Accepted, Backpressure, Stale, Closed, Invalid }
-public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped }
+public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected }
+public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result);
 public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKind Kind, ulong Generation, BarrierStamp? Stamp,
-    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0);
+    VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null);
 public readonly record struct VolumePublicationInfo(ulong Generation, ulong TerrainRevision,
     VolumeViewIdentity View, LatticeBrick Minimum, int Width, string PlanIdentity);
 public readonly record struct VolumeStreamingStatistics(VolumeResources Used, VolumeResources Peak,
@@ -15,12 +16,14 @@ public readonly record struct VolumeStreamingStatistics(VolumeResources Used, Vo
 /// <summary>Core's immutable composed root. Gameplay updates preserve the current terrain attachment.</summary>
 public sealed class VolumeWorldRoot : IWorldStateRoot
 {
-    internal VolumeWorldRoot(IWorldStateRoot state, VolumeStreamingCoordinator owner, VolumeGeneration generation)
+    internal VolumeWorldRoot(IWorldStateRoot state, VolumeStreamingCoordinator owner, VolumeGeneration generation, PlanetWalkState? player = null)
     {
+        Player = player;
         State = state;
         Owner = owner;
         Generation = generation;
     }
+    public PlanetWalkState? Player { get; }
     public IWorldStateRoot State { get; }
     public WorldId World => State.World;
     internal VolumeStreamingCoordinator Owner { get; }
@@ -31,7 +34,7 @@ public sealed class VolumeWorldRoot : IWorldStateRoot
         ArgumentNullException.ThrowIfNull(state);
         if (state.World != World)
             throw new ArgumentException("World identity cannot change.", nameof(state));
-        return new VolumeWorldRoot(state, Owner, Generation);
+        return new VolumeWorldRoot(state, Owner, Generation, Player);
     }
 }
 
@@ -43,9 +46,9 @@ internal sealed class VolumeArtifacts(PlanetBrickStore store, VolumeMeshPlan pla
     {
         // Eviction revokes new readers while plan leases continue to pin the payload.
         for (var z = 0; z < Plan.Depth; z++)
-        for (var y = 0; y < Plan.Height; y++)
-        for (var x = 0; x < Plan.Width; x++)
-            store.Evict(new LatticeBrick(Plan.Minimum.X + x, Plan.Minimum.Y + y, Plan.Minimum.Z + z));
+            for (var y = 0; y < Plan.Height; y++)
+                for (var x = 0; x < Plan.Width; x++)
+                    store.Evict(new LatticeBrick(Plan.Minimum.X + x, Plan.Minimum.Y + y, Plan.Minimum.Z + z));
         Plan.Dispose();
     }
 }
@@ -113,16 +116,16 @@ public sealed class VolumeStreamingWork : IDisposable
                 long remaining = _generation.MeshLimit;
                 var index = 0;
                 for (var z = 0; z < plan.Depth; z += 2)
-                for (var y = 0; y < plan.Height; y += 2)
-                for (var x = 0; x < plan.Width; x += 2)
-                {
-                    Check(cancellationToken);
-                    var mesh = PlanetVolumeMesher.Build(plan,
-                        new LatticeBrick(plan.Minimum.X + x, plan.Minimum.Y + y, plan.Minimum.Z + z), remaining)
-                        ?? throw new InvalidOperationException("Mesh exceeds the reserved payload.");
-                    remaining -= (long)mesh.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes;
-                    meshes[index++] = mesh;
-                }
+                    for (var y = 0; y < plan.Height; y += 2)
+                        for (var x = 0; x < plan.Width; x += 2)
+                        {
+                            Check(cancellationToken);
+                            var mesh = PlanetVolumeMesher.Build(plan,
+                                new LatticeBrick(plan.Minimum.X + x, plan.Minimum.Y + y, plan.Minimum.Z + z), remaining)
+                                ?? throw new InvalidOperationException("Mesh exceeds the reserved payload.");
+                            remaining -= (long)mesh.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes;
+                            meshes[index++] = mesh;
+                        }
                 artifacts = new VolumeArtifacts(store, plan, meshes);
                 plan = null;
             }
@@ -225,6 +228,26 @@ public sealed class VolumeStreamingLease : IDisposable
             }
             density = generation.Artifacts!.Plan.Read(new System.Numerics.Vector3((float)x, (float)y, (float)z));
             return true;
+        }
+    }
+
+    /// <summary>Diagnostic query against this retained immutable revision, including old revisions.</summary>
+    public VolumeRayResult Raycast(PlanetVector start, PlanetVector end, Span<VolumeRayHit> hits,
+        VolumeQueryLimits? limits = null)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_generation is null, this);
+            return VolumeCollision.Ray(_generation, start, end, hits, limits ?? VolumeQueryLimits.Default);
+        }
+    }
+
+    public VolumeSweepResult Sweep(VolumeCapsule capsule, PlanetVector displacement, VolumeQueryLimits? limits = null)
+    {
+        lock (_gate)
+        {
+            ObjectDisposedException.ThrowIf(_generation is null, this);
+            return VolumeCollision.Sweep(_generation, capsule, displacement, limits ?? VolumeQueryLimits.Default);
         }
     }
 

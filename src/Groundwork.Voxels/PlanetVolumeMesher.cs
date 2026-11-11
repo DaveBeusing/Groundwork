@@ -7,9 +7,13 @@ namespace Groundwork.Voxels;
 public readonly record struct VolumeMeshInput(PlanetBrickStore.BrickLease Brick, int Stride);
 
 public readonly record struct VolumeVertex(Vector3 Position, Vector3 Normal, ushort Material);
-public readonly record struct VolumeTriangle(VolumeVertex A, VolumeVertex B, VolumeVertex C);
+public readonly record struct VolumeTriangle(VolumeVertex A, VolumeVertex B, VolumeVertex C)
+{
+    /// <summary>True for geometry emitted by the 2:1 transition cells.</summary>
+    public bool IsTransition { get; init; }
+}
 
-/// <summary>Immutable mesh of one complete 2脳2脳2 brick neighborhood, relative to its canonical origin.</summary>
+/// <summary>Immutable mesh of one complete 2󫎾 brick neighborhood, relative to its canonical origin.</summary>
 public sealed class PlanetVolumeMesh
 {
     private readonly VolumeTriangle[] _triangles;
@@ -179,7 +183,7 @@ public static class PlanetVolumeMesher
                     var cellClass = TransvoxelTables.TransitionClass[code];
                     count = Emit(TransvoxelTables.TransitionCells[cellClass & 127],
                         TransvoxelTables.TransitionVertices[code], density, positions, samplePositions,
-                        ((cellClass & 128) != 0) == (direction > 0), vertices, plan, anchor, output, count, ref inverted);
+                        ((cellClass & 128) != 0) == (direction > 0), vertices, plan, anchor, output, count, ref inverted, transition: true);
                 }
             }
         }
@@ -189,7 +193,7 @@ public static class PlanetVolumeMesher
     private static int Emit(byte[] cell, byte[] edges, ReadOnlySpan<long> density,
         ReadOnlySpan<Vector3> positions, ReadOnlySpan<Vector3> samples, bool reverse,
         Span<VolumeVertex> vertices, VolumeMeshPlan plan, Vector3 anchor,
-        VolumeTriangle[]? output, int count, ref bool inverted)
+        VolumeTriangle[]? output, int count, ref bool inverted, bool transition = false)
     {
         for (var i = 0; i < (cell[0] >> 4); i++)
         {
@@ -232,7 +236,7 @@ public static class PlanetVolumeMesher
             if (Vector3.Dot(Vector3.Cross(b.Position - a.Position, c.Position - a.Position), a.Normal + b.Normal + c.Normal) <= 0)
                 inverted = true;
             if (output is not null)
-                output[count] = new VolumeTriangle(a, b, c);
+                output[count] = new VolumeTriangle(a, b, c) { IsTransition = transition };
             count++;
         }
         return count;

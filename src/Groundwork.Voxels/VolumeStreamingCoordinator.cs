@@ -8,7 +8,7 @@ namespace Groundwork.Voxels;
 /// Bounded WP11 terrain authority. Workers prepare privately, Core swaps one composed root,
 /// and a later BeginTick releases movement after matching provider evidence.
 /// </summary>
-public sealed class VolumeStreamingCoordinator : IDisposable
+public sealed partial class VolumeStreamingCoordinator : IDisposable
 {
     private readonly object _gate = new();
     private IRuntimeWorkLease? _custody;
@@ -98,6 +98,8 @@ public sealed class VolumeStreamingCoordinator : IDisposable
             var nextView = new VolumeViewIdentity(rendererEpoch, checked(_view.View + 1), frame);
             if (!Record(VolumeEventKind.ViewChanged, 0, view: nextView))
                 return _view;
+            _movementPermit?.Revoke();
+            _movementPermit = null;
             _view = nextView;
             _movementOpen = false;
             _maskReady = false;
@@ -212,7 +214,10 @@ public sealed class VolumeStreamingCoordinator : IDisposable
             if (current is VolumeWorldRoot foreign && foreign.Owner != this)
                 return null;
             var state = composedState ?? (current is VolumeWorldRoot volume ? volume.State : current);
-            var root = new VolumeWorldRoot(state, this, entry);
+            var player = (current as VolumeWorldRoot)?.Player;
+            if (player is { } pose && VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
+                return null;
+            var root = new VolumeWorldRoot(state, this, entry, player);
             var permit = _world.Publication.RootChanges.TryReserve(candidates, root);
             if (permit is null)
                 return null;
@@ -345,8 +350,13 @@ public sealed class VolumeStreamingCoordinator : IDisposable
                 var status = permit.Status;
                 if (status == RootChangeStatus.Pending)
                     return false;
-                record = record with { Kind = status == RootChangeStatus.Committed ? VolumeEventKind.Commit : VolumeEventKind.Rejected,
-                    Stamp = permit.CommittedStamp };
+                record = record with
+                {
+                    Kind = record.Movement is not null
+                        ? status == RootChangeStatus.Committed ? VolumeEventKind.MovementCommit : VolumeEventKind.MovementRejected
+                        : status == RootChangeStatus.Committed ? VolumeEventKind.Commit : VolumeEventKind.Rejected,
+                    Stamp = permit.CommittedStamp
+                };
             }
             _journalPermits[_journalHead] = null;
             _journalHead = (_journalHead + 1) % _journal.Length;
@@ -453,13 +463,13 @@ public sealed class VolumeStreamingCoordinator : IDisposable
     }
 
     private bool Record(VolumeEventKind kind, ulong generation, RootChangePermit? permit = null,
-        VolumeViewIdentity? view = null, ulong terrainRevision = 0)
+        VolumeViewIdentity? view = null, ulong terrainRevision = 0, VolumeMovementEvidence? movement = null)
     {
         if (!HasJournalSpace())
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, _lastFrame);
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, _lastFrame, movement);
         _journalPermits[index] = permit;
         return true;
     }
@@ -479,6 +489,8 @@ public sealed class VolumeStreamingCoordinator : IDisposable
     {
         if (_stopped)
             return;
+        _movementPermit?.Revoke();
+        _movementPermit = null;
         _stopped = true;
         _movementOpen = false;
         _accepted = null;

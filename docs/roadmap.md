@@ -36,7 +36,7 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 - **WP11-C:** bounded generation/meshing jobs, streaming, collision, coherent D3D12 presentation, instrumentation and budgets.
 - **WP11-D:** deterministic terrain editing, new save/recovery schema, WYU playable/flight integration and clean Windows handover.
 
-The [WP11 architecture proposal](architecture/wp11-procedural-planet-contract.md) and [implementation issue map](wp11-issues.md) define scope, ownership, requirement identifiers, issue links, dependency DAG, exclusions and acceptance. WP11 work remains **unapproved** until architecture review and explicit owner acceptance of the frozen contract. C00-4 assigns chart-boundary qualification and production capacity limits to the named downstream acceptance gates. WP12 expands underground geology/caves and WP13 addresses biomes/vegetation.
+The [WP11 architecture proposal](architecture/wp11-procedural-planet-contract.md) and [implementation issue map](wp11-issues.md) define scope, ownership, requirement identifiers, issue links, dependency DAG, exclusions and acceptance. The contract was accepted and merged in PR #77. A01–A03, B01 and C01 are merged (PRs #91–#95); C02 (#84) implements portable collision and movement. C03, editing, persistence, WYU integration and qualification remain open. C00-4 assigns chart-boundary qualification and production capacity limits to the named downstream acceptance gates. WP12 expands underground geology/caves and WP13 addresses biomes/vegetation.
 
 ## After WP10
 
@@ -44,7 +44,7 @@ The fresh Windows 11 offline run remains open as a follow-up to the
 accepted WP10 milestone. The [handover](wp10-handover.md) records its
 scope and the existing evidence.
 
-WP11 now has a proposed volumetric procedural planet scope; review and accept its architecture contract before implementation.
+WP11 implementation follows the accepted volumetric contract. Complete C02 collision, C03 presentation and the dependent edit/persistence and WYU tracks before the final qualification gates.
 
 ## Planning and verification
 

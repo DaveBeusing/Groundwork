@@ -57,4 +57,34 @@ public sealed class RootChangePermitTests
         Assert.AreEqual(RootChangeStatus.Revoked, permit.Status);
         Assert.AreSame(old, world.Publication.Committed.Read().Root);
     }
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task RevokedUnpreparedReservationAllowsRetryOrUnchangedPublication(bool retry)
+    {
+        using var fixture = new CoreRuntimeFixture();
+        var world = fixture.OpenWorld();
+        await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(world, 1, BarrierKind.BeginTick);
+        var candidates = await CoreRuntimeFixture.SealAsync(world, 1, BarrierKind.CommitResults);
+        var original = world.Publication.Committed.Read().Root;
+        var next = new CoreRuntimeFixture.Root(original.World, 96);
+        var rejected = world.Publication.RootChanges.TryReserve(candidates, next);
+        Assert.IsNotNull(rejected);
+        Assert.AreEqual(BarrierPreparationStatus.InvalidCandidate, world.Publication.Preparation.TryPrepare(
+            new BarrierPublicationDraft(candidates, next, 0, default, rejected)).Status);
+        rejected.Revoke();
+        Assert.AreEqual(RootChangeStatus.Revoked, rejected.Status);
+        PreparedBarrierPublication publication;
+        if (retry)
+        {
+            var permit = world.Publication.RootChanges.TryReserve(candidates, next);
+            Assert.IsNotNull(permit);
+            rejected.Revoke(); // A stale revoked handle cannot cancel the replacement permit.
+            var prepared = world.Publication.Preparation.TryPrepare(new BarrierPublicationDraft(candidates, next, 0, [], permit));
+            Assert.IsNotNull(prepared.Publication);
+            publication = prepared.Publication;
+        }
+        else publication = CoreRuntimeFixture.Prepare(world, candidates, []);
+        Assert.AreEqual(retry ? BarrierStatus.Committed : BarrierStatus.Unchanged, world.Publication.Finalization.TryFinalize(publication).Status);
+    }
 }
