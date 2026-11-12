@@ -2,12 +2,15 @@ cbuffer Frame : register(b0)
 {
     row_major float4x4 WorldViewProjection;
     float4 Tint;
+    float4 FogColorOpacity;
+    float4 FogDepth;
 };
 
 struct VertexOutput
 {
     float4 Position : SV_Position;
     float4 Color : COLOR;
+    float ViewDepth : TEXCOORD0;
 };
 
 VertexOutput VSMain(float3 position : POSITION, float4 color : COLOR)
@@ -15,10 +18,18 @@ VertexOutput VSMain(float3 position : POSITION, float4 color : COLOR)
     VertexOutput output;
     output.Position = mul(float4(position, 1.0), WorldViewProjection);
     output.Color = color;
+    // With the right-handed perspective projection, clip W is forward depth in metres.
+    output.ViewDepth = output.Position.w;
     return output;
 }
 
 float4 PSMain(VertexOutput input) : SV_Target
 {
-    return Tint * input.Color;
+    float4 color = Tint * input.Color;
+    if (FogColorOpacity.a > 0.0)
+    {
+        float amount = FogColorOpacity.a * saturate((input.ViewDepth * FogDepth.z - FogDepth.x) * FogDepth.y);
+        color.rgb = lerp(color.rgb, FogColorOpacity.rgb, amount);
+    }
+    return color;
 }

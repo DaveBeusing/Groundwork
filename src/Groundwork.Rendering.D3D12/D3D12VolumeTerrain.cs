@@ -8,7 +8,11 @@ namespace Groundwork.Rendering.D3D12;
 
 /// <summary>Authoritative camera coordinates and the terrain view used to project them.</summary>
 public readonly record struct VolumeCamera(VolumeViewIdentity View, PlanetVector Position, Vector3 Forward,
-    Vector3 Up, float FieldOfView, float NearPlane, float FarPlane, Vector4 Tint, Vector4 ClearColor);
+    Vector3 Up, float FieldOfView, float NearPlane, float FarPlane, Vector4 Tint, Vector4 ClearColor)
+{
+    /// <summary>Optional view-depth fog for this camera submission.</summary>
+    public RenderFog? Fog { get; init; }
+}
 
 /// <summary>Returns packed RGBA8 (red in the low byte), or null to reject the candidate.</summary>
 /// <remarks>Use an immutable, thread-safe policy with deterministic, non-blocking and allocation-free evaluation.</remarks>
@@ -257,7 +261,10 @@ public sealed partial class D3D12Renderer
         }
 
         frame = new(sequence, camera.ClearColor, new RenderScene(Matrix4x4.Identity, camera.Tint,
-            Matrix4x4.CreateLookTo(local, camera.Forward, camera.Up), camera.FieldOfView, camera.NearPlane, camera.FarPlane));
+            Matrix4x4.CreateLookTo(local, camera.Forward, camera.Up), camera.FieldOfView, camera.NearPlane, camera.FarPlane)
+        {
+            Fog = camera.Fog,
+        });
         return frame.IsValid;
     }
 

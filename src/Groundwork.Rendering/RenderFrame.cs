@@ -2,6 +2,16 @@ using System.Numerics;
 
 namespace Groundwork.Rendering;
 
+/// <summary>Optional terrain fog in linear RGB and positive camera-forward depth in metres.</summary>
+public readonly record struct RenderFog(Vector3 Color, float StartDepthMeters, float EndDepthMeters, float MaxOpacity)
+{
+    private const float MinimumDepthSpan = 1.17549435E-38f;
+
+    internal bool IsValid => RenderFrame.IsColor(new Vector4(Color, MaxOpacity)) &&
+        StartDepthMeters >= 0 && float.IsFinite(EndDepthMeters) &&
+        EndDepthMeters - StartDepthMeters >= MinimumDepthSpan;
+}
+
 /// <summary>One optional unit cube in a right-handed, row-vector scene.</summary>
 public readonly record struct RenderScene(
     Matrix4x4 World,
@@ -11,7 +21,10 @@ public readonly record struct RenderScene(
     float NearPlane,
     float FarPlane)
 {
-    internal bool IsValid => IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
+    /// <summary>Null preserves the original vertex color and tint path.</summary>
+    public RenderFog? Fog { get; init; }
+
+    internal bool IsValid => (Fog is null || Fog.Value.IsValid) && IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
         VerticalFieldOfView > 0 && VerticalFieldOfView < MathF.PI &&
         NearPlane > 0 && FarPlane > NearPlane && float.IsFinite(FarPlane);
 
