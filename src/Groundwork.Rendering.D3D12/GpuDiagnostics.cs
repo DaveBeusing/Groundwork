@@ -12,6 +12,9 @@ internal sealed unsafe partial class GpuDevice
     private static readonly object DiagnosticStartup = new();
     private static bool _openedDevice;
     private static int _activeDevices;
+
+    internal static void CountDeviceReference() => Interlocked.Increment(ref _activeDevices);
+    internal static void UncountDeviceReference() => Interlocked.Decrement(ref _activeDevices);
     private static bool _debugLayerEnabled;
     private static bool _dredEnabled;
     private const int DredEntryLimit = 16;

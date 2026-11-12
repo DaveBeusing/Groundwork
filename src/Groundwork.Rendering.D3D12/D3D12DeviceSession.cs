@@ -37,6 +37,7 @@ public sealed unsafe class D3D12DeviceSession(D3D12DiagnosticsOptions diagnostic
             if (_disposed || _device != null)
                 return;
             device->AddRef();
+            GpuDevice.CountDeviceReference();
             _device = device;
             _adapter = adapter;
         }
@@ -54,7 +55,10 @@ public sealed unsafe class D3D12DeviceSession(D3D12DiagnosticsOptions diagnostic
         {
             _disposed = true;
             if (_device != null)
+            {
                 _device->Release();
+                GpuDevice.UncountDeviceReference();
+            }
             _device = null;
             _adapter = null;
         }

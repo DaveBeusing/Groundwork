@@ -48,7 +48,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 }
                 DebugLayerEnabled = enableDebugLayer && _debugLayerEnabled;
                 DredEnabled = enableDred && _dredEnabled;
-                Interlocked.Increment(ref _activeDevices);
+                CountDeviceReference();
             }
             var reused = false;
             try
@@ -66,7 +66,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             }
             catch
             {
-                Interlocked.Decrement(ref _activeDevices);
+                UncountDeviceReference();
                 throw;
             }
             if (reused)
@@ -288,7 +288,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             if (_device != null)
             {
                 Release(_device);
-                Interlocked.Decrement(ref _activeDevices);
+                UncountDeviceReference();
             }
             Release(_factory);
             _device = null;
