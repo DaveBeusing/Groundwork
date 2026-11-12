@@ -72,7 +72,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             if (reused)
                 Check(_device->GetDeviceRemovedReason(), "Reattach session device");
             if (DebugLayerEnabled)
-                ConfigureDebugQueue(reused);
+                ConfigureDebugQueue();
             var queueDescription = new D3D12_COMMAND_QUEUE_DESC();
             fixed (ID3D12CommandQueue** queue = &_queue)
                 Check(_device->CreateCommandQueue(&queueDescription, __uuidof<ID3D12CommandQueue>(), (void**)queue), "CreateCommandQueue");

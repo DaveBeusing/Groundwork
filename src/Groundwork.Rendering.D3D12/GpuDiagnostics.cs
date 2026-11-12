@@ -76,17 +76,13 @@ internal sealed unsafe partial class GpuDevice
     private static string FormatDriverVersion(ulong version) =>
         FormattableString.Invariant($"{(ushort)(version >> 48)}.{(ushort)(version >> 32)}.{(ushort)(version >> 16)}.{(ushort)version}");
 
-    private void ConfigureDebugQueue(bool reused)
+    private void ConfigureDebugQueue()
     {
         var queue = OpenDebugQueue();
         try
         {
             if (queue != null)
-            {
-                if (reused)
-                    queue->ClearStoredMessages();
                 queue->SetMessageCountLimit(DebugMessageLimit);
-            }
         }
         finally
         {
