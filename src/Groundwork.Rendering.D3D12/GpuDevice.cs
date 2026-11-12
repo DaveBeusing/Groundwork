@@ -55,7 +55,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 if (session is not null)
                 {
-                    _device = session.Attach(out var adapter);
+                    _device = session.Attach(out var adapter, out _queue);
                     _session = session;
                     reused = _device != null;
                     if (adapter is not null)
@@ -73,9 +73,12 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 Check(_device->GetDeviceRemovedReason(), "Reattach session device");
             if (DebugLayerEnabled)
                 ConfigureDebugQueue();
-            var queueDescription = new D3D12_COMMAND_QUEUE_DESC();
-            fixed (ID3D12CommandQueue** queue = &_queue)
-                Check(_device->CreateCommandQueue(&queueDescription, __uuidof<ID3D12CommandQueue>(), (void**)queue), "CreateCommandQueue");
+            if (_queue == null)
+            {
+                var queueDescription = new D3D12_COMMAND_QUEUE_DESC();
+                fixed (ID3D12CommandQueue** queue = &_queue)
+                    Check(_device->CreateCommandQueue(&queueDescription, __uuidof<ID3D12CommandQueue>(), (void**)queue), "CreateCommandQueue");
+            }
             fixed (ID3D12Fence** fence = &_fence)
                 Check(_device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, __uuidof<ID3D12Fence>(), (void**)fence), "CreateFence");
             CreatePipeline();
@@ -87,7 +90,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 CreateCubeGeometry();
             foreach (var frame in _frames)
                 frame.Initialize(_device);
-            _session?.Retain(_device, Adapter);
+            _session?.Retain(_device, _queue, Adapter);
         }
         catch
         {

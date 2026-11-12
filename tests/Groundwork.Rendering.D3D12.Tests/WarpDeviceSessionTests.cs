@@ -29,4 +29,18 @@ public sealed class WarpDeviceSessionTests
         Assert.IsTrue(current.IsIdle);
         Assert.ThrowsExactly<ObjectDisposedException>(() => new GpuDevice(warp: true, session: session));
     }
+    [TestMethod]
+    public unsafe void SequentialOwnersCanReuseTheDirectQueue()
+    {
+        using var session = new D3D12DeviceSession(default, useWarp: true, reuseDirectQueue: true);
+        nint queue;
+        using (var first = new GpuDevice(warp: true, session: session))
+            queue = (nint)first.Queue;
+
+        using var second = new GpuDevice(warp: true, session: session);
+        Assert.AreNotEqual((nint)0, queue);
+        Assert.AreEqual(queue, (nint)second.Queue);
+        session.Dispose();
+        Assert.IsTrue(second.IsIdle);
+    }
 }

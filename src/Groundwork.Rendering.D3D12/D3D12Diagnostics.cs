@@ -11,7 +11,11 @@ public sealed record D3D12AdapterInfo(string Description, uint VendorId, uint De
 /// <summary>Debug queue counts and the optional live-object report collected at teardown.</summary>
 /// <remarks>The native report includes objects from any other owner sharing the same Direct3D 12 device.</remarks>
 public sealed record D3D12DebugMessages(ulong Warnings, ulong Errors, ulong Corruption, ulong Discarded,
-    int? LiveObjectReportResult, int? LiveChildObjects);
+    int? LiveObjectReportResult, int? LiveChildObjects)
+{
+    /// <summary>Whether the live-object report includes this renderer's intentionally retained session queue.</summary>
+    public bool RetainedSessionQueue { get; init; }
+}
 
 /// <summary>Bounded numeric diagnostics for a removed device. DRED query results are HRESULTs when available.</summary>
 public sealed record D3D12DeviceRemoval(int Reason, int? BreadcrumbResult, int? PageFaultResult,
