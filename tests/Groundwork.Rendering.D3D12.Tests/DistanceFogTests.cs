@@ -17,6 +17,25 @@ public sealed partial class PresentationSmokeTests
         => VerifyDistanceFog(warp, requireDebug: true);
 
     [TestMethod]
+    public void WideDistanceFogBandUsesNormalShaderConstants()
+    {
+        var start = float.MaxValue * 0.125f;
+        var end = float.MaxValue;
+        var fog = new RenderFog(Vector3.One, start, end, 1f);
+        var view = new VolumeViewIdentity(1, 1, PlanetLocalFrame.Create(default));
+        Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(FogCamera(view) with { Fog = fog }, 1, out _));
+
+        Assert.IsTrue(float.IsSubnormal(1f / (end - start)));
+        var constants = GpuDevice.GetFogDepthConstants(fog);
+        Assert.IsTrue(float.IsNormal(constants.Y));
+        Assert.AreEqual(0f, BlendAt(start), 0.000001f);
+        Assert.AreEqual(0.5f, BlendAt(start + (end - start) * 0.5f), 0.000001f);
+        Assert.AreEqual(1f, BlendAt(end), 0.000001f);
+
+        float BlendAt(float depth) => (depth * constants.Z - constants.X) * constants.Y;
+    }
+
+    [TestMethod]
     public void InvalidDistanceFogLeavesTheAcceptedSequenceUnchanged()
     {
         var admission = new RendererFrameAdmission();

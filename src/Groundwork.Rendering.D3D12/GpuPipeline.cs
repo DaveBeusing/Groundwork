@@ -195,7 +195,7 @@ internal sealed unsafe partial class GpuDevice
         if (scene.Fog is { MaxOpacity: > 0 } fog)
         {
             fogColorOpacity = new(fog.Color, fog.MaxOpacity);
-            fogDepth = new(fog.StartDepthMeters, 1f / (fog.EndDepthMeters - fog.StartDepthMeters), 0, 0);
+            fogDepth = GetFogDepthConstants(fog);
         }
         var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity, fogDepth);
         commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
@@ -207,6 +207,14 @@ internal sealed unsafe partial class GpuDevice
         {
             commands->DrawInstanced(VertexCount, 1, 0, 0);
         }
+    }
+
+    internal static Vector4 GetFogDepthConstants(in RenderFog fog)
+    {
+        var span = fog.EndDepthMeters - fog.StartDepthMeters;
+        // Direct3D flushes subnormal floats to zero. Scale both depths before subtracting.
+        var scale = float.IsSubnormal(1f / span) ? 0.25f : 1f;
+        return new(fog.StartDepthMeters * scale, 1f / (span * scale), scale, 0);
     }
 
     private readonly record struct DrawConstants(Matrix4x4 WorldViewProjection, Vector4 Tint,

@@ -28,7 +28,7 @@ float4 PSMain(VertexOutput input) : SV_Target
     float4 color = Tint * input.Color;
     if (FogColorOpacity.a > 0.0)
     {
-        float amount = FogColorOpacity.a * saturate((input.ViewDepth - FogDepth.x) * FogDepth.y);
+        float amount = FogColorOpacity.a * saturate((input.ViewDepth * FogDepth.z - FogDepth.x) * FogDepth.y);
         color.rgb = lerp(color.rgb, FogColorOpacity.rgb, amount);
     }
     return color;
