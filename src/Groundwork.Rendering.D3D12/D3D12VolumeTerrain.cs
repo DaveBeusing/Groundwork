@@ -10,10 +10,15 @@ namespace Groundwork.Rendering.D3D12;
 public readonly record struct VolumeCamera(VolumeViewIdentity View, PlanetVector Position, Vector3 Forward,
     Vector3 Up, float FieldOfView, float NearPlane, float FarPlane, Vector4 Tint, Vector4 ClearColor);
 
+/// <summary>Returns packed RGBA8 (red in the low byte), or null to reject the candidate.</summary>
+/// <remarks>Use an immutable, thread-safe policy with deterministic, non-blocking and allocation-free evaluation.</remarks>
+public delegate uint? VolumeTerrainColorEvaluator(PlanetVector positionMeters, ushort material);
+
 public sealed partial class D3D12Renderer
 {
     private readonly VolumeStreamingCoordinator? _volume;
     private readonly ulong _volumeEpoch;
+    private readonly VolumeTerrainColorEvaluator? _volumeColors;
     private readonly VolumeRendererAuthority? _volumeAuthority;
     private readonly Lock _volumeGate = new();
     private bool _volumePacking;
@@ -44,9 +49,20 @@ public sealed partial class D3D12Renderer
         bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null) =>
         new(window, ownership, terrain, rendererEpoch, diagnostics, useWarp, startupTimeout, operationTimeout, null);
 
+    /// <summary>Creates a volume renderer with a fixed terrain color policy.</summary>
+    public static D3D12Renderer CreateWithColoredVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
+        VolumeStreamingCoordinator terrain, ulong rendererEpoch, VolumeTerrainColorEvaluator colorEvaluator,
+        D3D12DiagnosticsOptions diagnostics = default, bool useWarp = false,
+        TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(colorEvaluator);
+        return new(window, ownership, terrain, rendererEpoch, diagnostics, useWarp, startupTimeout, operationTimeout, null, colorEvaluator);
+    }
+
     internal D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership,
         VolumeStreamingCoordinator terrain, ulong rendererEpoch, D3D12DiagnosticsOptions diagnostics,
-        bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout, GpuRetirementTestHooks? hooks)
+        bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout, GpuRetirementTestHooks? hooks,
+        VolumeTerrainColorEvaluator? colorEvaluator = null)
         : this(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
     {
         ArgumentNullException.ThrowIfNull(terrain);
@@ -55,6 +71,7 @@ public sealed partial class D3D12Renderer
             ?? throw new InvalidOperationException("The renderer epoch must be fresh, held and exclusively bound.");
         _volume = terrain;
         _volumeEpoch = rendererEpoch;
+        _volumeColors = colorEvaluator;
         _retirementHooks = hooks;
         _admission = RendererFrameAdmission.CreateWithPairedRegionFrames();
         _initialGeometry = new RenderMeshRegion([new(RenderMesh.Create([], []), Vector3.Zero)]);
@@ -108,9 +125,9 @@ public sealed partial class D3D12Renderer
                 return MeshReplacementSubmissionResult.StaleGeneration;
 
             var nativeLimit = NativeLimit(credits);
-            var region = PackVolumeTerrain(lease.Meshes, lease.Info.View.Frame, nativeLimit, packingBytes);
+            var region = PackVolumeTerrain(lease.Meshes, lease.Info.View.Frame, nativeLimit, packingBytes, _volumeColors, out var colorRejected);
             if (region is null)
-                return MeshReplacementSubmissionResult.Backpressure;
+                return colorRejected ? MeshReplacementSubmissionResult.InvalidRegion : MeshReplacementSubmissionResult.Backpressure;
             lock (_volumeGate)
             {
                 if (!VolumeAdmissionOpen || !_volume.IsCurrentPresentationCandidate(lease.Info))
@@ -260,8 +277,14 @@ public sealed partial class D3D12Renderer
     }
 
     internal static RenderMeshRegion? PackVolumeTerrain(ReadOnlySpan<PlanetVolumeMesh> meshes,
-        PlanetLocalFrame origin, long nativeLimit, long packingBytes = long.MaxValue)
+        PlanetLocalFrame origin, long nativeLimit, long packingBytes = long.MaxValue) =>
+        PackVolumeTerrain(meshes, origin, nativeLimit, packingBytes, null, out _);
+
+    internal static RenderMeshRegion? PackVolumeTerrain(ReadOnlySpan<PlanetVolumeMesh> meshes,
+        PlanetLocalFrame origin, long nativeLimit, long packingBytes, VolumeTerrainColorEvaluator? colorEvaluator,
+        out bool colorRejected)
     {
+        colorRejected = false;
         var count = 0;
         foreach (var mesh in meshes)
         {
@@ -295,24 +318,39 @@ public sealed partial class D3D12Renderer
 
                 var mesh = meshes[meshIndex];
                 var triangle = mesh.Triangles[triangleIndex++];
-                WriteVertex(triangle.A, vertex);
-                WriteVertex(triangle.B, vertex + 1);
-                WriteVertex(triangle.C, vertex + 2);
+                if (!WriteVertex(triangle.A, vertex) ||
+                    !WriteVertex(triangle.B, vertex + 1) ||
+                    !WriteVertex(triangle.C, vertex + 2))
+                {
+                    colorRejected = true;
+                    return null;
+                }
 
-                void WriteVertex(VolumeVertex source, int index)
+                bool WriteVertex(VolumeVertex source, int index)
                 {
                     var cell = mesh.Descriptor.CellSizeMeters;
-                    positions[index] = origin.ToLocal(new PlanetVector(
+                    var position = new PlanetVector(
                         (mesh.Origin.X + (double)source.Position.X) * cell,
                         (mesh.Origin.Y + (double)source.Position.Y) * cell,
-                        (mesh.Origin.Z + (double)source.Position.Z) * cell));
+                        (mesh.Origin.Z + (double)source.Position.Z) * cell);
+                    positions[index] = origin.ToLocal(position);
                     indices[index] = (uint)index;
-                    colors[index] = (source.Material % 3) switch
+                    if (colorEvaluator is null)
                     {
-                        0 => 0xff4688b8u,
-                        1 => 0xff50905au,
-                        _ => 0xffa06b63u
-                    };
+                        colors[index] = (source.Material % 3) switch
+                        {
+                            0 => 0xff4688b8u,
+                            1 => 0xff50905au,
+                            _ => 0xffa06b63u
+                        };
+                        return true;
+                    }
+
+                    var evaluated = EvaluateVolumeColor(colorEvaluator, position, source.Material);
+                    if (!evaluated.HasValue)
+                        return false;
+                    colors[index] = evaluated.Value;
+                    return true;
                 }
             }
 
@@ -320,6 +358,19 @@ public sealed partial class D3D12Renderer
             count -= vertices / 3;
         }
         return new RenderMeshRegion(instances);
+    }
+
+    private static uint? EvaluateVolumeColor(VolumeTerrainColorEvaluator evaluator, PlanetVector position, ushort material)
+    {
+        try
+        {
+            return evaluator(position, material);
+        }
+        catch (Exception)
+        {
+            // An external policy failure invalidates only this private candidate.
+            return null;
+        }
     }
 
     private bool CanInstallVolume(ulong generation) => _volume is null ||
