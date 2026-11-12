@@ -19,7 +19,21 @@ public sealed partial class PresentationSmokeTests
     public async Task VolumeReadbackWithDebugLayerAndDred(bool warp) =>
         await VerifyVolumeReadback(warp, true);
 
-    private static async Task VerifyVolumeReadback(bool warp, bool requireDebug)
+    [TestMethod]
+    public async Task WarpVolumeColorPolicyReadbackAcrossLodSeamAndRebase() =>
+        await VerifyVolumeReadback(true, false, TestVolumeColor);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task VolumeColorPolicyReadbackWithDebugLayerAndDred(bool warp) =>
+        await VerifyVolumeReadback(warp, true, TestVolumeColor);
+
+    private static uint? TestVolumeColor(PlanetVector position, ushort material) =>
+        0xff0000ccu | ((uint)material & 0xff) << 16 | ((uint)Math.Floor(position.X) & 0xff) << 8;
+
+    private static async Task VerifyVolumeReadback(bool warp, bool requireDebug, VolumeTerrainColorEvaluator? colors = null)
     {
         using var run = new VolumeRun();
         var origin = PlanetLocalFrame.Create(default);
@@ -30,8 +44,34 @@ public sealed partial class PresentationSmokeTests
         Assert.IsNotNull(first);
         Assert.IsTrue(first.Meshes.ToArray().Any(mesh => mesh.Triangles.ToArray().Any(t => t.IsTransition)));
         Assert.IsNull(D3D12Renderer.PackVolumeTerrain(first.Meshes, origin, 65535));
-        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true,
-            region: D3D12Renderer.PackVolumeTerrain(first.Meshes, origin, VolumeRun.NativeBytes));
+        var initial = Pack(first.Meshes, origin);
+        if (colors is not null)
+        {
+            Assert.IsTrue(origin.TryRebase(new PlanetVector(32, 0, 0), out var shifted));
+            var rebuilt = Pack(first.Meshes, shifted);
+            Assert.AreEqual(initial.Instances.Length, rebuilt.Instances.Length);
+            var vertex = 0;
+            foreach (var mesh in first.Meshes.ToArray())
+            foreach (var triangle in mesh.Triangles.ToArray())
+            {
+                Check(triangle.A);
+                Check(triangle.B);
+                Check(triangle.C);
+
+                void Check(VolumeVertex source)
+                {
+                    var cell = mesh.Descriptor.CellSizeMeters;
+                    var position = new PlanetVector((mesh.Origin.X + (double)source.Position.X) * cell,
+                        (mesh.Origin.Y + (double)source.Position.Y) * cell, (mesh.Origin.Z + (double)source.Position.Z) * cell);
+                    var expected = TestVolumeColor(position, source.Material).GetValueOrDefault();
+                    var batch = vertex / RenderMesh.MaximumVertexCount;
+                    var index = vertex++ % RenderMesh.MaximumVertexCount;
+                    Assert.AreEqual(expected, initial.Instances[batch].Mesh.Colors[index]);
+                    Assert.AreEqual(expected, rebuilt.Instances[batch].Mesh.Colors[index]);
+                }
+            }
+        }
+        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, region: initial);
         using (gpu)
         {
             AssertPlanetAdapter(gpu.Adapter, warp);
@@ -47,9 +87,9 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(hits[0].IsTransition, "The floor readback is centered on actual transition geometry.");
             Assert.AreEqual(PlanetFace.PositiveY, PlanetCoordinates.Project(new(31, 32, 0)).Face);
             Assert.AreEqual(PlanetFace.PositiveX, PlanetCoordinates.Project(new(33, 32, 0)).Face);
-            AssertVolumeFloor(before);
+            AssertVolumeFloor(before, colors is null ? (byte)0x5a : (byte)0xcc);
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera with { Forward = Vector3.UnitZ }, 1, out var roofFrame));
-            AssertVolumeFloor(GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, roofFrame));
+            AssertVolumeFloor(GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, roofFrame), colors is null ? (byte)0x5a : (byte)0xcc);
 
             Assert.IsTrue(origin.TryRebase(new PlanetVector(32, 0, 0), out var rebased));
             view = run.Terrain.ChangeView(rebased, 1);
@@ -57,18 +97,18 @@ public sealed partial class PresentationSmokeTests
             await run.Publish(2, cut: true);
             using var second = run.Terrain.TryRead();
             Assert.IsNotNull(second);
-            var packed = D3D12Renderer.PackVolumeTerrain(second.Meshes, rebased, VolumeRun.NativeBytes);
+            var packed = Pack(second.Meshes, rebased);
             Assert.IsNotNull(packed);
             var old = gpu.ActiveMeshGeometry;
             gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(packed, VolumeRun.NativeBytes);
             old?.Dispose();
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(VolumeCameraAt(view, 32, 4), 2, out frame));
             var after = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
-            AssertVolumeFloor(after);
+            AssertVolumeFloor(after, colors is null ? (byte)0x5a : (byte)0xcc);
             Assert.IsLessThan(after.DepthAt(80, 48), before.DepthAt(80, 48));
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(VolumeCameraAt(view, 32, 6), 3, out frame));
             var far = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
-            AssertVolumeFloor(far);
+            AssertVolumeFloor(far, colors is null ? (byte)0x5a : (byte)0xcc);
             Assert.IsLessThan(far.DepthAt(80, 48), after.DepthAt(80, 48));
             Assert.AreEqual(2UL, second.Info.TerrainRevision);
             Assert.AreEqual(1UL, first.Info.TerrainRevision);
@@ -78,6 +118,14 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(0L, gpu.LiveMeshBytes);
         AssertCleanDiagnostics(new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled,
             gpu.FinalDebugSummary, null), diagnosticsRequested: true);
+
+        RenderMeshRegion Pack(ReadOnlySpan<PlanetVolumeMesh> meshes, PlanetLocalFrame frame)
+        {
+            var region = D3D12Renderer.PackVolumeTerrain(meshes, frame, VolumeRun.NativeBytes, long.MaxValue, colors, out var rejected);
+            Assert.IsFalse(rejected);
+            Assert.IsNotNull(region);
+            return region;
+        }
     }
 
     [TestMethod]
@@ -354,19 +402,29 @@ public sealed partial class PresentationSmokeTests
     private static VolumeCamera VolumeCameraAt(VolumeViewIdentity view, double x, double z) =>
         new(view, new(x, 32, z), -Vector3.UnitZ, Vector3.UnitY, MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
 
-    private static void AssertVolumeFloor(OffscreenFrame image)
+    private static void AssertVolumeFloor(OffscreenFrame image, byte red = 0x5a)
     {
         for (var y = 44; y <= 52; y++)
         for (var x = 74; x <= 86; x++)
         {
             Assert.IsLessThan(1f, image.DepthAt(x, y));
-            Assert.AreEqual((byte)0x5a, image.ColorAt(x, y)[0]);
+            Assert.AreEqual(red, image.ColorAt(x, y)[0]);
         }
     }
 
     [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
-    public async Task WarpEditedTerrainRebaseRetiresTheMatchingCollisionRevision()
+    public async Task WarpEditedTerrainRebaseRetiresTheMatchingCollisionRevision() =>
+        await VerifyEditedTerrainRebase(true, false);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task VolumeColorPolicyRejectsPrivateCandidateAndSurvivesEdit(bool warp) =>
+        await VerifyEditedTerrainRebase(warp, true);
+
+    private static async Task VerifyEditedTerrainRebase(bool warp, bool customColors)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
         var token = timeout.Token;
@@ -376,8 +434,24 @@ public sealed partial class PresentationSmokeTests
         var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
         await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork edited volume {Guid.NewGuid():N}", 360, 280, 32),
             runtime.UiWake, runtime.RuntimeOwnership);
-        await using var renderer = D3D12Renderer.CreateWithVolumeTerrain(window, runtime.RuntimeOwnership, run.Terrain, 1,
-            QualificationDiagnostics, useWarp: true, startupTimeout: TimeSpan.FromSeconds(15));
+        var calls = 0;
+        var reject = 0;
+        uint? Evaluate(PlanetVector position, ushort material)
+        {
+            calls++;
+            return reject switch
+            {
+                1 => null,
+                2 => throw new InvalidOperationException("test policy failure"),
+                _ => TestVolumeColor(position, material)
+            };
+        }
+
+        await using var renderer = customColors
+            ? D3D12Renderer.CreateWithColoredVolumeTerrain(window, runtime.RuntimeOwnership, run.Terrain, 1,
+                Evaluate, QualificationDiagnostics, useWarp: warp, startupTimeout: TimeSpan.FromSeconds(15))
+            : D3D12Renderer.CreateWithVolumeTerrain(window, runtime.RuntimeOwnership, run.Terrain, 1,
+                QualificationDiagnostics, useWarp: warp, startupTimeout: TimeSpan.FromSeconds(15));
         try
         {
             await window.InitializeAsync(context, token);
@@ -394,17 +468,40 @@ public sealed partial class PresentationSmokeTests
                 renderer.TrySubmitVolumeTerrain(old.Info.Generation, 2, VolumeCameraAt(view, 32, 4)));
             await AwaitStatus(renderer, state => state.LastPresentedSequence == 2, token);
 
-            var next = await run.CutFloor(renderer, token);
+            if (customColors)
+            {
+                Assert.IsGreaterThan(0, calls);
+                var packedCalls = calls;
+                Assert.AreEqual(RenderSubmissionResult.Accepted,
+                    renderer.TrySubmitVolumeCamera(old.Info.Generation, 3, VolumeCameraAt(view, 32, 4)));
+                await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
+                Assert.AreEqual(packedCalls, calls);
+                using var rejected = run.Stage(VolumeWorkClass.Movement, 1, 1, cut: false);
+                Assert.IsTrue(rejected.Execute());
+                foreach (var mode in new[] { 1, 2 })
+                {
+                    reject = mode;
+                    Assert.AreEqual(MeshReplacementSubmissionResult.InvalidRegion, renderer.TryStageVolumeTerrain(rejected.Generation));
+                    Assert.IsFalse(renderer.IsVolumeTerrainReady(rejected.Generation));
+                    using var active = run.Terrain.TryRead();
+                    Assert.IsNotNull(active);
+                    Assert.AreEqual(old.Info, active.Info);
+                }
+                reject = 0;
+            }
+
+            var mask = customColors ? 4UL : 3UL;
+            var next = await run.CutFloor(renderer, token, maskSequence: mask);
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             using var edited = run.Terrain.TryRead();
             Assert.IsNotNull(edited);
             Assert.AreEqual(2UL, edited.Info.TerrainRevision);
             Assert.AreNotEqual(view.Frame, next.Frame);
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
-                renderer.TrySubmitVolumeCamera(old.Info.Generation, 4, VolumeCameraAt(view, 32, 4)));
+                renderer.TrySubmitVolumeCamera(old.Info.Generation, mask + 1, VolumeCameraAt(view, 32, 4)));
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
-                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, 4, VolumeCameraAt(next, 32, 4)));
-            await AwaitStatus(renderer, state => state.LastPresentedSequence == 4, token);
+                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, mask + 1, VolumeCameraAt(next, 32, 4)));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == mask + 1, token);
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             await run.OpenMovement();
             Assert.IsFalse(run.Terrain.Statistics.MovementHeld);
@@ -415,7 +512,9 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(1, edited.Raycast(new(32, 32, 4), new(32, 32, -8), afterHits).Count);
             Assert.IsLessThan(afterHits[0].Distance, beforeHits[0].Distance);
             await renderer.StopAsync(token);
-            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
+            var diagnostics = renderer.ReadDiagnostics();
+            AssertPlanetAdapter(diagnostics.Adapter, warp);
+            AssertCleanDiagnostics(diagnostics, diagnosticsRequested: true);
 
             using var gpu = new GpuDevice(true, enableDebugLayer: true, enableDred: true);
             var oldRegion = D3D12Renderer.PackVolumeTerrain(old.Meshes, view.Frame, VolumeRun.NativeBytes);
@@ -494,7 +593,7 @@ public sealed partial class PresentationSmokeTests
         internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut, IPlanetBrickSource? source = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(kind, _selection, sourceRevision,
-                targetRevision, _meshBytes, _unit, source ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                targetRevision, _meshBytes, _unit, source ?? _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             return work;
         }
@@ -529,7 +628,7 @@ public sealed partial class PresentationSmokeTests
         }
 
         internal async Task<VolumeViewIdentity> CutFloor(D3D12Renderer? renderer, CancellationToken token,
-            VolumeBrushIntent? brush = null, PlanetVector? rebase = null)
+            VolumeBrushIntent? brush = null, PlanetVector? rebase = null, ulong maskSequence = 3)
         {
             var begin = await BeginHeldTick();
             Assert.IsTrue(Terrain.BeginTick(begin));
@@ -545,7 +644,7 @@ public sealed partial class PresentationSmokeTests
             if (renderer is null)
                 Assert.IsTrue(Terrain.ConfirmMask(next));
             else
-                Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, 3, Vector4.Zero));
+                Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, maskSequence, Vector4.Zero));
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStageEdit(begin.Tick, edit.Id, selection, _meshBytes, _unit, out var work));
             Assert.IsNotNull(work);
             using (work)
@@ -554,7 +653,7 @@ public sealed partial class PresentationSmokeTests
                 if (renderer is not null)
                 {
                     Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
-                    await AwaitStatus(renderer, state => state.LastPresentedSequence == 3 && renderer.IsVolumeTerrainReady(work.Generation), token);
+                    await AwaitStatus(renderer, state => state.LastPresentedSequence == maskSequence && renderer.IsVolumeTerrainReady(work.Generation), token);
                     var nativeReady = false;
                     while (Terrain.TryReadEvent(out var evidence))
                     {
