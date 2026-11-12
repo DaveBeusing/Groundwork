@@ -5,7 +5,10 @@ namespace Groundwork.Voxels;
 public readonly record struct VolumeViewIdentity(ulong RendererEpoch, ulong View, PlanetLocalFrame Frame);
 public enum VolumeAdmission { Accepted, Backpressure, Stale, Closed, Invalid }
 public enum VolumeEventKind { Admitted, Backpressure, WorkReady, Discarded, Commit, Rejected, ViewChanged, Registered, Accepted, Opened, Stopped, MovementCommit, MovementRejected, EditQueued, EditRejected, NativeReady, CheckpointReserved, CheckpointDenied, CheckpointCaptured }
-public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result);
+public readonly record struct VolumeMovementEvidence(BarrierStamp AttemptStamp, PlanetWalkState Before, double Forward, double Right, PlanetWalkResult Result)
+{
+    public PlanetVector? ClimbDisplacement { get; init; }
+}
 public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKind Kind, ulong Generation, BarrierStamp? Stamp,
     VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null)
 {

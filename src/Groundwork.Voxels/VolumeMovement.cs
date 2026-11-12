@@ -22,7 +22,17 @@ public sealed partial class VolumeStreamingCoordinator
     /// The first call may establish a non-penetrating spawn; later calls must use the committed pose.
     /// </summary>
     public VolumeMovementDraft? TryPlanMovement(PlanetWalkState state, double forward, double right,
-        out VolumeQueryStatus status, VolumeQueryLimits? limits = null)
+        out VolumeQueryStatus status, VolumeQueryLimits? limits = null) =>
+        PlanMovement(state, forward, right, null, out status, limits);
+
+    /// <summary>Plans one collision-checked tick on a host-defined V2 climbing route.</summary>
+    /// <remarks>The host owns attachment to the route and must leave it at a supported position.</remarks>
+    public VolumeMovementDraft? TryPlanCaveClimb(PlanetWalkState state, PlanetVector displacement,
+        out VolumeQueryStatus status, VolumeQueryLimits? limits = null) =>
+        PlanMovement(state, 0, 0, displacement, out status, limits);
+
+    private VolumeMovementDraft? PlanMovement(PlanetWalkState state, double forward, double right,
+        PlanetVector? climb, out VolumeQueryStatus status, VolumeQueryLimits? limits)
     {
         lock (_gate)
         {
@@ -35,9 +45,12 @@ public sealed partial class VolumeStreamingCoordinator
                 active.View != _view || committed.Stamp.Kind != BarrierKind.BeginTick)
                 return null;
             if (root.Player is { } player && player != state) { status = VolumeQueryStatus.Invalid; return null; }
-            var result = VolumeWalker.Step(active, state, forward, right, limits ?? VolumeQueryLimits.Default, out status);
-            return status is VolumeQueryStatus.Clear or VolumeQueryStatus.Contact
-                ? new VolumeMovementDraft(root, committed.Stamp, new VolumeMovementEvidence(committed.Stamp, state, forward, right, result)) : null;
+            var queryLimits = limits ?? VolumeQueryLimits.Default;
+            var result = climb is { } displacement
+                ? VolumeWalker.Climb(active, state, displacement, queryLimits, out status)
+                : VolumeWalker.Step(active, state, forward, right, queryLimits, out status);
+            return status == VolumeQueryStatus.Clear || climb is null && status == VolumeQueryStatus.Contact
+                ? new VolumeMovementDraft(root, committed.Stamp, new VolumeMovementEvidence(committed.Stamp, state, forward, right, result) { ClimbDisplacement = climb }) : null;
         }
     }
 
@@ -121,6 +134,28 @@ internal static class VolumeWalker
         new CollisionVector(state.Velocity).Finite && new CollisionVector(state.Heading).Finite &&
         Up(state.Position).Finite && new CollisionVector(state.Heading).Length > 0 &&
         double.IsFinite(new CollisionVector(state.Velocity).Length);
+
+    internal static PlanetWalkResult Climb(VolumeGeneration g, PlanetWalkState state, PlanetVector displacement,
+        VolumeQueryLimits limits, out VolumeQueryStatus status)
+    {
+        var held = new PlanetWalkResult(state, PlanetWalkStatus.Held, false);
+        var delta = new CollisionVector(displacement);
+        status = VolumeQueryStatus.Invalid;
+        if (!Valid(state) || !limits.Valid || !delta.Finite || delta.Length is <= 0 or > 0.125 ||
+            g.Selection.Descriptor.GeneratorVersion != PlanetGeologyField.GeneratorVersion)
+            return held;
+
+        var next = state with { Position = (new CollisionVector(state.Position) + delta).Planet, Velocity = default };
+        if (!Valid(next))
+            return held;
+        var destination = Body(next);
+        var sweep = VolumeCollision.Sweep(g, Body(state), displacement, limits, destination.A, destination.B);
+        status = sweep.Status;
+        if (status != VolumeQueryStatus.Clear)
+            return held;
+
+        return new(next, PlanetWalkStatus.Moved, false);
+    }
 
     internal static PlanetWalkResult Step(VolumeGeneration g, PlanetWalkState state, double forward, double right,
         VolumeQueryLimits limits, out VolumeQueryStatus status)

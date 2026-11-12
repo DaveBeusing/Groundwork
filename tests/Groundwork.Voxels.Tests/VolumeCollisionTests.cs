@@ -8,6 +8,10 @@ public sealed class VolumeCollisionTests
 {
     private static readonly PlanetDescriptor Descriptor = new(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
         new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
+    private static readonly PlanetDescriptor CaveDescriptor = new(Descriptor.WorldId, Descriptor.PlanetId,
+        Descriptor.Seed, PlanetGeologyField.GeneratorVersion, Descriptor.TerrainSchemaVersion,
+        Descriptor.MaterialCatalogVersion, Descriptor.ParameterSha256, Descriptor.RadiusMeters);
+
     private static PlanetVector P(double x, double y, double z) => new(x, y, z);
 
     [TestMethod]
@@ -417,9 +421,41 @@ public sealed class VolumeCollisionTests
         Assert.AreNotEqual(attempts[0].Tick, attempts[1].Tick);
     }
 
-    private sealed class Source(Func<LatticeCoordinate, long> density) : IPlanetBrickSource
+    [TestMethod]
+    public async Task CaveClimbPublishesOnlyBoundedClearSweeps()
     {
-        public PlanetDescriptor Descriptor => VolumeCollisionTests.Descriptor;
+        var state = new PlanetWalkState(P(0, 0, 16.25), P(1, 0, 0), default);
+        using var run = new Run(p => Math.Min(p.Z - 16, 18 - p.Z), state.Position, cave: true);
+        await run.Publish();
+        using var frame = await run.Open();
+
+        Assert.IsNull(run.Coordinator.TryPlanCaveClimb(state, P(0, 0, 0.126), out var status));
+        Assert.AreEqual(VolumeQueryStatus.Invalid, status);
+        var blocked = run.Coordinator.TryPlanCaveClimb(state, P(0, 0, 0.1), out status);
+        Assert.AreEqual(VolumeQueryStatus.Contact, status);
+        Assert.IsNull(blocked);
+
+        var delta = P(0.1, 0, 0);
+        var climb = run.Coordinator.TryPlanCaveClimb(state, delta, out status);
+        Assert.AreEqual(VolumeQueryStatus.Clear, status);
+        Assert.IsNotNull(climb);
+        Assert.AreEqual(state with { Position = P(0.1, 0, 16.25) }, climb.Result.State);
+        var cut = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+        var publication = run.Coordinator.TryPrepareMovement(climb, cut, []);
+        Assert.IsNotNull(publication);
+        Assert.AreEqual(BarrierStatus.Committed, run.World.Publication.Finalization.TryFinalize(publication).Status);
+        while (run.Coordinator.TryReadEvent(out var entry))
+            if (entry.Kind == VolumeEventKind.MovementCommit)
+            {
+                Assert.AreEqual(delta, entry.Movement!.Value.ClimbDisplacement);
+                return;
+            }
+        Assert.Fail("Climb movement evidence was not recorded.");
+    }
+
+    private sealed class Source(Func<LatticeCoordinate, long> density, PlanetDescriptor? descriptor = null) : IPlanetBrickSource
+    {
+        public PlanetDescriptor Descriptor => descriptor ?? VolumeCollisionTests.Descriptor;
         public long SampleDensity(LatticeCoordinate p) => density(p);
         public ushort SampleMaterial(LatticeCoordinate p) => 1;
     }
@@ -437,14 +473,17 @@ public sealed class VolumeCollisionTests
         private ulong _frame;
         public VolumeStreamingSelection Selection => _selection;
         public VolumeResources Unit => _unit;
-        public Run(Func<LatticeCoordinate, long> density, PlanetVector center = default, int journal = 1024, PlanetVector? forward = null)
+        public Run(Func<LatticeCoordinate, long> density, PlanetVector center = default, int journal = 1024, PlanetVector? forward = null, bool cave = false)
         {
-            World = Fixture.OpenWorld(); _source = new Source(density);
-            _selection = VolumeStreamingSelection.Select(Descriptor, center, forward ?? P(1, 0, 0));
+            World = Fixture.OpenWorld(); _source = new Source(density, cave ? CaveDescriptor : Descriptor);
+            var heading = forward ?? P(1, 0, 0);
+            _selection = cave
+                ? VolumeStreamingSelection.SelectCave(_source.Descriptor, center, heading, new(center, center, 0.5), default)
+                : VolumeStreamingSelection.Select(_source.Descriptor, center, heading);
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, 10_000_000), 100, 20, 100, 1, 1, 1, 64, 1);
             var baseline = _unit.Retained + _unit.Retained; baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 16 };
             var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit, baseline, _unit, _unit, _unit, _unit, 16, 16, journal);
-            Coordinator = new(World, Descriptor, limits);
+            Coordinator = new(World, _source.Descriptor, limits);
             Assert.IsTrue(Coordinator.ConfirmMask(Coordinator.View));
         }
         public async Task Publish(Source? source = null, ulong sourceRevision = 0, ulong targetRevision = 1)
