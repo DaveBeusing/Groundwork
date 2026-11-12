@@ -38,9 +38,9 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 
 The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepted in PR #77. Groundwork generation, streaming, collision, D3D12 and NTFS checkpoints are merged, along with WYU W01–W05. The [workstation handover](wp11-handover.md) records the clean Windows integration, installer and package provenance. Q01 production budgets, Q02 reference qualification and owner acceptance remain open. The [issue map](wp11-issues.md) records the dependencies and final gates.
 
-## WP12 – Underground geology and caves (return route open)
+## WP12 – Underground geology and caves (installed route verified)
 
-The [WP12 contract](architecture/wp12-underground-geology-contract.md) covers seeded geology, cave streaming, collision and checkpoint recovery. A01, B01 and C01 are merged in Groundwork, and W01 is merged in WYU. The [G00 workstation handover](wp12-handover.md) records NVIDIA descent, ore mining and underground continuation. The return to the surface failed on the tested route. The installed cave playtest, full route acceptance and WP11 reference production qualification remain open.
+The [WP12 contract](architecture/wp12-underground-geology-contract.md) covers seeded geology, cave streaming, collision and checkpoint recovery. A01, B01 and C01 are merged in Groundwork, and W01 is merged in WYU. The [G00 handover](wp12-handover.md) records the installed NVIDIA route through descent, ore mining, underground restart and the return to supported surface. WP11 reference production qualification and [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89) remain open.
 
 ## Approved rendering and simulation packages
 

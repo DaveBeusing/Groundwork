@@ -1,8 +1,10 @@
 # WP12 cross-repository handover
 
+**Status: G00 installed cave route passed on the Windows workstation. Reference production qualification is pending.**
+
 This record covers the [WP12 underground geology contract](architecture/wp12-underground-geology-contract.md) and the fixed seed 42 Ember Caves route on the Windows workstation. The nominal planet radius is 4,148 m and the saved V2 geology recipe SHA-256 is `6BDB11C8C473F22AD2A7904981E10DDB481EDED2C5C8FCA3FF9C5DFAFBABBAC6`.
 
-## Tested revisions
+## Initial workstation revisions
 
 | Input | Identity | Evidence |
 | --- | --- | --- |
@@ -13,7 +15,7 @@ This record covers the [WP12 underground geology contract](architecture/wp12-und
 
 Both checkouts matched remote master and had an empty tracked status before the test. WYU verified the manifest and package contents, restored with an empty external package cache in locked mode and built Release with .NET SDK 10.0.403. The seven gameplay tests and headless lifecycle checks passed. Groundwork passed all 17 filtered `VolumeCheckpointTests` on Windows.
 
-## NVIDIA route
+## Initial NVIDIA route
 
 `eng/Test-CaveExploration.ps1` from the clean WYU checkout ran separate mining and continuation processes on an NVIDIA RTX PRO 5000 Blackwell Laptop GPU (`10DE:2C38`, driver `32.0.15.9653`). Debug Layer and DRED were enabled in both processes.
 
@@ -29,8 +31,29 @@ The direct reverse input (**S**, 15 seconds) held at approximately `(4137.0, 49.
 
 **Return to surface: fail on the tested route.** Reproduce from the generation 1 checkpoint produced by the cave smoke test. Open a copy through the world selector and enable F1. Hold S, then try alternating S+A, A and S+D around the ramp. A follow-up must demonstrate an ordinary-control route from the persisted underground pose to walkable surface outside the entrance.
 
-## Installer and outstanding qualification
+## Initial installer build
 
-The exact WYU revision built a self-contained offline Windows x64 installer with Inno Setup 6.7.3 and .NET runtime 10.0.14. Installer SHA-256 `6B2E0BDD916D31D7BEF58D1A88A478BFB1E18B02BEEB9CC293F327A84F81CC95`. Installer manifest SHA-256 `4173255F47D547CEA3E2C704A1F2351EC77EB847BD3C2213F66FA3BD340DB5F9`. The route evidence is from the Release client. The installed cave playtest and full route acceptance are pending.
+The exact WYU revision built a self-contained offline Windows x64 installer with Inno Setup 6.7.3 and .NET runtime 10.0.14. Installer SHA-256 `6B2E0BDD916D31D7BEF58D1A88A478BFB1E18B02BEEB9CC293F327A84F81CC95`. Installer manifest SHA-256 `4173255F47D547CEA3E2C704A1F2351EC77EB847BD3C2213F66FA3BD340DB5F9`. The route evidence is from the Release client. The installed cave route was tested after the return fix, as recorded below.
 
 Groundwork #89 and reference production qualification remain open. [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89)
+
+## Installed G00 completion
+
+The initial return held on a roughly 61° floor facet and met a steeper shaft lip. The collision-checked exit rope and its HUD fix shipped through [Groundwork #121](https://github.com/DaveBeusing/Groundwork/pull/121), [WYU #49](https://github.com/DaveBeusing/wyu/pull/49) and [WYU #50](https://github.com/DaveBeusing/wyu/pull/50).
+
+| Input | Identity |
+| --- | --- |
+| Groundwork master and package source | `638ed063e6dfebe15418f60e6f4991ff7132f5d7`. [Windows CI](https://github.com/DaveBeusing/Groundwork/actions/runs/43194538950) |
+| WYU master | `90079229e04f6df10faf94a4f3868c5051f65752`. [Windows CI](https://github.com/DaveBeusing/wyu/actions/runs/43202430133) |
+| Exact package set | `0.1.0-dev.43194538950.1`. [Immutable archive](https://github.com/DaveBeusing/Groundwork/releases/tag/archive-groundwork-0.1.0-dev.43194538950.1-immutable) |
+| Groundwork package manifest SHA-256 | `B86E00D8ADCC5581ACF242D9B7B3E598D0C886ACE44D5B3318AD76DB433D68EA` |
+| Offline installer SHA-256 | `8A11A38FD7F7216950FA9F9341087D1152187277264471573733CFFEDAD14CF1` |
+| Installer manifest SHA-256 | `A83674001EF8928A3E40151565730F0564C782548919F4E65B419EA3600520ED` |
+
+A clean WYU checkout built the Windows x64 installer with .NET SDK 10.0.403, bundled runtime 10.0.14 and Inno Setup 6.7.3. The workstation ran Windows 11 Enterprise build 26300. The per-user install verified 209 payload files and launched from Start using the bundled runtime. Reinstall repaired a removed program file. Uninstall removed the program, shortcut and registration and retained the isolated user data.
+
+The installed executable ran `--cave-smoke init` and `--cave-smoke resume` in separate processes with an isolated fixture. On NVIDIA RTX PRO 5000 Blackwell Laptop (`10DE:2C38`, driver `32.0.15.9653`), it descended under the generated roof, mined four ore and wrote generation 1 / terrain revision 2. Restart restored the same pose, overlay and ore inventory, committed a simulation tick and climbed to supported surface at `(4147.449029643602, 60.19283333650898, 32.406566020278206)`. The committed member SHA-256 remained `C780DAF36106554DB59610F2CA81033FA2B43D9F948A7E85D51878B63D1F8E1D`. Both processes enabled Debug Layer and DRED. Shutdown reported 8 and 5 warnings respectively, zero graphics errors, corruption, discarded messages and live GPU children.
+
+A separate installed-client run opened a copy of the same underground checkpoint through **Continue** and activated the exit rope with **Space**. The F1 position display confirmed that the climb hint stayed visible above the previous cutoff, at X 4147.0 / Y 55.2. The HUD switched to the surface hint after the climb and showed four ore. **F10** committed generation 2 at terrain revision 2 and exited cleanly.
+
+The installed NVIDIA cave route passes G00 on the workstation. Groundwork #89 and reference production qualification remain open. [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89)
