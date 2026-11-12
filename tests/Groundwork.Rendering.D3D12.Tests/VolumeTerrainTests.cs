@@ -472,10 +472,18 @@ public sealed partial class PresentationSmokeTests
             {
                 Assert.IsGreaterThan(0, calls);
                 var packedCalls = calls;
+                var fog = new RenderFog(Vector3.UnitZ, 1, 8, 0.5f);
+                var camera = VolumeCameraAt(view, 32, 4) with { Fog = fog };
+                Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
+                    renderer.TrySubmitVolumeCamera(old.Info.Generation, 3, camera with { Fog = fog with { EndDepthMeters = 1 } }));
+                Assert.AreEqual(2UL, renderer.Read().LastAcceptedSequence);
                 Assert.AreEqual(RenderSubmissionResult.Accepted,
-                    renderer.TrySubmitVolumeCamera(old.Info.Generation, 3, VolumeCameraAt(view, 32, 4)));
+                    renderer.TrySubmitVolumeCamera(old.Info.Generation, 3, camera));
                 await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
                 Assert.AreEqual(packedCalls, calls);
+                using var sameTerrain = run.Terrain.TryRead();
+                Assert.IsNotNull(sameTerrain);
+                Assert.AreEqual(old.Info, sameTerrain.Info);
                 using var rejected = run.Stage(VolumeWorkClass.Movement, 1, 1, cut: false);
                 Assert.IsTrue(rejected.Execute());
                 foreach (var mode in new[] { 1, 2 })
@@ -499,8 +507,17 @@ public sealed partial class PresentationSmokeTests
             Assert.AreNotEqual(view.Frame, next.Frame);
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
                 renderer.TrySubmitVolumeCamera(old.Info.Generation, mask + 1, VolumeCameraAt(view, 32, 4)));
+            var editedCamera = VolumeCameraAt(next, 32, 4);
+            if (customColors)
+            {
+                var fog = new RenderFog(Vector3.UnitZ, 1, 8, 0.5f);
+                Assert.AreEqual(MeshReplacementSubmissionResult.InvalidRegion,
+                    renderer.TrySubmitVolumeTerrain(edited.Info.Generation, mask + 1, editedCamera with { Fog = fog with { MaxOpacity = float.NaN } }));
+                Assert.AreEqual(mask, renderer.Read().LastAcceptedSequence);
+                editedCamera = editedCamera with { Fog = fog };
+            }
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
-                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, mask + 1, VolumeCameraAt(next, 32, 4)));
+                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, mask + 1, editedCamera));
             await AwaitStatus(renderer, state => state.LastPresentedSequence == mask + 1, token);
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             await run.OpenMovement();

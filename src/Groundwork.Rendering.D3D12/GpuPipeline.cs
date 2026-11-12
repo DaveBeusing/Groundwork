@@ -9,6 +9,7 @@ internal sealed unsafe partial class GpuDevice
 {
     private const uint VertexCount = 36;
     private const uint VertexStride = 3 * sizeof(float) + sizeof(uint);
+    private const uint FrameConstantCount = 28;
 
     private void CreatePipeline()
     {
@@ -17,7 +18,7 @@ internal sealed unsafe partial class GpuDevice
             ParameterType = D3D12_ROOT_PARAMETER_TYPE.D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_ALL,
         };
-        rootParameter.Constants = new D3D12_ROOT_CONSTANTS { Num32BitValues = 20 };
+        rootParameter.Constants = new D3D12_ROOT_CONSTANTS { Num32BitValues = FrameConstantCount };
         var rootDescription = new D3D12_ROOT_SIGNATURE_DESC
         {
             NumParameters = 1,
@@ -189,8 +190,15 @@ internal sealed unsafe partial class GpuDevice
     {
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
-        var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint);
-        commands->SetGraphicsRoot32BitConstants(0, 20, &constants, 0);
+        var fogColorOpacity = Vector4.Zero;
+        var fogDepth = Vector4.Zero;
+        if (scene.Fog is { MaxOpacity: > 0 } fog)
+        {
+            fogColorOpacity = new(fog.Color, fog.MaxOpacity);
+            fogDepth = new(fog.StartDepthMeters, 1f / (fog.EndDepthMeters - fog.StartDepthMeters), 0, 0);
+        }
+        var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity, fogDepth);
+        commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
         if (ActiveMeshGeometry is { } meshes)
         {
             meshes.Draw(commands);
@@ -201,6 +209,7 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private readonly record struct DrawConstants(Matrix4x4 WorldViewProjection, Vector4 Tint);
+    private readonly record struct DrawConstants(Matrix4x4 WorldViewProjection, Vector4 Tint,
+        Vector4 FogColorOpacity, Vector4 FogDepth);
     private readonly record struct GpuVertex(Vector3 Position, uint Color);
 }
