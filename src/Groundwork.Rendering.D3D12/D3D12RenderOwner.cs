@@ -32,7 +32,8 @@ public sealed partial class D3D12Renderer
                 return;
 
             gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
-                retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null));
+                retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null),
+                session: _deviceSession);
             Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
                 gpu.DredEnabled, null, null));
             var snapshot = target.Read();
