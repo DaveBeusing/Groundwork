@@ -150,10 +150,16 @@ internal sealed unsafe partial class GpuDevice
             var discarded = queue->GetNumMessagesDiscardedByMessageCountLimit();
             var result = debug->ReportLiveDeviceObjects(D3D12_RLDO_FLAGS.D3D12_RLDO_SUMMARY |
                 D3D12_RLDO_FLAGS.D3D12_RLDO_DETAIL | D3D12_RLDO_FLAGS.D3D12_RLDO_IGNORE_INTERNAL).Value;
+            var retainedQueue = false;
             var count = result >= 0 && discarded == queue->GetNumMessagesDiscardedByMessageCountLimit()
-                ? CountLiveChildObjects(queue, start)
+                ? CountLiveChildObjects(queue, start, _session?.RetainedQueueName, out retainedQueue)
                 : null;
-            FinalDebugSummary = FinalDebugSummary with { LiveObjectReportResult = result, LiveChildObjects = count };
+            FinalDebugSummary = FinalDebugSummary with
+            {
+                LiveObjectReportResult = result,
+                LiveChildObjects = count,
+                RetainedSessionQueue = count.HasValue && retainedQueue,
+            };
         }
         finally
         {
@@ -162,8 +168,9 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private static int? CountLiveChildObjects(ID3D12InfoQueue* queue, ulong start)
+    private static int? CountLiveChildObjects(ID3D12InfoQueue* queue, ulong start, string? queueName, out bool retainedQueue)
     {
+        retainedQueue = false;
         var end = queue->GetNumStoredMessagesAllowedByRetrievalFilter();
         nint* buffer = stackalloc nint[DebugMessageBytes / sizeof(nint)];
         var message = (D3D12_MESSAGE*)buffer;
@@ -177,7 +184,15 @@ internal sealed unsafe partial class GpuDevice
             if (message->ID is D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_OBJECT_SUMMARY or D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_DEVICE)
                 sawReport = true;
             else if (message->ID.ToString().StartsWith("D3D12_MESSAGE_ID_LIVE_", StringComparison.Ordinal))
+            {
                 count++;
+                if (queueName is not null && message->ID == D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_COMMANDQUEUE &&
+                    message->pDescription != null && message->DescriptionByteLength <= DebugMessageBytes)
+                {
+                    var description = new ReadOnlySpan<byte>((byte*)message->pDescription, (int)message->DescriptionByteLength);
+                    retainedQueue |= System.Text.Encoding.UTF8.GetString(description).Contains(queueName, StringComparison.Ordinal);
+                }
+            }
         }
 
         return sawReport && end - start <= DebugMessageLimit ? count : null;
