@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Runtime.ExceptionServices;
 using System.Runtime.InteropServices;
 using Groundwork.Core;
+using Groundwork.Voxels;
 using Groundwork.Platform.Windows;
 
 namespace Groundwork.Rendering.D3D12;
@@ -21,6 +22,27 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly TaskCompletionSource _ready = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _settled = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private RenderMeshRegion? _initialGeometry;
+    private D3D12DeviceSession? _deviceSession;
+
+    /// <summary>Uses the session device for an orbital renderer after the preceding renderer has stopped.</summary>
+    public static D3D12Renderer CreateWithSessionMeshes(WindowsHostModule window, IRuntimeOwnership ownership,
+        RenderMeshPair pair, D3D12DeviceSession session, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        var renderer = CreateWithMeshes(window, ownership, pair, session.Diagnostics, session.UseWarp, startupTimeout, operationTimeout);
+        renderer._deviceSession = session;
+        return renderer;
+    }
+
+    /// <summary>Uses the session device for a volume renderer after the preceding renderer has stopped.</summary>
+    public static D3D12Renderer CreateWithSessionVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
+        VolumeStreamingCoordinator terrain, ulong rendererEpoch, D3D12DeviceSession session,
+        VolumeTerrainColorEvaluator? colorEvaluator = null, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return new(window, ownership, terrain, rendererEpoch, session.Diagnostics, session.UseWarp,
+            startupTimeout, operationTimeout, null, colorEvaluator) { _deviceSession = session };
+    }
     private IRuntimeAdmissionFence? _meshRuntimeFence;
     private readonly Action<GpuDevice>? _beforeMeshInstallation;
     private readonly Action? _afterMeshInstallation;
