@@ -42,13 +42,16 @@ The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepte
 
 The [WP12 contract](architecture/wp12-underground-geology-contract.md) covers seeded geology, cave streaming, collision and checkpoint recovery. A01, B01 and C01 are merged in Groundwork, and W01 is merged in WYU. The [G00 handover](wp12-handover.md) records the installed NVIDIA route through descent, ore mining, underground restart and the return to supported surface. WP11 reference production qualification and [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89) remain open.
 
+## WP13 – Biomes (workstation integration verified)
+
+The [WP13 contract](architecture/wp13-biome-rendering-contract.md) defines canonical near and orbital terrain colors. Groundwork's optional evaluator and WYU's shared biome palette are merged. The [Windows handover](wp13-handover.md) records both seeds, verified package provenance, flight and regression results, and the remaining qualification evidence. Package E and WP16 consume this integration.
+
 ## Approved rendering and simulation packages
 
 The issues below are open and track approved scope. Each pair records its acceptance and performance limits. Start the Groundwork work against its listed prerequisites. WYU pins the exact verified Groundwork archive for the integration.
 
 | Package | Groundwork delivers | WYU delivers | Dependencies | Issues |
 | --- | --- | --- | --- | --- |
-| [WP13 · Biomes (Package B)](architecture/wp13-biome-rendering-contract.md) | Canonical biome coloring for near terrain and orbital meshes | Integrate three visible biome zones on the reference planet | Groundwork color evaluation → WYU; starts on WP11. | [Groundwork #110](https://github.com/DaveBeusing/Groundwork/issues/110) · [WYU #40](https://github.com/DaveBeusing/wyu/issues/40) |
 | Package E · Day/night and regional fog | Optional distance fog in the D3D12 terrain pass | Fixed-step day/night cycle, regional fog and Save/Continue | Groundwork fog + B → WYU. | [Groundwork #111](https://github.com/DaveBeusing/Groundwork/issues/111) · [WYU #41](https://github.com/DaveBeusing/wyu/issues/41) |
 | Package G · Dynamic sky and atmosphere | Shared D3D12 sky pass with sunlight scattering, stars and orbital limb | Continuous sky from surface to orbit and back | Groundwork atmosphere pass + E → WYU. | [Groundwork #112](https://github.com/DaveBeusing/Groundwork/issues/112) · [WYU #42](https://github.com/DaveBeusing/wyu/issues/42) |
 | WP15 · Sunlight and terrain shadows | Directional terrain lighting and two near-field shadow cascades | Reference-planet lighting and shadow tests across edits and rebases | Groundwork lighting + E → WYU. Verify alignment with G when available. | [Groundwork #113](https://github.com/DaveBeusing/Groundwork/issues/113) · [WYU #43](https://github.com/DaveBeusing/wyu/issues/43) |
