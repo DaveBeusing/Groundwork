@@ -50,6 +50,10 @@ The [WP13 contract](architecture/wp13-biome-rendering-contract.md) defines canon
 
 The [Windows handover](package-e-handover.md) records clean master replays, verified packages, workstation timing evidence and the open reference-system and production qualification.
 
+## Package G – Dynamic sky and atmosphere (workstation integration verified)
+
+The [Windows handover](package-g-handover.md) records clean master replays for both Far Horizon seeds, handoff pixel checks and the remaining reference-class and production qualification.
+
 ## Approved rendering and simulation packages
 
 The issues below are open and track approved scope. Each pair records its acceptance and performance limits. Start the Groundwork work against its listed prerequisites. WYU pins the exact verified Groundwork archive for the integration.
