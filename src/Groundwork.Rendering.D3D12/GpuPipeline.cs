@@ -9,12 +9,15 @@ internal sealed unsafe partial class GpuDevice
 {
     private const uint VertexCount = 36;
     private const uint VertexStride = 3 * sizeof(float) + sizeof(uint);
-    private const uint FrameConstantCount = 28;
+    private const uint NormalVertexStride = VertexStride + sizeof(uint);
+    private const uint FrameConstantCount = 40;
+    private ID3D12PipelineState* _normalPipeline;
 
     private void CreatePipeline()
     {
         _root = CreateFrameRoot(FrameConstantCount);
         _pipeline = CreateFramePipeline(_root, sky: false);
+        _normalPipeline = CreateFramePipeline(_root, sky: false, normals: true);
     }
 
     private ID3D12RootSignature* CreateFrameRoot(uint count)
@@ -50,13 +53,13 @@ internal sealed unsafe partial class GpuDevice
 
     }
 
-    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky)
+    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false)
     {
-        var vertexShader = LoadShader(sky ? "Sky.vs.dxil" : "Cube.vs.dxil");
+        var vertexShader = LoadShader(sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
         var pixelShader = LoadShader(sky ? "Sky.ps.dxil" : "Cube.ps.dxil");
-        fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8)
+        fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8, normal = "NORMAL\0"u8)
         {
-            D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[2]
+            D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[3]
             {
                 new()
                 {
@@ -69,13 +72,20 @@ internal sealed unsafe partial class GpuDevice
                     Format = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM,
                     AlignedByteOffset = 3 * sizeof(float),
                 },
+                default,
+            };
+            elements[2] = new D3D12_INPUT_ELEMENT_DESC
+            {
+                SemanticName = (sbyte*)normal,
+                Format = DXGI_FORMAT.DXGI_FORMAT_R32_UINT,
+                AlignedByteOffset = VertexStride,
             };
             var description = new D3D12_GRAPHICS_PIPELINE_STATE_DESC
             {
                 pRootSignature = root,
                 VS = new D3D12_SHADER_BYTECODE { pShaderBytecode = vs, BytecodeLength = (nuint)vertexShader.Length },
                 PS = new D3D12_SHADER_BYTECODE { pShaderBytecode = ps, BytecodeLength = (nuint)pixelShader.Length },
-                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = 2 },
+                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = normals ? 3u : 2u },
                 SampleMask = uint.MaxValue,
                 RasterizerState = new D3D12_RASTERIZER_DESC
                 {
@@ -215,7 +225,17 @@ internal sealed unsafe partial class GpuDevice
             fogColorOpacity = new(fog.Color, fog.MaxOpacity);
             fogDepth = GetFogDepthConstants(fog);
         }
-        var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity, fogDepth);
+        var sunDirection = Vector4.Zero;
+        var sunDirect = Vector4.Zero;
+        var sunAmbient = Vector4.Zero;
+        if (scene.Sunlight is { } sun)
+        {
+            sunDirection = new(Vector3.Normalize(sun.Direction), 1);
+            sunDirect = new(sun.Direct, 0);
+            sunAmbient = new(sun.Ambient, 0);
+        }
+        var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity,
+            fogDepth, sunDirection, sunDirect, sunAmbient);
         commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
         if (ActiveMeshGeometry is { } meshes)
         {
@@ -236,6 +256,6 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private readonly record struct DrawConstants(Matrix4x4 WorldViewProjection, Vector4 Tint,
-        Vector4 FogColorOpacity, Vector4 FogDepth);
+        Vector4 FogColorOpacity, Vector4 FogDepth, Vector4 SunDirection, Vector4 SunDirect, Vector4 SunAmbient);
     private readonly record struct GpuVertex(Vector3 Position, uint Color);
 }

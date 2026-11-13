@@ -24,7 +24,10 @@ public readonly record struct RenderScene(
     /// <summary>Null preserves the original vertex color and tint path.</summary>
     public RenderFog? Fog { get; init; }
 
-    internal bool IsValid => (Fog is null || Fog.Value.IsValid) && IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
+    /// <summary>Optional world-space sunlight for terrain with packed normals.</summary>
+    public RenderSunlight? Sunlight { get; init; }
+
+    internal bool IsValid => (Sunlight is null || Sunlight.Value.IsValid) && (Fog is null || Fog.Value.IsValid) && IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
         VerticalFieldOfView > 0 && VerticalFieldOfView < MathF.PI &&
         NearPlane > 0 && FarPlane > NearPlane && float.IsFinite(FarPlane);
 

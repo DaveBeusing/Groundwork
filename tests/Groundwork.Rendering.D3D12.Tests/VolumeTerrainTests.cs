@@ -68,6 +68,10 @@ public sealed partial class PresentationSmokeTests
                     var index = vertex++ % RenderMesh.MaximumVertexCount;
                     Assert.AreEqual(expected, initial.Instances[batch].Mesh.Colors[index]);
                     Assert.AreEqual(expected, rebuilt.Instances[batch].Mesh.Colors[index]);
+                    var packedNormal = initial.Instances[batch].Mesh.PackedNormals[index];
+                    Assert.AreEqual(packedNormal, rebuilt.Instances[batch].Mesh.PackedNormals[index]);
+                    var decoded = DecodeTerrainNormal(packedNormal);
+                    Assert.IsGreaterThan(0.99999f, Vector3.Dot(Vector3.Normalize(source.Normal), decoded));
                 }
             }
         }
