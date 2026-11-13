@@ -7,6 +7,8 @@
     <IsPackable>true</IsPackable>
   </PropertyGroup>
   <ItemGroup>
+    <InternalsVisibleTo Include="Groundwork.Rendering.D3D12" />
+    <InternalsVisibleTo Include="Groundwork.Rendering.D3D12.Tests" />
     <AssemblyMetadata Include="WorkPackage" Value="WP02" />
     <ProjectReference Include="../Groundwork.Core/Groundwork.Core.csproj" />
   </ItemGroup>

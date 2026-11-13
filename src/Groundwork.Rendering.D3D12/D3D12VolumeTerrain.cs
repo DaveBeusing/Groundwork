@@ -13,6 +13,9 @@ public readonly record struct VolumeCamera(VolumeViewIdentity View, PlanetVector
     /// <summary>Optional view-depth fog for this camera submission.</summary>
     public RenderFog? Fog { get; init; }
 
+    /// <summary>Optional directional sunlight for volume terrain.</summary>
+    public RenderSunlight? Sunlight { get; init; }
+
     /// <summary>Optional canonical sky for this volume view.</summary>
     public RenderSky? Sky { get; init; }
 }
@@ -271,6 +274,7 @@ public sealed partial class D3D12Renderer
             Matrix4x4.CreateLookTo(local, camera.Forward, camera.Up), camera.FieldOfView, camera.NearPlane, camera.FarPlane)
         {
             Fog = camera.Fog,
+            Sunlight = camera.Sunlight,
         }) { Sky = camera.Sky };
         return frame.IsValid;
     }
@@ -285,7 +289,7 @@ public sealed partial class D3D12Renderer
     private static bool FitsVolumeGeometry(int triangles, long nativeLimit)
     {
         // D3D12's default buffer alignment. The native allocator also checks the actual charge.
-        var payload = (long)triangles * 3 * (16 + sizeof(uint));
+        var payload = (long)triangles * 3 * (20 + sizeof(uint));
         var aligned = (payload + 65535) & ~65535L;
         return triangles <= MaximumVolumeTriangles && aligned <= nativeLimit;
     }
@@ -307,9 +311,9 @@ public sealed partial class D3D12Renderer
             count += mesh.Triangles.Length;
         }
 
-        // Immutable positions, indices, colors plus peak scratch for a batch.
-        var packedBytes = (long)count * 3 * (12 + sizeof(uint) * 2);
-        var scratchBytes = (long)Math.Min(count, VolumeTrianglesPerMesh) * 3 * (12 + sizeof(uint) * 2);
+        // Immutable positions, indices, colors and normals plus peak scratch for a batch.
+        var packedBytes = (long)count * 3 * (12 + sizeof(uint) * 3);
+        var scratchBytes = (long)Math.Min(count, VolumeTrianglesPerMesh) * 3 * (12 + sizeof(uint) * 3);
         if (!FitsVolumeGeometry(count, nativeLimit) || packedBytes + scratchBytes > packingBytes)
             return null;
 
@@ -322,6 +326,7 @@ public sealed partial class D3D12Renderer
             var positions = new Vector3[vertices];
             var indices = new uint[vertices];
             var colors = new uint[vertices];
+            var normals = new uint[vertices];
             for (var vertex = 0; vertex < vertices; vertex += 3)
             {
                 while (triangleIndex == meshes[meshIndex].Triangles.Length)
@@ -349,6 +354,7 @@ public sealed partial class D3D12Renderer
                         (mesh.Origin.Z + (double)source.Position.Z) * cell);
                     positions[index] = origin.ToLocal(position);
                     indices[index] = (uint)index;
+                    normals[index] = PackedTerrainNormal.Encode(source.Normal);
                     if (colorEvaluator is null)
                     {
                         colors[index] = (source.Material % 3) switch
@@ -368,7 +374,7 @@ public sealed partial class D3D12Renderer
                 }
             }
 
-            instances[batch] = new(RenderMesh.Create(positions, indices, colors), Vector3.Zero);
+            instances[batch] = new(RenderMesh.CreateWithTerrainNormals(positions, indices, colors, normals), Vector3.Zero);
             count -= vertices / 3;
         }
         return new RenderMeshRegion(instances);

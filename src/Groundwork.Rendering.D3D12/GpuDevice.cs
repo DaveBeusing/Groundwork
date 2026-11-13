@@ -276,6 +276,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         Release(_skyRoot);
         _skyPipeline = null;
         _skyRoot = null;
+        Release(_normalPipeline);
+        _normalPipeline = null;
         Release(_pipeline);
         Release(_root);
         Release(_fence);

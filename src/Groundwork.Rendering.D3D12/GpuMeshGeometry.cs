@@ -62,7 +62,9 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private static int MeshBytes(RenderMesh mesh) => checked(
-        mesh.Positions.Length * (int)VertexStride + mesh.Indices.Length * sizeof(uint));
+        mesh.Positions.Length * (int)GetVertexStride(mesh) + mesh.Indices.Length * sizeof(uint));
+
+    private static uint GetVertexStride(RenderMesh mesh) => mesh.PackedNormals.IsEmpty ? VertexStride : NormalVertexStride;
 
     private static PackedMesh PackMesh(in RenderMeshInstance instance, byte* mapped, ulong address, ref int offset)
     {
@@ -72,18 +74,23 @@ internal sealed unsafe partial class GpuDevice
         if (indices.IsEmpty)
             return default;
 
-        var vertexBytes = checked(positions.Length * (int)VertexStride);
+        var normals = instance.Mesh.PackedNormals;
+        var stride = GetVertexStride(instance.Mesh);
+        var vertexBytes = checked(positions.Length * (int)stride);
         var indexBytes = checked(indices.Length * sizeof(uint));
         var indexOffset = checked(offset + vertexBytes);
-        var vertices = new Span<GpuVertex>(mapped + offset, positions.Length);
-        for (var index = 0; index < vertices.Length; index++)
+
+        for (var index = 0; index < positions.Length; index++)
         {
             // Put all meshes in the same scene space before projection. Coincident
             // seam vertices then pass through identical floating-point transforms.
             var position = positions[index] + instance.Translation;
             if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
                 throw new ArgumentException("A translated mesh position is not finite.", nameof(instance));
-            vertices[index] = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[index]);
+            var vertex = mapped + offset + index * (int)stride;
+            *(GpuVertex*)vertex = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[index]);
+            if (!normals.IsEmpty)
+                *(uint*)(vertex + VertexStride) = normals[index];
         }
         indices.CopyTo(new Span<uint>(mapped + indexOffset, indices.Length));
 
@@ -91,7 +98,7 @@ internal sealed unsafe partial class GpuDevice
         {
             BufferLocation = checked(address + (ulong)offset),
             SizeInBytes = (uint)vertexBytes,
-            StrideInBytes = VertexStride,
+            StrideInBytes = stride,
         };
         var indexView = new D3D12_INDEX_BUFFER_VIEW
         {
@@ -153,8 +160,18 @@ internal sealed unsafe partial class GpuDevice
 
         internal void Draw(ID3D12GraphicsCommandList* commands)
         {
+            uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
+            {
+                if (mesh.IndexCount == 0)
+                    continue;
+                if (stride != mesh.Vertices.StrideInBytes)
+                {
+                    stride = mesh.Vertices.StrideInBytes;
+                    commands->SetPipelineState(stride == NormalVertexStride ? _owner._normalPipeline : _owner._pipeline);
+                }
                 DrawMesh(commands, mesh);
+            }
         }
 
         public void Dispose()

@@ -11,12 +11,16 @@ public sealed class RenderMesh
     private readonly Vector3[] _positions;
     private readonly uint[] _indices;
     private readonly uint[] _colors;
+    private readonly uint[] _normals;
 
-    private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors)
+    internal ReadOnlySpan<uint> PackedNormals => _normals;
+
+    private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors, uint[] normals)
     {
         _positions = positions;
         _indices = indices;
         _colors = colors;
+        _normals = normals;
     }
 
     public ReadOnlySpan<Vector3> Positions => _positions;
@@ -31,7 +35,11 @@ public sealed class RenderMesh
 
     /// <summary>Validates and copies bounded geometry and optional RGBA8 vertex colors.</summary>
     /// <exception cref="ArgumentException">A buffer has an invalid length or contains invalid geometry.</exception>
-    public static RenderMesh Create(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices, ReadOnlySpan<uint> colors)
+    public static RenderMesh Create(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices, ReadOnlySpan<uint> colors) =>
+        CreateWithTerrainNormals(positions, indices, colors, []);
+
+    internal static RenderMesh CreateWithTerrainNormals(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices,
+        ReadOnlySpan<uint> colors, ReadOnlySpan<uint> normals)
     {
         if (positions.Length > MaximumVertexCount)
         {
@@ -46,6 +54,9 @@ public sealed class RenderMesh
         {
             throw new ArgumentException("A colored mesh requires one RGBA8 value per vertex.", nameof(colors));
         }
+
+        if (!normals.IsEmpty && normals.Length != positions.Length)
+            throw new ArgumentException("Terrain requires one packed normal per vertex.", nameof(normals));
 
         foreach (var position in positions)
         {
@@ -63,7 +74,7 @@ public sealed class RenderMesh
             }
         }
 
-        return new RenderMesh(positions.ToArray(), indices.ToArray(), colors.ToArray());
+        return new RenderMesh(positions.ToArray(), indices.ToArray(), colors.ToArray(), normals.ToArray());
     }
 
     internal static bool IsFinite(Vector3 value) =>

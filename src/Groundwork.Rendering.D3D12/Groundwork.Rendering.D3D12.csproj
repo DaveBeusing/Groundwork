@@ -28,6 +28,7 @@
     <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../eng/Build-D3D12Shaders.ps1&quot; -OutputDirectory &quot;$(_ShaderDirectory)&quot; $(_DxcArguments)" />
     <ItemGroup>
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.vs.dxil" LogicalName="Cube.vs.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/TerrainNormals.vs.dxil" LogicalName="TerrainNormals.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.ps.dxil" LogicalName="Cube.ps.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Sky.vs.dxil" LogicalName="Sky.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Sky.ps.dxil" LogicalName="Sky.ps.dxil" WithCulture="false" />

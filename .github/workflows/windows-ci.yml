@@ -52,7 +52,7 @@ jobs:
             'WarpPlanetTerrainReadbackSurvivesLodAndOriginChange',
             'WarpFlightTerrainReadbackSurvivesBothViewAndOriginTransitions', 'WarpVolumeReadbackCoversTransitionAndCavityAcrossRebase',
             'WarpVolumeColorPolicyReadbackAcrossLodSeamAndRebase', 'WarpDistanceFogReadbackUsesViewDepthAndPreservesRebase', 'WarpCubeSphereTransitionsMatchCollisionAcrossRebase', 'WarpGeologyPortalReadbackMatchesCollisionAfterRebase',
-            'WarpLandingPadColorAndSilhouetteAreVisibleOnApproach', 'WarpSkyReadbackCoversScatteringStarsLimbAndRebase')) {
+            'WarpLandingPadColorAndSilhouetteAreVisibleOnApproach', 'WarpSkyReadbackCoversScatteringStarsLimbAndRebase', 'WarpSunlightReadbackPreservesFogAndRebase')) {
             if ($passed -cnotcontains $test) { throw "Mandatory WARP readback did not pass: $test" }
           }
 
