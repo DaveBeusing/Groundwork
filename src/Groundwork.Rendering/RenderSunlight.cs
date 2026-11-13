@@ -11,3 +11,9 @@ public readonly record struct RenderSunlight(Vector3 Direction, Vector3 Direct, 
     private static bool Gain(Vector3 value) =>
         value.X is >= 0 and <= 4 && value.Y is >= 0 and <= 4 && value.Z is >= 0 and <= 4;
 }
+
+/// <summary>Canonical double-precision offset of the local terrain render origin, in metres.</summary>
+public readonly record struct RenderShadowOrigin(double X, double Y, double Z)
+{
+    internal bool IsValid => Math.Abs(X) <= 1e12 && Math.Abs(Y) <= 1e12 && Math.Abs(Z) <= 1e12;
+}

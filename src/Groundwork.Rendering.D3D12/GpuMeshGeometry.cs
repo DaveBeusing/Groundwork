@@ -80,6 +80,8 @@ internal sealed unsafe partial class GpuDevice
         var indexBytes = checked(indices.Length * sizeof(uint));
         var indexOffset = checked(offset + vertexBytes);
 
+        var minimum = new System.Numerics.Vector3(float.PositiveInfinity);
+        var maximum = new System.Numerics.Vector3(float.NegativeInfinity);
         for (var index = 0; index < positions.Length; index++)
         {
             // Put all meshes in the same scene space before projection. Coincident
@@ -87,6 +89,8 @@ internal sealed unsafe partial class GpuDevice
             var position = positions[index] + instance.Translation;
             if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
                 throw new ArgumentException("A translated mesh position is not finite.", nameof(instance));
+            minimum = System.Numerics.Vector3.Min(minimum, position);
+            maximum = System.Numerics.Vector3.Max(maximum, position);
             var vertex = mapped + offset + index * (int)stride;
             *(GpuVertex*)vertex = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[index]);
             if (!normals.IsEmpty)
@@ -107,7 +111,7 @@ internal sealed unsafe partial class GpuDevice
             Format = DXGI_FORMAT.DXGI_FORMAT_R32_UINT,
         };
         offset = checked(indexOffset + indexBytes);
-        return new(vertexView, indexView, (uint)indices.Length);
+        return new(vertexView, indexView, (uint)indices.Length, (minimum + maximum) * 0.5f, (maximum - minimum) * 0.5f);
     }
 
     private static void DrawMesh(ID3D12GraphicsCommandList* commands, in PackedMesh mesh)
@@ -122,7 +126,7 @@ internal sealed unsafe partial class GpuDevice
         commands->DrawIndexedInstanced(mesh.IndexCount, 1, 0, 0, 0);
     }
 
-    private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices, uint IndexCount);
+    private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices, uint IndexCount, System.Numerics.Vector3 Center, System.Numerics.Vector3 Extent);
     internal sealed class MeshGeometry : IDisposable
     {
         private readonly GpuDevice _owner;
@@ -158,7 +162,7 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal void Draw(ID3D12GraphicsCommandList* commands)
+        internal void Draw(ID3D12GraphicsCommandList* commands, bool shadows)
         {
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
@@ -168,10 +172,45 @@ internal sealed unsafe partial class GpuDevice
                 if (stride != mesh.Vertices.StrideInBytes)
                 {
                     stride = mesh.Vertices.StrideInBytes;
-                    commands->SetPipelineState(stride == NormalVertexStride ? _owner._normalPipeline : _owner._pipeline);
+                                        commands->SetPipelineState(shadows
+                        ? stride == NormalVertexStride ? _owner._shadowNormalPipeline : _owner._shadowColorPipeline
+                        : stride == NormalVertexStride ? _owner._normalPipeline : _owner._pipeline);
                 }
                 DrawMesh(commands, mesh);
             }
+        }
+
+        internal (float Min, float Max) ShadowDepth(ShadowBasis basis, ShadowCascade near, ShadowCascade far)
+        {
+            var min = float.PositiveInfinity;
+            var max = float.NegativeInfinity;
+            foreach (ref readonly var mesh in _packed.AsSpan())
+            {
+                if (mesh.IndexCount == 0 || !Intersects(mesh, basis, near) && !Intersects(mesh, basis, far))
+                    continue;
+                var center = System.Numerics.Vector3.Dot(mesh.Center, basis.Z);
+                var extent = System.Numerics.Vector3.Dot(mesh.Extent, System.Numerics.Vector3.Abs(basis.Z));
+                min = Math.Min(min, center - extent);
+                max = Math.Max(max, center + extent);
+            }
+            return (min, max);
+        }
+
+        internal void DrawShadow(ID3D12GraphicsCommandList* commands, ShadowBasis basis, ShadowCascade cascade)
+        {
+            foreach (ref readonly var mesh in _packed.AsSpan())
+                if (mesh.IndexCount != 0 && Intersects(mesh, basis, cascade))
+                    DrawMesh(commands, mesh);
+        }
+
+        private static bool Intersects(in PackedMesh mesh, ShadowBasis basis, ShadowCascade cascade)
+        {
+            if (!cascade.Valid)
+                return false;
+            var delta = basis.Project(mesh.Center) - new System.Numerics.Vector3(cascade.Area.X, cascade.Area.Y, 0);
+            var radius = 1 / cascade.Area.Z;
+            return MathF.Abs(delta.X) <= radius + System.Numerics.Vector3.Dot(mesh.Extent, System.Numerics.Vector3.Abs(basis.X)) &&
+                MathF.Abs(delta.Y) <= radius + System.Numerics.Vector3.Dot(mesh.Extent, System.Numerics.Vector3.Abs(basis.Y));
         }
 
         public void Dispose()

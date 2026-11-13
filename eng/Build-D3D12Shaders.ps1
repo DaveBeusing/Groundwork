@@ -21,6 +21,8 @@ $commonFlags = @('-HV', '2021', '-O3', '-WX', '-Zpr')
 $shaders = @(
     @{ EntryPoint = 'VSMain'; Profile = 'vs_6_0'; Output = 'Cube.vs.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'VSNormals'; Profile = 'vs_6_0'; Output = 'TerrainNormals.vs.dxil'; Source = 'Cube.hlsl' },
+    @{ EntryPoint = 'VSDepth'; Profile = 'vs_6_0'; Output = 'ShadowDepth.vs.dxil'; Source = 'Cube.hlsl' },
+    @{ EntryPoint = 'PSShadow'; Profile = 'ps_6_0'; Output = 'ShadowTerrain.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'PSMain'; Profile = 'ps_6_0'; Output = 'Cube.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'SkyVS'; Profile = 'vs_6_0'; Output = 'Sky.vs.dxil'; Source = 'Sky.hlsl' },
     @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'Sky.ps.dxil'; Source = 'Sky.hlsl' }

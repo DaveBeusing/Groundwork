@@ -20,7 +20,7 @@ internal sealed unsafe partial class GpuDevice
         _normalPipeline = CreateFramePipeline(_root, sky: false, normals: true);
     }
 
-    private ID3D12RootSignature* CreateFrameRoot(uint count)
+    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false)
     {
         var rootParameter = new D3D12_ROOT_PARAMETER
         {
@@ -28,10 +28,23 @@ internal sealed unsafe partial class GpuDevice
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_ALL,
         };
         rootParameter.Constants = new D3D12_ROOT_CONSTANTS { Num32BitValues = count };
+        D3D12_ROOT_PARAMETER* parameters = stackalloc D3D12_ROOT_PARAMETER[2];
+        parameters[0] = rootParameter;
+        var range = new D3D12_DESCRIPTOR_RANGE
+        {
+            RangeType = D3D12_DESCRIPTOR_RANGE_TYPE.D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            NumDescriptors = 2,
+        };
+        parameters[1] = new D3D12_ROOT_PARAMETER
+        {
+            ParameterType = D3D12_ROOT_PARAMETER_TYPE.D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+            ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_PIXEL,
+            DescriptorTable = new() { NumDescriptorRanges = 1, pDescriptorRanges = &range },
+        };
         var rootDescription = new D3D12_ROOT_SIGNATURE_DESC
         {
-            NumParameters = 1,
-            pParameters = &rootParameter,
+            NumParameters = shadow ? 2u : 1u,
+            pParameters = parameters,
             Flags = D3D12_ROOT_SIGNATURE_FLAGS.D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
         };
         ID3DBlob* rootBlob = null;
@@ -53,10 +66,10 @@ internal sealed unsafe partial class GpuDevice
 
     }
 
-    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false)
+    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false, bool shadow = false, bool depthOnly = false)
     {
-        var vertexShader = LoadShader(sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
-        var pixelShader = LoadShader(sky ? "Sky.ps.dxil" : "Cube.ps.dxil");
+        var vertexShader = LoadShader(depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
+        var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" : shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
         fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8, normal = "NORMAL\0"u8)
         {
             D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[3]
@@ -85,7 +98,7 @@ internal sealed unsafe partial class GpuDevice
                 pRootSignature = root,
                 VS = new D3D12_SHADER_BYTECODE { pShaderBytecode = vs, BytecodeLength = (nuint)vertexShader.Length },
                 PS = new D3D12_SHADER_BYTECODE { pShaderBytecode = ps, BytecodeLength = (nuint)pixelShader.Length },
-                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = normals ? 3u : 2u },
+                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = depthOnly ? 1u : normals ? 3u : 2u },
                 SampleMask = uint.MaxValue,
                 RasterizerState = new D3D12_RASTERIZER_DESC
                 {
@@ -100,11 +113,12 @@ internal sealed unsafe partial class GpuDevice
                     DepthFunc = D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS,
                 },
                 PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
-                NumRenderTargets = 1,
+                NumRenderTargets = depthOnly ? 0u : 1u,
                 DSVFormat = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT,
                 SampleDesc = new DXGI_SAMPLE_DESC { Count = 1 },
             };
-            description.RTVFormats[0] = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM;
+            if (!depthOnly)
+                description.RTVFormats[0] = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM;
             description.BlendState.RenderTarget[0] = new D3D12_RENDER_TARGET_BLEND_DESC
             {
                 SrcBlend = D3D12_BLEND.D3D12_BLEND_ONE,
@@ -177,6 +191,7 @@ internal sealed unsafe partial class GpuDevice
         var clear = frame.ClearColor;
         commands->ClearRenderTargetView(rtv, (float*)&clear, 0, null);
         commands->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
+        var shadows = frame.Scene is { } receiver ? RecordShadows(commands, target, receiver) : default;
         if (frame.Scene.HasValue || frame.Sky.HasValue)
         {
             var viewport = new D3D12_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
@@ -202,7 +217,7 @@ internal sealed unsafe partial class GpuDevice
                 };
                 commands->IASetVertexBuffers(0, 1, &vertices);
             }
-            Draw(commands, target, scene);
+            Draw(commands, target, scene, shadows);
             if (subsequent is { } next)
                 Draw(commands, target, next);
         }
@@ -214,7 +229,7 @@ internal sealed unsafe partial class GpuDevice
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT);
     }
 
-    private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene)
+    private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ShadowConstants shadows = default)
     {
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
@@ -236,10 +251,23 @@ internal sealed unsafe partial class GpuDevice
         }
         var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity,
             fogDepth, sunDirection, sunDirect, sunAmbient);
-        commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
+        if (shadows.Enabled)
+        {
+            commands->SetGraphicsRootSignature(_shadowColorRoot);
+            var heap = _shadowSrv;
+            commands->SetDescriptorHeaps(1, &heap);
+            commands->SetGraphicsRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
+            commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
+            commands->SetGraphicsRoot32BitConstants(0, 20, &shadows, FrameConstantCount);
+        }
+        else
+        {
+            commands->SetGraphicsRootSignature(_root);
+            commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
+        }
         if (ActiveMeshGeometry is { } meshes)
         {
-            meshes.Draw(commands);
+            meshes.Draw(commands, shadows.Enabled);
         }
         else
         {

@@ -511,7 +511,11 @@ public sealed partial class PresentationSmokeTests
             Assert.AreNotEqual(view.Frame, next.Frame);
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
                 renderer.TrySubmitVolumeCamera(old.Info.Generation, mask + 1, VolumeCameraAt(view, 32, 4)));
-            var editedCamera = VolumeCameraAt(next, 32, 4);
+            var editedCamera = VolumeCameraAt(next, 32, 4) with
+            {
+                Sunlight = new(Vector3.Normalize(new Vector3(1, 0.25f, 0.6f)), Vector3.One, new(0.12f)),
+                TerrainShadows = true,
+            };
             if (customColors)
             {
                 var fog = new RenderFog(Vector3.UnitZ, 1, 8, 0.5f);
