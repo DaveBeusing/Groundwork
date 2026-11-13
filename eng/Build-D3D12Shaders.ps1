@@ -15,22 +15,25 @@ $packageId = 'Microsoft.Direct3D.DXC'
 $packageVersion = '1.9.2609.5'
 $packageName = "microsoft.direct3d.dxc.$packageVersion.nupkg"
 $expectedHash = '73CFA082245918C2CC1EC6740250EB7377E83A757B3B3A3E16E0D71535BFBFC3'
-$source = Join-Path $PSScriptRoot '../src/Groundwork.Rendering.D3D12/Shaders/Cube.hlsl'
+$source = Join-Path $PSScriptRoot '../src/Groundwork.Rendering.D3D12/Shaders'
 $output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
 $commonFlags = @('-HV', '2021', '-O3', '-WX', '-Zpr')
 $shaders = @(
-    @{ EntryPoint = 'VSMain'; Profile = 'vs_6_0'; Output = 'Cube.vs.dxil' },
-    @{ EntryPoint = 'PSMain'; Profile = 'ps_6_0'; Output = 'Cube.ps.dxil' }
+    @{ EntryPoint = 'VSMain'; Profile = 'vs_6_0'; Output = 'Cube.vs.dxil'; Source = 'Cube.hlsl' },
+    @{ EntryPoint = 'PSMain'; Profile = 'ps_6_0'; Output = 'Cube.ps.dxil'; Source = 'Cube.hlsl' },
+    @{ EntryPoint = 'SkyVS'; Profile = 'vs_6_0'; Output = 'Sky.vs.dxil'; Source = 'Sky.hlsl' },
+    @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'Sky.ps.dxil'; Source = 'Sky.hlsl' }
 )
 $toolFiles = @('dxc.exe', 'dxcompiler.dll', 'dxil.dll', 'dxv.exe')
 $licenses = @('LICENSE-LLVM.txt', 'LICENSE-MS.txt')
 
 function Build-Shaders([string]$Directory) {
     New-Item -ItemType Directory -Path $Directory | Out-Null
-    $inputFile = Join-Path $Directory 'Cube.hlsl'
-    Copy-Item -LiteralPath $source -Destination $inputFile
+
+    Copy-Item -LiteralPath (Join-Path $source 'Cube.hlsl'),(Join-Path $source 'Sky.hlsl') -Destination $Directory
 
     foreach ($shader in $shaders) {
+        $inputFile = Join-Path $Directory ($shader.Source)
         $compiled = Join-Path $Directory $shader.Output
         & $compiler -E $shader.EntryPoint -T $shader.Profile @commonFlags -Fo $compiled $inputFile
         if ($LASTEXITCODE -ne 0) { throw "DXC failed for $($shader.Profile)." }
@@ -105,7 +108,9 @@ try {
         shaders = @($shaders | ForEach-Object {
             [ordered]@{
                 output = $_.Output
-                arguments = @('-E', $_.EntryPoint, '-T', $_.Profile) + $commonFlags + @('-Fo', $_.Output, 'Cube.hlsl')
+                source = $_.Source
+                sourceSha256 = (Get-FileHash -LiteralPath (Join-Path $first ($_.Source))).Hash
+                arguments = @('-E', $_.EntryPoint, '-T', $_.Profile) + $commonFlags + @('-Fo', $_.Output, ($_.Source))
                 sha256 = (Get-FileHash -LiteralPath (Join-Path $first $_.Output)).Hash
             }
         })
