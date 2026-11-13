@@ -16,6 +16,9 @@ public readonly record struct VolumeCamera(VolumeViewIdentity View, PlanetVector
     /// <summary>Optional directional sunlight for volume terrain.</summary>
     public RenderSunlight? Sunlight { get; init; }
 
+    /// <summary>Enables near terrain shadow maps for this sunlit camera.</summary>
+    public bool TerrainShadows { get; init; }
+
     /// <summary>Optional canonical sky for this volume view.</summary>
     public RenderSky? Sky { get; init; }
 }
@@ -275,6 +278,8 @@ public sealed partial class D3D12Renderer
         {
             Fog = camera.Fog,
             Sunlight = camera.Sunlight,
+            ShadowOrigin = camera.TerrainShadows ? new(camera.View.Frame.Origin.X,
+                camera.View.Frame.Origin.Y, camera.View.Frame.Origin.Z) : null,
         }) { Sky = camera.Sky };
         return frame.IsValid;
     }

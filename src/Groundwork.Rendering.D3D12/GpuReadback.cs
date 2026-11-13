@@ -61,6 +61,27 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
+    private Readback? _presentReadback;
+    private int _presentReadbackWidth;
+    private int _presentReadbackHeight;
+
+    internal bool TryRenderWithPresentReadback(GpuTarget target, in RenderFrame frame)
+    {
+        if (_presentReadback is null || target.Width != _presentReadbackWidth || target.Height != _presentReadbackHeight)
+        {
+            // The owner retires the previous submission before acquiring another back buffer.
+            var readback = new Readback(_device, target.Buffer, _depth);
+            _presentReadback?.Dispose();
+            _presentReadback = readback;
+            _presentReadbackWidth = target.Width;
+            _presentReadbackHeight = target.Height;
+        }
+        return TryRender(target, frame, null, _presentReadback);
+    }
+
+    internal OffscreenFrame ReadRetiredPresent() =>
+        _presentReadback!.CopyPixels(_presentReadbackWidth, _presentReadbackHeight);
+
     private sealed class Readback : IDisposable
     {
         private ID3D12Resource* _buffer;

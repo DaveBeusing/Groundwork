@@ -27,7 +27,11 @@ public readonly record struct RenderScene(
     /// <summary>Optional world-space sunlight for terrain with packed normals.</summary>
     public RenderSunlight? Sunlight { get; init; }
 
-    internal bool IsValid => (Sunlight is null || Sunlight.Value.IsValid) && (Fog is null || Fog.Value.IsValid) && IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
+    /// <summary>Canonical origin for near-terrain shadows. Null selects unshadowed lighting.</summary>
+    public RenderShadowOrigin? ShadowOrigin { get; init; }
+
+    internal bool IsValid => (ShadowOrigin is null || (ShadowOrigin.Value.IsValid && Sunlight.HasValue && World.IsIdentity &&
+        VerticalFieldOfView is >= 0.01f and <= 3.13f)) && (Sunlight is null || Sunlight.Value.IsValid) && (Fog is null || Fog.Value.IsValid) && IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
         VerticalFieldOfView > 0 && VerticalFieldOfView < MathF.PI &&
         NearPlane > 0 && FarPlane > NearPlane && float.IsFinite(FarPlane);
 
