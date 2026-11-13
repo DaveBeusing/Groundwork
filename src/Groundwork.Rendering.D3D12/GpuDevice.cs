@@ -272,6 +272,10 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         ActiveMeshGeometry?.Dispose();
         ActiveMeshGeometry = null;
         Release(_cubeGeometry);
+        Release(_skyPipeline);
+        Release(_skyRoot);
+        _skyPipeline = null;
+        _skyRoot = null;
         Release(_pipeline);
         Release(_root);
         Release(_fence);

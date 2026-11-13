@@ -58,8 +58,11 @@ public readonly record struct RenderScene(
 /// <summary>Fixed-size frame data that contains no caller-owned references.</summary>
 public readonly record struct RenderFrame(ulong Sequence, Vector4 ClearColor, RenderScene? Scene = null)
 {
+    /// <summary>Optional sky, including for frames that hold terrain publication.</summary>
+    public RenderSky? Sky { get; init; }
+
     /// <summary>Checks frame values independently of admission and sequence history.</summary>
-    public bool IsValid => Sequence != 0 && IsColor(ClearColor) && (Scene is null || Scene.Value.IsValid);
+    public bool IsValid => Sequence != 0 && IsColor(ClearColor) && (Sky is null || Sky.Value.IsValid) && (Scene is null || Scene.Value.IsValid);
 
     internal static bool IsColor(Vector4 value) =>
         value.X is >= 0 and <= 1 && value.Y is >= 0 and <= 1 &&

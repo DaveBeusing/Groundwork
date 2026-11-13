@@ -29,6 +29,8 @@
     <ItemGroup>
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.vs.dxil" LogicalName="Cube.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.ps.dxil" LogicalName="Cube.ps.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/Sky.vs.dxil" LogicalName="Sky.vs.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/Sky.ps.dxil" LogicalName="Sky.ps.dxil" WithCulture="false" />
     </ItemGroup>
   </Target>
   <Target Name="PackShaderProvenance">

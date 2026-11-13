@@ -12,6 +12,9 @@ public readonly record struct VolumeCamera(VolumeViewIdentity View, PlanetVector
 {
     /// <summary>Optional view-depth fog for this camera submission.</summary>
     public RenderFog? Fog { get; init; }
+
+    /// <summary>Optional canonical sky for this volume view.</summary>
+    public RenderSky? Sky { get; init; }
 }
 
 /// <summary>Returns packed RGBA8 (red in the low byte), or null to reject the candidate.</summary>
@@ -82,7 +85,11 @@ public sealed partial class D3D12Renderer
     }
 
     /// <summary>Requests a neutral mask. The provider confirms it after successful Present and queue retirement.</summary>
-    public RenderSubmissionResult TrySubmitVolumeMask(VolumeViewIdentity view, ulong sequence, Vector4 clearColor)
+    public RenderSubmissionResult TrySubmitVolumeMask(VolumeViewIdentity view, ulong sequence, Vector4 clearColor) =>
+        TrySubmitVolumeMask(view, sequence, clearColor, null);
+
+    /// <summary>Presents a sky or clear color while terrain publication is held.</summary>
+    public RenderSubmissionResult TrySubmitVolumeMask(VolumeViewIdentity view, ulong sequence, Vector4 clearColor, RenderSky? sky)
     {
         RenderSubmissionResult result;
         lock (_volumeGate)
@@ -93,7 +100,7 @@ public sealed partial class D3D12Renderer
                 return RenderSubmissionResult.InvalidFrame;
             var previous = _volumeMask;
             _volumeMask = new(view, sequence);
-            result = _admission.TrySubmitPairedMask(new(sequence, clearColor));
+            result = _admission.TrySubmitPairedMask(new(sequence, clearColor) { Sky = sky });
             if (result is not (RenderSubmissionResult.Accepted or RenderSubmissionResult.Replaced))
                 _volumeMask = previous;
         }
@@ -264,7 +271,7 @@ public sealed partial class D3D12Renderer
             Matrix4x4.CreateLookTo(local, camera.Forward, camera.Up), camera.FieldOfView, camera.NearPlane, camera.FarPlane)
         {
             Fog = camera.Fog,
-        });
+        }) { Sky = camera.Sky };
         return frame.IsValid;
     }
 

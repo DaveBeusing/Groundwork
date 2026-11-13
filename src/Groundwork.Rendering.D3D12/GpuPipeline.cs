@@ -13,12 +13,18 @@ internal sealed unsafe partial class GpuDevice
 
     private void CreatePipeline()
     {
+        _root = CreateFrameRoot(FrameConstantCount);
+        _pipeline = CreateFramePipeline(_root, sky: false);
+    }
+
+    private ID3D12RootSignature* CreateFrameRoot(uint count)
+    {
         var rootParameter = new D3D12_ROOT_PARAMETER
         {
             ParameterType = D3D12_ROOT_PARAMETER_TYPE.D3D12_ROOT_PARAMETER_TYPE_32BIT_CONSTANTS,
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_ALL,
         };
-        rootParameter.Constants = new D3D12_ROOT_CONSTANTS { Num32BitValues = FrameConstantCount };
+        rootParameter.Constants = new D3D12_ROOT_CONSTANTS { Num32BitValues = count };
         var rootDescription = new D3D12_ROOT_SIGNATURE_DESC
         {
             NumParameters = 1,
@@ -31,9 +37,10 @@ internal sealed unsafe partial class GpuDevice
         {
             Check(SerializeRootSignature(&rootDescription, D3D_ROOT_SIGNATURE_VERSION.D3D_ROOT_SIGNATURE_VERSION_1,
                 &rootBlob, &error), "Serialize root signature");
-            fixed (ID3D12RootSignature** root = &_root)
-                Check(_device->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(),
-                    __uuidof<ID3D12RootSignature>(), (void**)root), "Create root signature");
+            ID3D12RootSignature* root = null;
+            Check(_device->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(),
+                __uuidof<ID3D12RootSignature>(), (void**)&root), "Create root signature");
+            return root;
         }
         finally
         {
@@ -41,8 +48,12 @@ internal sealed unsafe partial class GpuDevice
             Release(rootBlob);
         }
 
-        var vertexShader = LoadShader("Cube.vs.dxil");
-        var pixelShader = LoadShader("Cube.ps.dxil");
+    }
+
+    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky)
+    {
+        var vertexShader = LoadShader(sky ? "Sky.vs.dxil" : "Cube.vs.dxil");
+        var pixelShader = LoadShader(sky ? "Sky.ps.dxil" : "Cube.ps.dxil");
         fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8)
         {
             D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[2]
@@ -61,10 +72,10 @@ internal sealed unsafe partial class GpuDevice
             };
             var description = new D3D12_GRAPHICS_PIPELINE_STATE_DESC
             {
-                pRootSignature = _root,
+                pRootSignature = root,
                 VS = new D3D12_SHADER_BYTECODE { pShaderBytecode = vs, BytecodeLength = (nuint)vertexShader.Length },
                 PS = new D3D12_SHADER_BYTECODE { pShaderBytecode = ps, BytecodeLength = (nuint)pixelShader.Length },
-                InputLayout = new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = 2 },
+                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = 2 },
                 SampleMask = uint.MaxValue,
                 RasterizerState = new D3D12_RASTERIZER_DESC
                 {
@@ -74,8 +85,8 @@ internal sealed unsafe partial class GpuDevice
                 },
                 DepthStencilState = new D3D12_DEPTH_STENCIL_DESC
                 {
-                    DepthEnable = true,
-                    DepthWriteMask = D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ALL,
+                    DepthEnable = !sky,
+                    DepthWriteMask = sky ? D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ALL,
                     DepthFunc = D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS,
                 },
                 PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
@@ -95,9 +106,10 @@ internal sealed unsafe partial class GpuDevice
                 LogicOp = D3D12_LOGIC_OP.D3D12_LOGIC_OP_NOOP,
                 RenderTargetWriteMask = (byte)D3D12_COLOR_WRITE_ENABLE.D3D12_COLOR_WRITE_ENABLE_ALL,
             };
-            fixed (ID3D12PipelineState** pipeline = &_pipeline)
-                Check(_device->CreateGraphicsPipelineState(&description,
-                    __uuidof<ID3D12PipelineState>(), (void**)pipeline), "Create graphics pipeline");
+            ID3D12PipelineState* pipeline = null;
+            Check(_device->CreateGraphicsPipelineState(&description,
+                __uuidof<ID3D12PipelineState>(), (void**)&pipeline), "Create graphics pipeline");
+            return pipeline;
         }
     }
 
@@ -155,15 +167,21 @@ internal sealed unsafe partial class GpuDevice
         var clear = frame.ClearColor;
         commands->ClearRenderTargetView(rtv, (float*)&clear, 0, null);
         commands->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
-        if (frame.Scene is { } scene)
+        if (frame.Scene.HasValue || frame.Sky.HasValue)
         {
             var viewport = new D3D12_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
             var scissor = new TerraFX.Interop.Windows.RECT { right = target.Width, bottom = target.Height };
             commands->RSSetViewports(1, &viewport);
             commands->RSSetScissorRects(1, &scissor);
             commands->OMSetRenderTargets(1, &rtv, false, &dsv);
-            commands->SetGraphicsRootSignature(_root);
             commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+            if (frame.Sky is { } sky)
+                DrawSky(commands, target, sky);
+        }
+        if (frame.Scene is { } scene)
+        {
+            commands->SetPipelineState(_pipeline);
+            commands->SetGraphicsRootSignature(_root);
             if (ActiveMeshGeometry is null)
             {
                 var vertices = new D3D12_VERTEX_BUFFER_VIEW
