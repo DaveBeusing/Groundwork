@@ -29,7 +29,13 @@ public sealed partial class PresentationSmokeTests
             var positive = Vector3.Normalize(new Vector3(1, 0, 1));
             var negative = Vector3.Normalize(new Vector3(-1, 0, 1));
             var left = Read(origin, positive, 0);
+            var firstPasses = gpu.RecordedShadowPasses;
+            Assert.AreEqual(2UL, firstPasses);
+            var reused = Read(origin, positive, 0);
+            Assert.AreEqual(firstPasses, gpu.RecordedShadowPasses);
+            Assert.IsTrue(left.ColorAt(65, 48).SequenceEqual(reused.ColorAt(65, 48)));
             var right = Read(origin, negative, 0);
+            Assert.AreEqual(firstPasses + 2, gpu.RecordedShadowPasses);
             Assert.IsGreaterThan(left.ColorAt(65, 48)[0] + 80, left.ColorAt(95, 48)[0]);
             Assert.IsGreaterThan(right.ColorAt(95, 48)[0] + 80, right.ColorAt(65, 48)[0]);
 
@@ -52,7 +58,9 @@ public sealed partial class PresentationSmokeTests
 
             // Only the replacement's buffers are available to either depth pass.
             Replace(Region(shifted, false));
+            var beforeReplacement = gpu.RecordedShadowPasses;
             var edited = Read(shifted, positive, 0);
+            Assert.AreEqual(beforeReplacement + 2, gpu.RecordedShadowPasses);
             var lowSun = Vector3.Normalize(new Vector3(1, 0, 0.10f));
             var lowLit = Read(shifted, lowSun, 0, shadows: false);
             var lowShadowed = Read(shifted, lowSun, 0);

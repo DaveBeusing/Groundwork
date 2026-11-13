@@ -21,6 +21,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private int _depthWidth;
     private int _depthHeight;
     private int _nextFrame;
+    private readonly D3D12_HEAP_TYPE _meshUploadHeap;
     private GpuRetirement _retirement;
     private readonly GpuRetirementTestHooks? _retirementHooks;
     private D3D12DeviceSession? _session;
@@ -81,6 +82,11 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             }
             fixed (ID3D12Fence** fence = &_fence)
                 Check(_device->CreateFence(0, D3D12_FENCE_FLAGS.D3D12_FENCE_FLAG_NONE, __uuidof<ID3D12Fence>(), (void**)fence), "CreateFence");
+            var uploadOptions = new D3D12_FEATURE_DATA_D3D12_OPTIONS16();
+            var supported = _device->CheckFeatureSupport(D3D12_FEATURE.D3D12_FEATURE_D3D12_OPTIONS16,
+                &uploadOptions, (uint)sizeof(D3D12_FEATURE_DATA_D3D12_OPTIONS16)).Value >= 0 &&
+                uploadOptions.GPUUploadHeapSupported;
+            _meshUploadHeap = supported ? D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_GPU_UPLOAD : D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD;
             CreatePipeline();
             if (region is not null)
                 ActiveMeshGeometry = PrepareMeshGeometry(region);
@@ -155,8 +161,16 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             return false;
         Check(context.Allocator->Reset(), "Reset allocator");
         Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
-        Record(context.Commands, target, frame, subsequent, readback);
-        Check(context.Commands->Close(), "Close command list");
+        try
+        {
+            Record(context.Commands, target, frame, subsequent, readback);
+            Check(context.Commands->Close(), "Close command list");
+        }
+        catch
+        {
+            InvalidateShadowCache();
+            throw;
+        }
         var commands = (ID3D12CommandList*)context.Commands;
         var next = BeginQueueWork();
         _queue->ExecuteCommandLists(1, &commands);

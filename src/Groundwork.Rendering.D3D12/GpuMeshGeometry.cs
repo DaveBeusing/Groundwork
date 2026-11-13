@@ -39,7 +39,7 @@ internal sealed unsafe partial class GpuDevice
             throw new InvalidOperationException("The prepared mesh exceeds the native geometry budget.");
 
         var allocationBytes = (long)allocation.SizeInBytes;
-        var resource = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
+        var resource = CreateResource(_device, _meshUploadHeap,
             description, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
         Interlocked.Add(ref _liveMeshBytes, allocationBytes);
         Interlocked.Increment(ref _liveMeshBuffers);
@@ -215,6 +215,8 @@ internal sealed unsafe partial class GpuDevice
 
         public void Dispose()
         {
+            if (ReferenceEquals(_owner._shadowMesh, this))
+                _owner.InvalidateShadowCache();
             var resource = _resource;
             if (resource == null)
                 return;

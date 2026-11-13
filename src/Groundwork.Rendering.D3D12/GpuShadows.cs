@@ -18,6 +18,10 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12PipelineState* _shadowColorPipeline;
     private ID3D12PipelineState* _shadowNormalPipeline;
     private bool _shadowReady;
+    private MeshGeometry? _shadowMesh;
+    private ShadowMapKey? _nearShadowKey;
+    private ShadowMapKey? _farShadowKey;
+    internal ulong RecordedShadowPasses { get; private set; }
 
     private void InitializeShadows()
     {
@@ -97,13 +101,23 @@ internal sealed unsafe partial class GpuDevice
         InitializeShadows();
         var inverseDepth = 1 / range;
         min -= 1;
-        DrawCascade(near, _nearShadow, 0);
-        DrawCascade(far, _farShadow, 1);
+        // The maps are read and written on the same direct queue. A cache
+        // hit needs no barriers because the last pass left the map readable.
+        if (!ReferenceEquals(_shadowMesh, mesh))
+        {
+            InvalidateShadowCache();
+            _shadowMesh = mesh;
+        }
+        DrawCascade(near, _nearShadow, 0, ref _nearShadowKey);
+        DrawCascade(far, _farShadow, 1, ref _farShadowKey);
         return new(new(basis.X, min), new(basis.Y, inverseDepth), new(basis.Z, 0), near.Area, far.Area);
 
-        void DrawCascade(ShadowCascade cascade, ID3D12Resource* map, uint index)
+        void DrawCascade(ShadowCascade cascade, ID3D12Resource* map, uint index, ref ShadowMapKey? cached)
         {
             if (!cascade.Valid)
+                return;
+            var key = new ShadowMapKey(basis, cascade, min, inverseDepth);
+            if (cached == key)
                 return;
             Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
@@ -126,7 +140,15 @@ internal sealed unsafe partial class GpuDevice
             mesh.DrawShadow(commands, basis, cascade);
             Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            cached = key;
+            RecordedShadowPasses++;
         }
+    }
+
+    private void InvalidateShadowCache()
+    {
+        _shadowMesh = null;
+        _nearShadowKey = _farShadowKey = null;
     }
 
     private void ReleaseShadows()
@@ -145,7 +167,10 @@ internal sealed unsafe partial class GpuDevice
         _nearShadow = _farShadow = null;
         _shadowSrv = _shadowDsv = null;
         _shadowReady = false;
+        InvalidateShadowCache();
     }
+
+    private readonly record struct ShadowMapKey(ShadowBasis Basis, ShadowCascade Cascade, float Min, float InverseDepth);
 
     private readonly record struct ShadowConstants(Vector4 LightX, Vector4 LightY, Vector4 LightZ,
         Vector4 Near, Vector4 Far)
