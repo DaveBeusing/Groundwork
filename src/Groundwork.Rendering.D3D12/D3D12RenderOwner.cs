@@ -6,6 +6,10 @@ namespace Groundwork.Rendering.D3D12;
 
 public sealed partial class D3D12Renderer
 {
+    // Tests opt in before startup. The callback observes the exact retired back buffer
+    // submitted to DXGI, together with the sequence and installed volume generation.
+    internal Action<ulong, ulong, OffscreenFrame>? VolumePresentReadbackForTests { private get; init; }
+
     private const int MaximumExtent = 4096;
     private const int ProgressPollMilliseconds = 10;
     private static readonly TimeSpan OcclusionInterval = TimeSpan.FromMilliseconds(100);
@@ -116,6 +120,8 @@ public sealed partial class D3D12Renderer
                 if (volumePresented is { } retired)
                 {
                     RecordRetiredVolumeFrame(retired);
+                    if (retired.Scene.HasValue && VolumePresentReadbackForTests is { } capture)
+                        capture(retired.Sequence, _volumeInstalled!.Info.Generation, gpu.ReadRetiredPresent());
                     volumePresented = null;
                 }
             }
@@ -394,7 +400,9 @@ public sealed partial class D3D12Renderer
     {
         using var operation = TryBegin(target);
         return operation is not null && Matches(operation.Snapshot, chain) && watchdog.TryAdvance(RendererStage.Submit) &&
-            AuthorizeVolumeDraw(frame) && gpu.TryRender(chain.CurrentBuffer, frame);
+            AuthorizeVolumeDraw(frame) && (frame.Scene.HasValue && VolumePresentReadbackForTests is not null
+                ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame)
+                : gpu.TryRender(chain.CurrentBuffer, frame));
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,

@@ -73,7 +73,7 @@ float4 VSDepth(float3 position : POSITION) : SV_Position
     return mul(float4(position, 1), WorldViewProjection);
 }
 
-float CompareShadow(Texture2D<float> map, float4 area, float3 receiver, float bias)
+float CompareShadow(Texture2D<float> map, float4 area, float3 receiver, float2 planeSlope, float bias)
 {
     float2 uv = (receiver.xy - area.xy) * area.z * float2(0.5, -0.5) + 0.5;
     if (any(uv < 0) || any(uv >= 1) || receiver.z <= 0 || receiver.z >= 1)
@@ -81,6 +81,7 @@ float CompareShadow(Texture2D<float> map, float4 area, float3 receiver, float bi
     float2 pixel = uv * 1024 - 0.5;
     int2 base = (int2)floor(pixel);
     float2 weight = frac(pixel);
+    float2 depthPerTexel = planeSlope * float2(2, -2) / (1024 * area.z);
     float rows[2];
     [unroll] for (int y = 0; y < 2; y++)
     {
@@ -88,7 +89,8 @@ float CompareShadow(Texture2D<float> map, float4 area, float3 receiver, float bi
         [unroll] for (int x = 0; x < 2; x++)
         {
             int2 tap = base + int2(x, y);
-            columns[x] = any(tap < 0) || any(tap >= 1024) || receiver.z - bias <= map.Load(int3(tap, 0)) ? 1 : 0;
+            float tapDepth = receiver.z + dot(float2(tap) - pixel, depthPerTexel);
+            columns[x] = any(tap < 0) || any(tap >= 1024) || tapDepth - bias <= map.Load(int3(tap, 0)) ? 1 : 0;
         }
         rows[y] = lerp(columns[0], columns[1], weight.x);
     }
@@ -99,18 +101,23 @@ float4 PSShadow(VertexOutput input) : SV_Target
 {
     float depth = input.ViewDepth;
     float visibility = 1;
-    if (depth < 64)
+    // Use the rasterized triangle plane rather than its smoothed lighting normal.
+    // Derivatives must run before the varying cascade branches.
+    float3 plane = cross(ddx(input.Local), ddy(input.Local));
+    float lightNormal = dot(plane, LightZ.xyz);
+    if (depth < 64 && abs(lightNormal) > 0.0001 * length(plane))
     {
         float3 p = float3(dot(input.Local, LightX.xyz), dot(input.Local, LightY.xyz),
             (dot(input.Local, LightZ.xyz) - LightX.w) * LightY.w);
+        float2 planeSlope = -float2(dot(plane, LightX.xyz), dot(plane, LightY.xyz)) * (LightY.w / lightNormal);
         float slope = 1 - saturate(dot(input.Normal, SunDirection.xyz));
         // Receiver bias converts a fixed metre offset and a slope term to shadow depth.
         float bias = (0.012 + 0.04 * slope) * LightY.w;
         if (NearShadow.w > 0 && (depth < 26 || FarShadow.w == 0))
-            visibility = CompareShadow(NearDepth, NearShadow, p, bias);
+            visibility = CompareShadow(NearDepth, NearShadow, p, planeSlope, bias);
         if (FarShadow.w > 0 && (depth > 22 || NearShadow.w == 0))
         {
-            float farVisibility = CompareShadow(FarDepth, FarShadow, p, bias);
+            float farVisibility = CompareShadow(FarDepth, FarShadow, p, planeSlope, bias);
             visibility = NearShadow.w > 0 ? lerp(visibility, farVisibility, smoothstep(22, 26, depth)) : farVisibility;
         }
         visibility = lerp(visibility, 1, smoothstep(60, 64, depth));

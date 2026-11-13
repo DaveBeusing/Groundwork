@@ -15,6 +15,9 @@ batch bounds select resident casters, including batches outside the camera
 frustum. A shared depth range encloses the selected bounds with a metre of
 padding on each side. The filter is a 2-by-2 bilinear depth comparison with
 lit border taps and receiver bias of 0.012 m plus up to 0.04 m for slope.
+Each tap compares depth projected onto the rasterized receiver triangle
+at the texel centre. A receiver plane nearly parallel to the light skips
+comparison because its depth cannot be expressed as a stable XY slope.
 
 The renderer records both cascades and the color pass from the same installed
 mesh buffers in one command list. Shadow resources are lazy, surface-size
@@ -25,8 +28,10 @@ at 8 MiB. This is a per-map limit. Reference-class total peak memory and
 performance qualification remain in the WP15 acceptance work.
 
 The Windows tests use paired synthetic casters to compare sun direction,
-split, rebase, replacement and Package E fog. The brush fixture renders
-the first offscreen draw of each published volume revision with its cavity
-roof excluded to isolate the edit's shadow on unchanged receivers. The
-live edit regression separately checks successful first Present of the
-edited generation with cascades enabled.
+split, rebase, replacement, low-sun self-shadowing and Package E fog.
+The live brush fixture generates an open floor and adds a solid caster
+through volume publication. The test copies the swap-chain color and
+depth buffers before Present, reads them after successful retirement,
+and checks the submitted sequence and installed generation. The first
+presented edit frame must darken unchanged receivers compared with the
+baseline and with matched shadow-disabled frames.

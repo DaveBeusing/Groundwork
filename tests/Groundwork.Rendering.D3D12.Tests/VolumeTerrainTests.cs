@@ -586,7 +586,7 @@ public sealed partial class PresentationSmokeTests
 
         internal VolumeRun(int readers = 8, bool editable = false,
             PlanetVector? camera = null, PlanetVector? forward = null,
-            PlanetGeologyField? geology = null, PlanetVector displacement = default)
+            PlanetGeologyField? geology = null, PlanetVector displacement = default, bool openFloor = false)
         {
             World = Fixture.OpenWorld();
             var descriptor = geology?.Descriptor ?? new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
@@ -597,7 +597,7 @@ public sealed partial class PresentationSmokeTests
             _selection = geology is null ? VolumeStreamingSelection.Select(descriptor, _camera, _forward) :
                 SelectCave(descriptor);
             var overlayRows = geology is null ? 1024 : 4096;
-            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false) : null);
+            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false, openFloor) : null);
             _meshBytes = geology is null ? 8 * 1024 * 1024 : 32 * 1024 * 1024;
             var native = geology is null ? NativeBytes : CaveNativeBytes;
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, _meshBytes) + (_editSource is not null ? 64L * overlayRows + 4096 : 0),
@@ -778,10 +778,10 @@ public sealed partial class PresentationSmokeTests
         }
     }
 
-    private sealed class VolumeFixtureSource(PlanetDescriptor descriptor, bool cut) : IPlanetBrickSource
+    private sealed class VolumeFixtureSource(PlanetDescriptor descriptor, bool cut, bool openFloor = false) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => descriptor;
-        public long SampleDensity(LatticeCoordinate p) => Math.Min(cut ? p.Z + 1 : p.Z, 8 - p.Z);
+        public long SampleDensity(LatticeCoordinate p) => openFloor ? p.Z : Math.Min(cut ? p.Z + 1 : p.Z, 8 - p.Z);
         public ushort SampleMaterial(LatticeCoordinate p) => 1;
     }
 }

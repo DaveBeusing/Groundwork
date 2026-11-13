@@ -1,4 +1,6 @@
 using System.Numerics;
+using Groundwork.Core;
+using Groundwork.Platform.Windows;
 using Groundwork.Voxels;
 
 namespace Groundwork.Rendering.D3D12.Tests;
@@ -51,6 +53,11 @@ public sealed partial class PresentationSmokeTests
             // Only the replacement's buffers are available to either depth pass.
             Replace(Region(shifted, false));
             var edited = Read(shifted, positive, 0);
+            var lowSun = Vector3.Normalize(new Vector3(1, 0, 0.10f));
+            var lowLit = Read(shifted, lowSun, 0, shadows: false);
+            var lowShadowed = Read(shifted, lowSun, 0);
+            for (var x = 55; x <= 105; x++)
+                Assert.AreEqual((float)lowLit.ColorAt(x, 48)[0], lowShadowed.ColorAt(x, 48)[0], 1f, $"Low sun x={x}");
             Assert.IsGreaterThan(left.ColorAt(65, 48)[0] + 80, edited.ColorAt(65, 48)[0]);
             Assert.IsNull(gpu.CaptureDred());
         }
@@ -64,12 +71,12 @@ public sealed partial class PresentationSmokeTests
             old?.Dispose();
         }
 
-        OffscreenFrame Read(PlanetLocalFrame local, Vector3 sun, double eyeZ, bool fog = false)
+        OffscreenFrame Read(PlanetLocalFrame local, Vector3 sun, double eyeZ, bool fog = false, bool shadows = true)
         {
             var camera = new VolumeCamera(new(1, 1, local), new(0, 0, eyeZ), -Vector3.UnitZ, Vector3.UnitY,
                 0.65f, 0.1f, 100, Vector4.One, Vector4.Zero)
             {
-                Sunlight = new(sun, new(0.85f), new(0.12f)), TerrainShadows = true,
+                Sunlight = new(sun, new(0.85f), new(0.12f)), TerrainShadows = shadows,
                 Fog = fog ? new(Vector3.UnitZ, 0, 64, 1) : null,
             };
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, 1, out var frame));
@@ -95,93 +102,97 @@ public sealed partial class PresentationSmokeTests
     [TestCategory("WindowsDesktopSmoke")]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task TerrainEditRebuildsShadowFromPublishedMeshesWithDebugLayerAndDred(bool warp)
+    public async Task TerrainEditFirstPresentContainsNewShadowWithDebugLayerAndDred(bool warp)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
-        using var run = new VolumeRun(editable: true);
-        var view = run.Terrain.ChangeView(PlanetLocalFrame.Create(default), 1);
-        Assert.IsTrue(run.Terrain.ConfirmMask(view));
-        await run.Publish(1, cut: false);
-        using var previous = run.Terrain.TryRead();
-        Assert.IsNotNull(previous);
-        using var registration = run.Terrain.TryRegisterFrame(previous.Info.Generation, view, 1);
-        Assert.IsNotNull(registration);
-        Assert.IsTrue(run.Terrain.AcknowledgeFrame(registration));
-        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true);
-        using (gpu)
+        var token = timeout.Token;
+        using var run = new VolumeRun(editable: true, openFloor: true);
+        var runtime = run.Fixture.Runtime;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
+        await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork shadow edit {Guid.NewGuid():N}",
+            TerrainWidth, TerrainHeight, 32), runtime.UiWake, runtime.RuntimeOwnership);
+        var frames = Enumerable.Range(0, 7)
+            .Select(_ => new TaskCompletionSource<(ulong Generation, OffscreenFrame Pixels)>(
+                TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
+        await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
+            QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), null, null)
         {
-            AssertPlanetAdapter(gpu.Adapter, warp);
-            Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
-            var sun = Vector3.Normalize(new Vector3(1, 0.25f, 0.6f));
-            var before = Read(previous.Meshes, view, sun);
-            var next = await run.CutFloor(null, timeout.Token,
-                new VolumeBrushIntent(1, 1, 1, new(32, 30, 2), new(35, 34, 4), VolumeBrushOperation.Add, 1));
+            VolumePresentReadbackForTests = (sequence, generation, pixels) =>
+                frames[checked((int)sequence)].TrySetResult((generation, pixels)),
+        };
+        try
+        {
+            await window.InitializeAsync(context, token);
+            await window.StartAsync(token);
+            await renderer.InitializeAsync(context, token);
+            await renderer.StartAsync(token);
+
+            var view = run.Terrain.View;
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(view, 1, Vector4.Zero));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 1, token);
+            await run.Publish(1, cut: false, renderer);
+            using var previous = run.Terrain.TryRead();
+            Assert.IsNotNull(previous);
+            var beforeCamera = Camera(view);
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(previous.Info.Generation, 2, beforeCamera));
+            var before = await Read(2, previous.Info.Generation);
+            Assert.AreEqual(RenderSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeCamera(previous.Info.Generation, 3, beforeCamera with { TerrainShadows = false }));
+            var beforeLit = await Read(3, previous.Info.Generation);
+
+            var next = await run.CutFloor(renderer, token,
+                new VolumeBrushIntent(1, 1, 1, new(32, 30, -1), new(35, 34, 2), VolumeBrushOperation.Add, 1),
+                maskSequence: 4);
             using var edited = run.Terrain.TryRead();
             Assert.IsNotNull(edited);
             Assert.AreEqual(previous.Info.TerrainRevision + 1, edited.Info.TerrainRevision);
             Assert.AreNotEqual(previous.Info.Generation, edited.Info.Generation);
-            var after = Read(edited.Meshes, next, sun);
-            var changedOnSameSurface = 0;
-            for (var y = 0; y < TerrainHeight; y++)
-            for (var x = 0; x < TerrainWidth; x++)
-            {
-                if (before.Shadowed.DepthAt(x, y) >= 1 ||
-                    Math.Abs(before.Shadowed.DepthAt(x, y) - after.Shadowed.DepthAt(x, y)) > 0.000001f ||
-                    !before.Lit.ColorAt(x, y).SequenceEqual(after.Lit.ColorAt(x, y)))
-                    continue;
-                if (Math.Abs(before.Shadowed.ColorAt(x, y)[0] - after.Shadowed.ColorAt(x, y)[0]) > 4)
-                    changedOnSameSurface++;
-            }
-            Assert.IsGreaterThan(0, changedOnSameSurface, "The edit must change visibility on unchanged receivers.");
-            Assert.IsNull(gpu.CaptureDred());
+            var afterCamera = Camera(next);
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, 5, afterCamera));
+            var after = await Read(5, edited.Info.Generation);
+            Assert.AreEqual(RenderSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeCamera(edited.Info.Generation, 6, afterCamera with { TerrainShadows = false }));
+            var afterLit = await Read(6, edited.Info.Generation);
 
-            (OffscreenFrame Shadowed, OffscreenFrame Lit) Read(ReadOnlySpan<PlanetVolumeMesh> meshes,
-                VolumeViewIdentity identity, Vector3 direction)
+            var newlyShadowed = 0;
+            var status = renderer.Read();
+            for (var y = 0; y < status.AppliedHeight; y++)
+            for (var x = 0; x < status.AppliedWidth; x++)
             {
-                var region = D3D12Renderer.PackVolumeTerrain(meshes, identity.Frame, VolumeRun.NativeBytes);
-                Assert.IsNotNull(region);
-                // Isolate the cavity floor from its roof so the added solid can cast a new shadow.
-                var instances = region.Instances.ToArray();
-                for (var batch = 0; batch < instances.Length; batch++)
-                {
-                    var source = instances[batch].Mesh;
-                    var positions = new List<Vector3>();
-                    var normals = new List<uint>();
-                    var colors = new List<uint>();
-                    for (var index = 0; index < source.Positions.Length; index += 3)
-                    {
-                        if (identity.Frame.ToPlanet(source.Positions[index]).Z >= 6 ||
-                            identity.Frame.ToPlanet(source.Positions[index + 1]).Z >= 6 ||
-                            identity.Frame.ToPlanet(source.Positions[index + 2]).Z >= 6)
-                            continue;
-                        for (var vertex = index; vertex < index + 3; vertex++)
-                        {
-                            positions.Add(source.Positions[vertex]);
-                            normals.Add(source.PackedNormals[vertex]);
-                            colors.Add(source.Colors[vertex]);
-                        }
-                    }
-                    var indices = Enumerable.Range(0, positions.Count).Select(i => (uint)i).ToArray();
-                    instances[batch] = new(RenderMesh.CreateWithTerrainNormals(positions.ToArray(), indices,
-                        colors.ToArray(), normals.ToArray()), Vector3.Zero);
-                }
-                region = new RenderMeshRegion(instances);
-                var old = gpu.ActiveMeshGeometry;
-                gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(region);
-                old?.Dispose();
-                var camera = VolumeCameraAt(identity, 32, 7) with
-                {
-                    Sunlight = new(direction, Vector3.One, new(0.12f)),
-                    TerrainShadows = true,
-                };
-                Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, 1, out var frame));
-                var shadowed = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
-                var lit = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight,
-                    frame with { Scene = frame.Scene!.Value with { ShadowOrigin = null } });
-                return (shadowed, lit);
+                if (before.DepthAt(x, y) < 1 &&
+                    Math.Abs(before.DepthAt(x, y) - after.DepthAt(x, y)) <= 0.000001f &&
+                    beforeLit.ColorAt(x, y).SequenceEqual(afterLit.ColorAt(x, y)) &&
+                    Math.Abs(beforeLit.ColorAt(x, y)[0] - before.ColorAt(x, y)[0]) <= 1 &&
+                    before.ColorAt(x, y)[0] - after.ColorAt(x, y)[0] > 4)
+                    newlyShadowed++;
             }
+            Assert.IsGreaterThan(0, newlyShadowed, "The first presented edit frame must darken unchanged receivers.");
+            await renderer.StopAsync(token);
+            var diagnostics = renderer.ReadDiagnostics();
+            AssertPlanetAdapter(diagnostics.Adapter, warp);
+            AssertCleanDiagnostics(diagnostics, diagnosticsRequested: true);
         }
-        AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
+        finally
+        {
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+
+        static VolumeCamera Camera(VolumeViewIdentity identity) => VolumeCameraAt(identity, 32, 7) with
+        {
+            Sunlight = new(Vector3.Normalize(new Vector3(1, 0.25f, 0.6f)), Vector3.One, new(0.12f)),
+            TerrainShadows = true,
+        };
+
+        async Task<OffscreenFrame> Read(ulong sequence, ulong generation)
+        {
+            var capture = await frames[checked((int)sequence)].Task.WaitAsync(token);
+            Assert.AreEqual(sequence, renderer.Read().LastPresentedSequence);
+            Assert.AreEqual(generation, capture.Generation);
+            return capture.Pixels;
+        }
     }
 
     [TestMethod]
