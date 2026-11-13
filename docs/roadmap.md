@@ -46,6 +46,10 @@ The [WP12 contract](architecture/wp12-underground-geology-contract.md) covers se
 
 The [WP13 contract](architecture/wp13-biome-rendering-contract.md) defines canonical near and orbital terrain colors. Groundwork's optional evaluator and WYU's shared biome palette are merged. The [Windows handover](wp13-handover.md) records both seeds, verified package provenance, flight and regression results, and the remaining qualification evidence. Package E and WP16 consume this integration.
 
+## Package E – Day/night and regional fog (workstation integration verified)
+
+The [Windows handover](package-e-handover.md) records clean master replays, verified packages, workstation timing evidence and the open reference-system and production qualification.
+
 ## Approved rendering and simulation packages
 
 The issues below are open and track approved scope. Each pair records its acceptance and performance limits. Start the Groundwork work against its listed prerequisites. WYU pins the exact verified Groundwork archive for the integration.
