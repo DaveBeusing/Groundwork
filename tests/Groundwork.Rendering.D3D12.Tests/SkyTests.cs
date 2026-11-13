@@ -97,6 +97,21 @@ public sealed partial class PresentationSmokeTests
             for (var channel = 0; channel < 3; channel++)
                 Assert.AreEqual((float)outside.ColorAt(80, 48)[channel], inside.ColorAt(80, 48)[channel], 1f);
 
+            // At 64 radii the minimum-size shell straddles the tangent of this centre ray.
+            var thin = sky with { PlanetRadiusMeters = 1, AtmosphereRadiusMeters = 1.000101f,
+                RayleighHeightMeters = 0.0001f, AerosolHeightMeters = 0.0001f,
+                RayleighScattering = new(64), RayleighExtinction = new(64),
+                AerosolScattering = Vector3.Zero, AerosolExtinction = Vector3.Zero,
+                SunDirection = Vector3.UnitX, VerticalFieldOfView = 0.01f };
+            var tangent = thin with { EyeMeters = new(thin.AtmosphereRadiusMeters, 0, 63.99f) };
+            var hit = tangent with { EyeMeters = tangent.EyeMeters with { X = 1.000025f } };
+            var miss = tangent with { EyeMeters = tangent.EyeMeters with { X = 1.0002f } };
+            var tangentPixel = GpuDevice.RenderOffscreen(gpu, 161, 97, new RenderFrame(1, Vector4.Zero) { Sky = tangent });
+            var hitPixel = GpuDevice.RenderOffscreen(gpu, 161, 97, new RenderFrame(1, Vector4.Zero) { Sky = hit });
+            var missPixel = GpuDevice.RenderOffscreen(gpu, 161, 97, new RenderFrame(1, Vector4.Zero) { Sky = miss });
+            Assert.IsTrue(tangentPixel.ColorAt(80, 48).SequenceEqual(missPixel.ColorAt(80, 48)));
+            Assert.IsGreaterThan(missPixel.ColorAt(80, 48)[0], hitPixel.ColorAt(80, 48)[0]);
+
             var frame = PlanetLocalFrame.Create(default);
             Assert.IsTrue(frame.TryRebase(new PlanetVector(32, 0, 0), out var shifted));
             var diskSky = sky with { EyeMeters = new(0, 0, 8192), SunDirection = -Vector3.UnitZ };

@@ -31,7 +31,8 @@ bool Sphere(float3 eye, float3 ray, float radius, out float2 roots)
 {
     float b = dot(eye, ray);
     float c = dot(eye, eye) - radius * radius;
-    float discriminant = b * b - c;
+    float distance = length(cross(eye, ray));
+    float discriminant = (radius - distance) * (radius + distance);
     roots = 0;
     if (discriminant <= 0)
         return false;
