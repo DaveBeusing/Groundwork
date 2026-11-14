@@ -1,4 +1,4 @@
-param([int]$Processor = -1, [string]$OutputDirectory = (Join-Path $env:LOCALAPPDATA ('Groundwork/WP17-ETW-' + (Get-Date -Format yyyyMMdd-HHmmss))))
+param([int]$Processor = -1, [switch]$JunctionOnly, [string]$OutputDirectory = (Join-Path $env:LOCALAPPDATA ('Groundwork/WP17-ETW-' + (Get-Date -Format yyyyMMdd-HHmmss))))
 
 $ErrorActionPreference = 'Stop'
 $principal = [Security.Principal.WindowsPrincipal]::new([Security.Principal.WindowsIdentity]::GetCurrent())
@@ -30,6 +30,14 @@ $benchmark = @($assembly, 'paired', $sweeps)
 if ($Processor -ge 0) {
     $record += @('-start', 'Power')
     $benchmark += [string]$Processor
+} elseif ($JunctionOnly) {
+    throw 'Specify a performance processor for the focused capture.'
+}
+$expectedRows = 17280
+if ($JunctionOnly) {
+    $expectedRows = 5760
+    $benchmark += 'junction'
+    Write-Host 'Measuring the junction only. Keep the desktop idle until [FERTIG].'
 }
 & wpr @record -filemode
 if ($LASTEXITCODE -ne 0) { throw 'Scheduler recording failed to start.' }
@@ -40,7 +48,7 @@ try {
     & wpr -stop $etl
     if ($LASTEXITCODE -ne 0) { throw 'Scheduler recording could not be saved.' }
 }
-if (!(Test-Path $etl) -or @(Get-Content $sweeps).Count -ne 17281) {
+if (!(Test-Path $etl) -or @(Get-Content $sweeps).Count -ne ($expectedRows + 1)) {
     throw "Capture incomplete. Inspect $directory."
 }
 Write-Host "[FERTIG] $directory"

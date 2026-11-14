@@ -8,7 +8,7 @@ using Groundwork.Voxels;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 if (args is [var mode, ..] && mode is "profiles" or "baseline" or "linear" or "smooth" or "paired")
 {
-    if (mode == "paired" && args.Length == 3)
+    if (mode == "paired" && args.Length >= 3)
         ThreadCycles.Pin(int.Parse(args[2], CultureInfo.InvariantCulture));
     var recipe = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
     ulong[] seeds = [42, 20261111, ulong.MaxValue];
@@ -27,7 +27,7 @@ if (args is [var mode, ..] && mode is "profiles" or "baseline" or "linear" or "s
             }
         }
         else if (mode == "paired")
-            MeasurePaired(field, evaluator, args.Length >= 2 ? args[1] : null);
+            MeasurePaired(field, evaluator, args.Length >= 2 ? args[1] : null, args.Length == 4 ? args[3] : null);
         else
             Measure(field, evaluator, mode);
     }
@@ -163,8 +163,10 @@ static IEnumerable<(string Name, LatticeCoordinate Feature, LatticeBrick Key)> S
     }
 }
 
-static void MeasurePaired(PlanetDensityField field, Relief relief, string? sweepPath)
+static void MeasurePaired(PlanetDensityField field, Relief relief, string? sweepPath, string? scenario)
 {
+    if (scenario is not (null or "open" or "ridge" or "junction"))
+        throw new ArgumentException("Unknown benchmark scenario.", nameof(scenario));
     const int sweeps = 192;
     const int pairs = 5;
     const int edge = PlanetBrickStore.VertexEdge;
@@ -178,7 +180,7 @@ static void MeasurePaired(PlanetDensityField field, Relief relief, string? sweep
     var baselineCycles = new ulong[sweeps];
     var linearCycles = new ulong[sweeps];
     var vertices = new LatticeCoordinate[PlanetBrickStore.VertexCount];
-    foreach (var (name, feature, key) in Scenarios(field, relief))
+    foreach (var (name, feature, key) in Scenarios(field, relief).Where(item => scenario is null || item.Name == scenario))
     {
         Console.Error.WriteLine($"seed={field.Descriptor.Seed} {name} surface={feature.X},{feature.Y},{feature.Z} brick={key.X},{key.Y},{key.Z}");
         var index = 0;

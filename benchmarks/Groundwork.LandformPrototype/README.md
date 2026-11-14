@@ -141,3 +141,19 @@ The same two confluence blocks exceeded p99. The table joins each variant's actu
 The context-switch records show predominantly Ready state on outgoing linear sweeps. Other runnable work on the same core included desktop and system processes. Off-CPU differences explain about 29.0 of 29.4 ms in the first block and 22.6 of 27.7 ms in the second. The second block also has more charged cycles and low frequency reports in both variants. The trace does not establish how much of the residual is due to frequency versus other on-CPU effects. No sweeps were excluded from wall-clock acceptance. The full-workload p95/p99 gates and reference qualification remain open.
 
 Use Trace-Wp17Scheduler.ps1 -Processor 12 from an administrative PowerShell to reproduce on this workstation. The script validates the performance class, pins the sweep thread and records scheduler stacks and Power events. See workstation-fixed-pcore.csv for the full block data.
+
+## Quiet desktop confluence repeat
+
+WP17-ETW-20261114-184804 repeated the corrected confluence bricks only, with the desktop left idle and the sweep thread pinned to group 0 processor 12. All 254 context-switch records involving the sweep thread used processor 12. ETW decoded with zero lost events, three application QPC anchors and 736 delivered-frequency reports for processor 12.
+
+All 15 blocks across the three seeds passed both wall-clock limits, with no sweeps excluded. The worst p95 delta was +2.77% (seed 42, block 5) against +10%. The worst p99 delta was +2.35% (maximum seed, block 1) against +15%. See workstation-quiet-junction.csv for all blocks.
+
+| Seed / block | Wall p99 baseline / linear (ms) | Off CPU baseline / linear (ms) | Actual p99 sweep cycles baseline / linear (millions) | Delivered frequency indicator values baseline / linear |
+| --- | --- | --- | --- | --- |
+| 42 / 5, previously over budget | 6.1935 / 6.1775 | 0 / 0 | 18.91 / 18.86 | 93 / 92 |
+| 18446744073709551615 / 2, previously over budget | 5.6820 / 5.7232 | 0 / 0.145 | 17.11 / 17.05 | 99, 102 / 99 |
+| 18446744073709551615 / 1, largest p99 delta in this repeat | 4.5977 / 4.7059 | 0 / 0 | 14.06 / 14.39 | 124 / 124 |
+
+Frequency indicators are normalized Windows delivered-frequency reports near each sweep, rather than instantaneous MHz. The two former outlier blocks showed little or no off-CPU time and comparable frequency indicators between variants. Their long scheduler delays did not recur in this capture. In the worst p99 block of the quiet repeat, the extra wall time coincided with higher charged cycles at the same reported frequency indicator and no measured off-CPU time. These results cover the focused workstation density sweep. Full brick generation and reference qualification stay open.
+
+Reproduce using Trace-Wp17Scheduler.ps1 -Processor 12 -JunctionOnly in an administrative PowerShell and leave the desktop idle until [FERTIG].
