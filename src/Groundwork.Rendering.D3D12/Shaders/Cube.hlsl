@@ -67,6 +67,7 @@ float4 Shade(VertexOutput input, float visibility)
 
 Texture2D<float> NearDepth : register(t0);
 Texture2D<float> FarDepth : register(t1);
+SamplerState ShadowSampler : register(s0);
 
 float4 VSDepth(float3 position : POSITION) : SV_Position
 {
@@ -79,22 +80,19 @@ float CompareShadow(Texture2D<float> map, float4 area, float3 receiver, float2 p
     if (any(uv < 0) || any(uv >= 1) || receiver.z <= 0 || receiver.z >= 1)
         return 1;
     float2 pixel = uv * 1024 - 0.5;
-    int2 base = (int2)floor(pixel);
-    float2 weight = frac(pixel);
+    float2 base = floor(pixel);
+    float2 weight = pixel - base;
     float2 depthPerTexel = planeSlope * float2(2, -2) / (1024 * area.z);
-    float rows[2];
-    [unroll] for (int y = 0; y < 2; y++)
-    {
-        float columns[2];
-        [unroll] for (int x = 0; x < 2; x++)
-        {
-            int2 tap = base + int2(x, y);
-            float tapDepth = receiver.z + dot(float2(tap) - pixel, depthPerTexel);
-            columns[x] = any(tap < 0) || any(tap >= 1024) || tapDepth - bias <= map.Load(int3(tap, 0)) ? 1 : 0;
-        }
-        rows[y] = lerp(columns[0], columns[1], weight.x);
-    }
-    return lerp(rows[0], rows[1], weight.y);
+    // Sample the exact center of the four-texel footprint. Hardware returns BL, BR, TR, TL.
+    float4 depths = map.Gather(ShadowSampler, (base + 1) / 1024).wzxy;
+    float topLeft = receiver.z - dot(weight, depthPerTexel);
+    float4 corrected = topLeft + float4(0, depthPerTexel.x, depthPerTexel.y,
+        depthPerTexel.x + depthPerTexel.y);
+    // Match the previous lit-border behavior even if the corrected receiver is beyond the map's depth range.
+    float4 insideX = step(0, base.x + float4(0, 1, 0, 1)) * (1 - step(1024, base.x + float4(0, 1, 0, 1)));
+    float4 insideY = step(0, base.y + float4(0, 0, 1, 1)) * (1 - step(1024, base.y + float4(0, 0, 1, 1)));
+    float4 lit = max(step(corrected - bias, depths), 1 - insideX * insideY);
+    return lerp(lerp(lit.x, lit.y, weight.x), lerp(lit.z, lit.w, weight.x), weight.y);
 }
 
 float4 PSShadow(VertexOutput input) : SV_Target
@@ -105,12 +103,13 @@ float4 PSShadow(VertexOutput input) : SV_Target
     // Derivatives must run before the varying cascade branches.
     float3 plane = cross(ddx(input.Local), ddy(input.Local));
     float lightNormal = dot(plane, LightZ.xyz);
-    if (depth < 64 && abs(lightNormal) > 0.0001 * length(plane))
+    float normalLight = dot(input.Normal, SunDirection.xyz);
+    if (depth < 64 && normalLight > 0 && lightNormal * lightNormal > 1e-8 * dot(plane, plane))
     {
         float3 p = float3(dot(input.Local, LightX.xyz), dot(input.Local, LightY.xyz),
             (dot(input.Local, LightZ.xyz) - LightX.w) * LightY.w);
         float2 planeSlope = -float2(dot(plane, LightX.xyz), dot(plane, LightY.xyz)) * (LightY.w / lightNormal);
-        float slope = 1 - saturate(dot(input.Normal, SunDirection.xyz));
+        float slope = 1 - saturate(normalLight);
         // Receiver bias converts a fixed metre offset and a slope term to shadow depth.
         float bias = (0.012 + 0.04 * slope) * LightY.w;
         if (NearShadow.w > 0 && (depth < 26 || FarShadow.w == 0))
