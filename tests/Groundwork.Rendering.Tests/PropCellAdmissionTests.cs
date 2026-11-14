@@ -122,6 +122,69 @@ public sealed class PropCellAdmissionTests
         }
     }
 
+    [TestMethod]
+    public async Task CoverageChurnHoldsWorkerQuotaUntilSettlement()
+    {
+        var owner = Create();
+        owner.Publish(Initial, [First, Second]);
+        Install(owner, First, Origin);
+        Assert.AreEqual(PropCellResult.Accepted, owner.TryRequest(Second, 2, out var blocked));
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        async Task<PropPlacement[]> PlaceAsync()
+        {
+            await release.Task;
+            return [Placement];
+        }
+
+        var worker = PlaceAsync();
+        try
+        {
+            for (ulong generation = 2; generation <= 64; generation++)
+            {
+                if (generation % 2 == 0)
+                    owner.Publish(Initial with { CoverageGeneration = generation }, [First]);
+                else
+                    owner.Publish(Initial with { CoverageGeneration = generation }, [First, Second]);
+
+                Assert.IsFalse(worker.IsCompleted);
+                Assert.AreEqual(PropCellResult.Stale, owner.TryStage(blocked, Origin, [Placement]));
+                Assert.AreEqual(PropCellResult.Stale, owner.TryInstall(blocked));
+                Assert.AreEqual(PropCellResult.Quota, owner.TryRequest(First, 1, out _));
+                Assert.AreEqual(new PropCellUsage(1, 1, 2, 1), owner.Usage);
+            }
+        }
+        finally
+        {
+            release.SetResult();
+        }
+
+        Assert.AreEqual(PropCellResult.Stale, owner.TryStage(blocked, Origin, await worker));
+        Assert.IsTrue(owner.CompleteWorker(blocked));
+        Assert.IsFalse(owner.CompleteWorker(blocked));
+        Assert.AreEqual(new PropCellUsage(1, 0, 0, 1), owner.Usage);
+        Assert.AreEqual(1, owner.Peak.PendingCells);
+        Assert.AreEqual(2, owner.Peak.PendingInstances);
+        Assert.AreEqual(PropCellResult.Accepted, owner.TryRequest(First, 1, out var next));
+        Assert.IsFalse(owner.CompleteWorker(blocked));
+        Assert.IsTrue(owner.CompleteWorker(next));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void CancellationAndEvictionHoldUnstagedReservations(bool evict)
+    {
+        var owner = Create();
+        owner.Publish(Initial, [First, Second]);
+        Assert.AreEqual(PropCellResult.Accepted, owner.TryRequest(First, 1, out var request));
+        Assert.IsTrue(evict ? owner.TryEvict(First) : owner.TryCancel(request));
+        Assert.AreEqual(PropCellResult.Stale, owner.TryStage(request, Origin, [Placement]));
+        Assert.AreEqual(PropCellResult.Quota, owner.TryRequest(Second, 1, out _));
+        Assert.IsTrue(owner.CompleteWorker(request));
+        Assert.AreEqual(default(PropCellUsage), owner.Usage);
+        Install(owner, Second, Origin);
+    }
+
     private static PropCellAdmission Create(int resident = 2) =>
         new(new(2, 1, 2, resident, 2), 42, 1, [new(1, 3, 2, 40, 10, 15)]);
 

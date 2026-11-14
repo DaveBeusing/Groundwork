@@ -26,6 +26,7 @@ public sealed class PropCellAdmission
     private readonly Cell?[] _cells;
     private readonly Dictionary<PropCellKey, int> _slots;
     private readonly HashSet<PropCellKey> _coverage = [];
+    private readonly Dictionary<PropCellRequest, int> _workers = new();
     private ulong _generation;
     private PropPublication _publication;
 
@@ -113,10 +114,12 @@ public sealed class PropCellAdmission
         Peak = new(Math.Max(Peak.Cells, Usage.Cells), Math.Max(Peak.PendingCells, Usage.PendingCells),
             Math.Max(Peak.PendingInstances, Usage.PendingInstances), Math.Max(Peak.ResidentInstances, Usage.ResidentInstances));
         request = new(key, _publication, generation);
+        _workers.Add(request, maxInstances);
         return PropCellResult.Accepted;
     }
 
-    /// <summary>Stage a validated copy. Placements arrive in strictly increasing ordinal order.</summary>
+    /// <summary>Stage a validated copy after the worker has stopped and released its terrain lease.</summary>
+    /// <remarks>Placements arrive in strictly increasing ordinal order. On failure, retry staging or call CompleteWorker after releasing the result.</remarks>
     public PropCellResult TryStage(PropCellRequest request, PropPoint origin, ReadOnlySpan<PropPlacement> placements)
     {
         if (!TryMatch(request, out var slot))
@@ -154,6 +157,7 @@ public sealed class PropCellAdmission
         cell.StagedOrigin = origin;
         cell.StagedRadius = radius;
         cell.Staged = instances;
+        _workers.Remove(request);
         return PropCellResult.Accepted;
     }
 
@@ -209,6 +213,23 @@ public sealed class PropCellAdmission
         if (instances.Length == 0)
             Remove(slot, cell);
         return PropCellResult.Accepted;
+    }
+
+    /// <summary>Release an unstaged reservation after the worker, its terrain lease and its result have settled.</summary>
+    /// <remarks>Also call for requests that were never dispatched. An invalidated token can still settle once.</remarks>
+    public bool CompleteWorker(PropCellRequest request)
+    {
+        if (!_workers.Remove(request, out var reservation))
+            return false;
+        if (TryMatch(request, out var slot))
+        {
+            var cell = _cells[slot]!;
+            ClearRequest(cell);
+            if (cell.Instances.Length == 0)
+                Remove(slot, cell);
+        }
+        ReleasePending(reservation);
+        return true;
     }
 
     public bool TryCancel(PropCellRequest request)
@@ -295,7 +316,17 @@ public sealed class PropCellAdmission
     {
         if (cell.Request == 0)
             return;
-        Usage = Usage with { PendingCells = Usage.PendingCells - 1, PendingInstances = Usage.PendingInstances - cell.Reservation };
+        // Unstaged work remains charged through its worker token after invalidation.
+        if (cell.Staged is not null)
+            ReleasePending(cell.Reservation);
+        ClearRequest(cell);
+    }
+
+    private void ReleasePending(int reservation) =>
+        Usage = Usage with { PendingCells = Usage.PendingCells - 1, PendingInstances = Usage.PendingInstances - reservation };
+
+    private static void ClearRequest(Cell cell)
+    {
         cell.Request = 0;
         cell.Reservation = 0;
         cell.Staged = null;
