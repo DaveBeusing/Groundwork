@@ -71,7 +71,7 @@ The issues below are open and track approved scope. Each pair records its accept
 | WP17 · Connected ridges and valleys | Versioned landform profile shared by volumetric terrain, WP12 depth and orbital relief | Reference seeds and a ridge/valley route from the ground to orbit | Groundwork landform + WP12-A01 interfaces and B01/C01 acceptance → WYU. | [Groundwork #115](https://github.com/DaveBeusing/Groundwork/issues/115) · [WYU #45](https://github.com/DaveBeusing/wyu/issues/45) |
 | WP18 · Loose-object physics | Bounded 60 Hz simulation for spherical bodies against published voxel terrain | Repeatable loose-rock scene with terrain edits, sleeping and rebases | Groundwork physics on WP11 → WYU. WP16 instancing is optional. | [Groundwork #116](https://github.com/DaveBeusing/Groundwork/issues/116) · [WYU #46](https://github.com/DaveBeusing/wyu/issues/46) |
 
-WP16, WP17 and WP18 can begin on their respective foundations. The order of their issue numbers does not define an implementation dependency.
+The [WP16 Windows handover](wp16-handover.md) records the merged integration and NVIDIA streaming and LOD results for both seeds. Stress and reference-class qualification remain open. WP17 and WP18 can begin on their respective foundations.
 
 ## Open qualification work
 
