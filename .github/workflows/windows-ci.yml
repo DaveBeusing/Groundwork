@@ -38,6 +38,13 @@ jobs:
       - name: Validate solution, restore, build and test
         run: ./scripts/Verify-Bootstrap.ps1 -TestResultsDirectory (Join-Path $env:RUNNER_TEMP 'groundwork-test-results')
 
+      - name: Verify WP17 prototype profiles and measurement bricks
+        run: |
+          dotnet restore benchmarks/Groundwork.LandformPrototype --locked-mode
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          dotnet run --project benchmarks/Groundwork.LandformPrototype -c Release --no-restore -- profiles
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
       - name: Require D3D12 WARP color, transform and depth readback
         run: |
           $reportPath = Join-Path $env:RUNNER_TEMP 'groundwork-test-results/Groundwork.Rendering.D3D12.Tests/results.trx'
