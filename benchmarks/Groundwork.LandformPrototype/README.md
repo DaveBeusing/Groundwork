@@ -120,3 +120,24 @@ The candidate now uses the baseline density loop when all precomputed columns ha
 | Confluence | 4.4517 / 4.5444 | 5.3373 / 5.4649 | 0 / 3 |
 
 See workstation-zero-relief.csv for all 45 blocks. The repeat passed all p95 blocks and 40 p99 blocks. The tail cause and consistent p99 compliance remain open.
+
+## Fixed P-core scheduler and power repeat
+
+WP17-ETW-20261114-183651 used processor 12 in group 0, Windows efficiency class 1 (performance class on this host). All 22,210 context-switch events involving the sweep thread used processor 12. ETW decoded with zero lost events. The WPR Power profile recorded 4,173 delivered-frequency reports for processor 12. The delivered-frequency field is a normalized interval indicator, so the values below are reported as recorded rather than converted to MHz.
+
+| Scenario | Worst block p95 | Worst block p99 | Over +10% p95 | Over +15% p99 |
+| --- | ---: | ---: | ---: | ---: |
+| Open | +2.93% | +2.66% | 0/15 | 0/15 |
+| Crest | +5.76% | +14.94% | 0/15 | 0/15 |
+| Confluence | +28.21% | +20.45% | 2/15 | 2/15 |
+
+The same two confluence blocks exceeded p99. The table joins each variant's actual wall-p99 sweep to its charged cycles and elapsed off-CPU time. Comparing independently sorted cycle percentiles would obscure this distinction.
+
+| Seed / block | Wall baseline / linear (ms) | Off CPU baseline / linear (ms) | Thread cycles baseline / linear (million) | Delivered frequency indicators baseline / linear |
+| --- | --- | --- | --- | --- |
+| 42 / 5 | 175.8647 / 205.3109 | 165.2518 / 194.2257 | 31.67 / 33.51 | 52–75 / 42–76 |
+| 18446744073709551615 / 2 | 135.6831 / 163.4304 | 102.1759 / 124.7336 | 98.38 / 111.29 | 20–23 / 16–22 |
+
+The context-switch records show predominantly Ready state on outgoing linear sweeps. Other runnable work on the same core included desktop and system processes. Off-CPU differences explain about 29.0 of 29.4 ms in the first block and 22.6 of 27.7 ms in the second. The second block also has more charged cycles and low frequency reports in both variants. The trace does not establish how much of the residual is due to frequency versus other on-CPU effects. No sweeps were excluded from wall-clock acceptance. The full-workload p95/p99 gates and reference qualification remain open.
+
+Use Trace-Wp17Scheduler.ps1 -Processor 12 from an administrative PowerShell to reproduce on this workstation. The script validates the performance class, pins the sweep thread and records scheduler stacks and Power events. See workstation-fixed-pcore.csv for the full block data.

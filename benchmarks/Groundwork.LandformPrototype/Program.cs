@@ -8,6 +8,8 @@ using Groundwork.Voxels;
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
 if (args is [var mode, ..] && mode is "profiles" or "baseline" or "linear" or "smooth" or "paired")
 {
+    if (mode == "paired" && args.Length == 3)
+        ThreadCycles.Pin(int.Parse(args[2], CultureInfo.InvariantCulture));
     var recipe = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
     ulong[] seeds = [42, 20261111, ulong.MaxValue];
     foreach (var seed in seeds)
@@ -25,7 +27,7 @@ if (args is [var mode, ..] && mode is "profiles" or "baseline" or "linear" or "s
             }
         }
         else if (mode == "paired")
-            MeasurePaired(field, evaluator, args.Length == 2 ? args[1] : null);
+            MeasurePaired(field, evaluator, args.Length >= 2 ? args[1] : null);
         else
             Measure(field, evaluator, mode);
     }
