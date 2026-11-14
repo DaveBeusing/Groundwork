@@ -794,15 +794,19 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
 
     private VolumeStreamingLease? Acquire(VolumeGeneration entry)
     {
+        return TryChargeReader(entry) ? new VolumeStreamingLease(this, entry) : null;
+    }
+
+    private bool TryChargeReader(VolumeGeneration entry)
+    {
         if (_readers == _limits.Readers ||
             !ReaderCharge.Fits(_limits.Envelope(VolumeWorkClass.Baseline) - _used[(int)VolumeWorkClass.Baseline]))
-            return null;
-        var lease = new VolumeStreamingLease(this, entry);
+            return false;
         entry.Readers++;
         _readers++;
         _used[(int)VolumeWorkClass.Baseline] += ReaderCharge;
         UpdatePeak();
-        return lease;
+        return true;
     }
 
     private void Refresh()
