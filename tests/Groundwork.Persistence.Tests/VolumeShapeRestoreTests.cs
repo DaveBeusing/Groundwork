@@ -112,7 +112,9 @@ public sealed class VolumeShapeRestoreTests
     }
 
     [TestMethod]
-    public async Task CapturedV2CaveCheckpointRestoresPoseGeometryAndDepletedOreFromNtfs()
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task CapturedCaveCheckpointRestoresPoseGeometryAndDepletedOreFromNtfs(bool connected)
     {
         if (!OperatingSystem.IsWindows())
             Assert.Inconclusive("The checkpoint round trip requires Windows NTFS.");
@@ -121,9 +123,12 @@ public sealed class VolumeShapeRestoreTests
         var root = directory.Path.CreateSubdirectory("v2").FullName;
         var landform = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
         var recipe = new PlanetGeologyRecipe(landform, 12, 100, 19, 0, 7, 0, 8, 112, 65536, 0, 21, 22, 23, 24);
+        var relief = new PlanetConnectedRecipe(recipe, 2, 512, 384, 256, 128);
         var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
-            new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 2, 1, 2, recipe.ParameterSha256, 128);
-        var source = new PlanetGeologyField(descriptor, recipe);
+            new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42,
+            connected ? PlanetGeologyField.ConnectedGeneratorVersion : PlanetGeologyField.GeneratorVersion,
+            1, 2, connected ? relief.ParameterSha256 : recipe.ParameterSha256, 128);
+        var source = connected ? PlanetTerrainGenerator.CreateConnected(descriptor, relief) : new PlanetGeologyField(descriptor, recipe);
         var deposit = Enumerable.Range(45, 8).SelectMany(y => Enumerable.Range(18, 8)
             .Select(z => new LatticeCoordinate(63, y, z)))
             .First(cell => source.SampleMaterial(cell) == recipe.Ore && Enumerable.Range(-1, 4).All(x =>
