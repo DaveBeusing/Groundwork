@@ -17,7 +17,12 @@ internal sealed unsafe partial class GpuDevice
     private byte* _propGeometryMapped;
     private PackedMesh[]? _propMeshes;
     private VisibleProp[]? _visibleProps;
-    private PropInstanceData[]? _propStage;
+    private int[]? _propSlots;
+    private int _propSpareSlot;
+    private PropCellRequest _propUploadRequest;
+    private int _propUploadCount;
+    private bool _propUnavailable;
+    internal Action? PropInitializationForTests;
     private int _propMeshCursor;
     private int _propGeometryOffset;
     private int _nextPropRequest;
@@ -45,7 +50,8 @@ internal sealed unsafe partial class GpuDevice
                 return;
             }
 
-            InitializeProps(stream);
+            if (!TryInitializeProps(stream))
+                return;
             var reserve = 16 * stream.Limits.ResidentInstances;
             var available = D3D12PropCells.MaximumUploadBytes - reserve;
             var uploaded = UploadProps(stream, available);
@@ -78,7 +84,7 @@ internal sealed unsafe partial class GpuDevice
                     throw new InvalidOperationException("Prop visibility references a nonresident cell.");
                 var delta = point.RelativeTo(origin);
                 metadata[i] = new(new((float)delta.X, (float)delta.Y, (float)delta.Z),
-                    visible.CellSlot * (uint)stream.InstancesPerCell + (uint)visible.InstanceIndex);
+                    (uint)(_propSlots![visible.CellSlot] * stream.InstancesPerCell + visible.InstanceIndex));
             }
 
             var draws = 0;
@@ -118,27 +124,49 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
+    private bool TryInitializeProps(D3D12PropCells stream)
+    {
+        if (_propUnavailable)
+            return false;
+        if (_propPipeline != null)
+            return true;
+        try
+        {
+            InitializeProps(stream);
+            return true;
+        }
+        catch (GpuNativeException) when (!IsRemoved)
+        {
+            // No prop work can reference these partial allocations before initialization succeeds.
+            ReleaseProps();
+            _propUnavailable = true;
+            return false;
+        }
+    }
+
     private void InitializeProps(D3D12PropCells stream)
     {
-        if (_propRoot != null)
-            return;
 
-        _propPayloadCapacity = checked(stream.Limits.Cells * stream.InstancesPerCell * PropInstanceData.ByteSize);
+        _propPayloadCapacity = checked((stream.Limits.Cells + 1) * stream.InstancesPerCell * PropInstanceData.ByteSize);
         var data = Buffer((ulong)(_propPayloadCapacity + 16 * stream.Limits.ResidentInstances));
         var geometry = Buffer((ulong)stream.GeometryBytes);
         var dataBytes = _device->GetResourceAllocationInfo(1, 1, &data).SizeInBytes;
         var geometryBytes = _device->GetResourceAllocationInfo(1, 1, &geometry).SizeInBytes;
         if (dataBytes > 64 * 1024 * 1024 || geometryBytes > 64 * 1024 * 1024 - dataBytes)
-            throw new InvalidOperationException("Prop native allocation exceeds 64 MiB.");
+            throw new GpuNativeException("Prop native allocation exceeds 64 MiB", unchecked((int)0x8007000E));
 
         _propData = CreateResource(_device, _meshUploadHeap, data, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        PropInitializationForTests?.Invoke();
         _propGeometry = CreateResource(_device, _meshUploadHeap, geometry, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
         _propMapped = MapProp(_propData);
         _propGeometryMapped = MapProp(_propGeometry);
         _propNativeBytes = (long)(dataBytes + geometryBytes);
         _propMeshes = new PackedMesh[stream.Assets.Length * 2];
         _visibleProps = new VisibleProp[stream.Limits.ResidentInstances];
-        _propStage = new PropInstanceData[stream.InstancesPerCell];
+        _propSlots = new int[stream.Limits.Cells];
+        for (var i = 0; i < _propSlots.Length; i++)
+            _propSlots[i] = i;
+        _propSpareSlot = _propSlots.Length;
         _propRoot = CreateFrameRoot(FrameConstantCount, props: true);
         _propPipeline = CreateFramePipeline(_propRoot, sky: false, props: true);
     }
@@ -170,31 +198,45 @@ internal sealed unsafe partial class GpuDevice
         {
             var index = (_nextPropRequest + scan) % stream.Ready.Length;
             var request = stream.Ready[index];
+            if (request != _propUploadRequest && _propUploadCount != 0)
+            {
+                _propUploadRequest = default;
+                _propUploadCount = 0;
+            }
             if (request.Generation == 0)
                 continue;
-            var result = stream.Admission.CopyStaged(request, _propStage, out var count, out _);
-            if (result == PropCellResult.Stale)
+            var result = stream.Admission.ReadStagedLength(request, out var slot, out var count);
+            if (result != PropCellResult.Accepted)
             {
-                stream.Ready[index] = default;
+                if (result == PropCellResult.Stale)
+                    stream.Ready[index] = default;
+                _propUploadCount = 0;
                 continue;
             }
-            if (result != PropCellResult.Accepted)
-                continue;
-            var bytes = count * PropInstanceData.ByteSize;
-            if (bytes > available - uploaded)
+
+            var writeCount = Math.Min(count - _propUploadCount, (available - uploaded) / PropInstanceData.ByteSize);
+            if (writeCount != 0)
             {
+                var offset = (_propSpareSlot * stream.InstancesPerCell + _propUploadCount) * PropInstanceData.ByteSize;
+                stream.Admission.CopyStagedRange(slot, _propUploadCount,
+                    new Span<PropInstanceData>(_propMapped + offset, writeCount));
+                _propUploadCount += writeCount;
+                uploaded += writeCount * PropInstanceData.ByteSize;
+            }
+            if (_propUploadCount != count)
+            {
+                _propUploadRequest = request;
                 _nextPropRequest = index;
                 break;
             }
+
+            // Only switch the physical slot after every record is ready. At this point the
+            // prior frame has retired, so its slot becomes the spare for the next candidate.
             if (stream.Admission.TryInstall(request) != PropCellResult.Accepted)
-                continue;
-            if (count != 0)
-            {
-                var offset = (int)_propStage![0].CellSlot * stream.InstancesPerCell * PropInstanceData.ByteSize;
-                _propStage.AsSpan(0, count).CopyTo(new Span<PropInstanceData>(_propMapped + offset, count));
-            }
+                throw new InvalidOperationException("Prop install changed during upload.");
+            (_propSlots![slot], _propSpareSlot) = (_propSpareSlot, _propSlots[slot]);
             stream.Ready[index] = default;
-            uploaded += bytes;
+            _propUploadCount = 0;
         }
         return uploaded;
     }
@@ -242,6 +284,13 @@ internal sealed unsafe partial class GpuDevice
         Release(_propGeometry);
         Release(_propPipeline);
         Release(_propRoot);
+        _propMapped = null;
+        _propGeometryMapped = null;
+        _propData = null;
+        _propGeometry = null;
+        _propPipeline = null;
+        _propRoot = null;
+        _propNativeBytes = 0;
         if (PropStream is { } stream)
         {
             lock (stream.Gate)

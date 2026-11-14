@@ -144,6 +144,145 @@ public sealed partial class PresentationSmokeTests
         AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
     }
 
+    [TestMethod]
+    public async Task PropPublicationCallbacksLeaveAdmissionAvailableAndIntact()
+    {
+        var mesh = RenderMesh.Create([Vector3.Zero, Vector3.UnitX, Vector3.UnitY], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        var key = default(PropCellKey);
+        var publication = new PropPublication(Guid.NewGuid(), 1, 1, 1);
+        props.Publish(publication, [key]);
+        using var entered = new ManualResetEventSlim();
+        using var release = new ManualResetEventSlim();
+        var blocked = Task.Run(() => props.Publish(publication with { CoverageGeneration = 2 }, [key],
+            new TestInvalidation(() =>
+            {
+                entered.Set();
+                if (!release.Wait(TimeSpan.FromSeconds(15)))
+                    throw new TimeoutException();
+                throw new InvalidOperationException("Invalidation source failed.");
+            })));
+        try
+        {
+            Assert.IsTrue(entered.Wait(TimeSpan.FromSeconds(5)));
+            var request = await Task.Run(() =>
+            {
+                Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var admitted));
+                return admitted;
+            }).WaitAsync(TimeSpan.FromSeconds(5));
+            release.Set();
+            await Assert.ThrowsExactlyAsync<InvalidOperationException>(async () => await blocked);
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(request, default, []));
+        }
+        finally
+        {
+            release.Set();
+        }
+    }
+
+    private sealed class TestInvalidation(Func<bool> contains) : HashSet<PropCellKey>, IReadOnlySet<PropCellKey>
+    {
+        bool IReadOnlySet<PropCellKey>.Contains(PropCellKey item) => contains();
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void OversizedPropReplacementSwitchesAtomically(bool warp)
+    {
+        const int cellSize = 44_000;
+        var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, cellSize, cellSize, 2), cellSize, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        var key = default(PropCellKey);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [key]);
+        Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var first));
+        Assert.AreEqual(PropCellResult.Accepted, props.TryStage(first, new(0, 0, -5),
+            [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, 0xff0000ff)]));
+        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true,
+            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]));
+        using (gpu)
+        {
+            AssertPlanetAdapter(gpu.Adapter, warp);
+            Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
+            gpu.PropStream = props;
+            Assert.AreEqual((byte)255, DrawPropFrame(gpu, 1).ColorAt(32, 32)[0]);
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, cellSize, out var replacement));
+            var placements = new PropPlacement[cellSize];
+            for (var i = 0; i < placements.Length; i++)
+                placements[i] = new((uint)i, 0, i == 0 ? Vector3.Zero : new(100, 0, 0),
+                    Quaternion.Identity, 1, 0xff00ff00);
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(replacement, new(0, 0, -5), placements));
+
+            var partial = DrawPropFrame(gpu, 2);
+            var partialStats = props.ReadStatistics();
+            Assert.AreEqual(1, partialStats.DeferredCells);
+            Assert.AreEqual((byte)255, partial.ColorAt(32, 32)[0]);
+            Assert.IsLessThanOrEqualTo(D3D12PropCells.MaximumUploadBytes, partialStats.UploadBytes);
+
+            Assert.IsTrue(props.TryCancel(replacement));
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, cellSize, out var retry));
+            placements[0] = placements[0] with { Tint = 0xffff0000 };
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(retry, new(0, 0, -5), placements));
+            Assert.AreEqual((byte)255, DrawPropFrame(gpu, 3).ColorAt(32, 32)[0]);
+            var retryStats = props.ReadStatistics();
+            Assert.AreEqual(partialStats.PayloadBytes, retryStats.PayloadBytes);
+            Assert.AreEqual(1, retryStats.DeferredCells);
+
+            var complete = DrawPropFrame(gpu, 4);
+            var completeStats = props.ReadStatistics();
+            Assert.AreEqual(0, completeStats.DeferredCells);
+            Assert.AreEqual((byte)255, complete.ColorAt(32, 32)[2]);
+            Assert.AreEqual((byte)0, complete.ColorAt(32, 32)[0]);
+            Assert.AreEqual(cellSize * 32, retryStats.PayloadBytes + completeStats.PayloadBytes);
+            Assert.IsNull(gpu.CaptureDred());
+        }
+        AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public void PropAllocationFailureKeepsTerrainDrawing(bool warp)
+    {
+        var mesh = RenderMesh.Create([new(-1, -1, -5), new(1, -1, -5), new(0, 1, -5)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 6, 40, 20, 24), mesh, mesh)]);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [default]);
+        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, region: new([new(mesh, Vector3.Zero)]));
+        using (gpu)
+        {
+            AssertPlanetAdapter(gpu.Adapter, warp);
+            Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
+            gpu.PropStream = props;
+            var attempts = 0;
+            gpu.PropInitializationForTests = () =>
+            {
+                attempts++;
+                throw new GpuNativeException("Injected optional prop allocation failure", unchecked((int)0x8007000E));
+            };
+            Assert.IsLessThan(1f, DrawPropFrame(gpu, 1).DepthAt(32, 32));
+            Assert.IsLessThan(1f, DrawPropFrame(gpu, 2).DepthAt(32, 32));
+            Assert.AreEqual(1, attempts);
+            Assert.AreEqual(0L, props.ReadStatistics().NativeBytes);
+            Assert.IsNull(gpu.CaptureDred());
+        }
+        AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
+    }
+
+    private static OffscreenFrame DrawPropFrame(GpuDevice gpu, ulong sequence)
+    {
+        var view = new VolumeViewIdentity(1, sequence, PlanetLocalFrame.Create(default));
+        gpu.PropTerrain = new(1, 1, view, default, 1, "props");
+        var camera = new VolumeCamera(view, default, -Vector3.UnitZ, Vector3.UnitY,
+            MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
+        Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, sequence, out var frame));
+        return GpuDevice.RenderOffscreen(gpu, 64, 64, frame);
+    }
+
     private static void VerifyProps(bool warp, bool requireDebug)
     {
         var mesh = RenderMesh.Create([new(-0.5f, -0.5f, 0), new(0.5f, -0.5f, 0), new(0, 0.5f, 0)], [0, 1, 2]);

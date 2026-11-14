@@ -182,6 +182,26 @@ public sealed class PropCellAdmission
         return PropCellResult.Accepted;
     }
 
+    internal PropCellResult ReadStagedLength(PropCellRequest request, out int slot, out int count)
+    {
+        count = 0;
+        if (!TryMatch(request, out slot))
+            return PropCellResult.Stale;
+        var cell = _cells[slot]!;
+        if (cell.Staged is not { } instances)
+            return PropCellResult.Pending;
+        count = instances.Length;
+        var otherResidents = Usage.ResidentInstances - cell.Instances.Length;
+        return count > _limits.ResidentInstances - otherResidents ? PropCellResult.Quota : PropCellResult.Accepted;
+    }
+
+    internal void CopyStagedRange(int slot, int offset, Span<PropInstanceData> destination)
+    {
+        var source = _cells[slot]!.Staged!.AsSpan(offset, destination.Length);
+        for (var i = 0; i < source.Length; i++)
+            destination[i] = source[i].Data;
+    }
+
     public PropCellResult TryInstall(PropCellRequest request)
     {
         if (!TryMatch(request, out var slot))

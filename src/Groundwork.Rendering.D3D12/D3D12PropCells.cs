@@ -33,8 +33,8 @@ public sealed class D3D12PropCells
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limits.PendingInstances);
         if (limits.Cells > 4096 || limits.Groups is <= 0 or > 96 || assets.IsEmpty || assets.Length > limits.Groups / 2 ||
             limits.PendingInstances > 65_536 || limits.ResidentInstances > 65_536 ||
-            (long)limits.Cells * instancesPerCell * PropInstanceData.ByteSize > MaximumGpuBytes ||
-            (long)instancesPerCell * PropInstanceData.ByteSize + 16L * limits.ResidentInstances >= MaximumUploadBytes)
+            instancesPerCell > Math.Min(limits.PendingInstances, limits.ResidentInstances) ||
+            (limits.Cells + 1L) * instancesPerCell * PropInstanceData.ByteSize > MaximumGpuBytes)
             throw new ArgumentOutOfRangeException(nameof(limits));
 
         var models = new PropModel[assets.Length];
@@ -63,7 +63,7 @@ public sealed class D3D12PropCells
         // Include CPU assets, native packing, selection scratch and conservative per-record/container overhead.
         if (meshBytes + 128L * (limits.PendingInstances + limits.ResidentInstances) + 256L * limits.Cells > MaximumGpuBytes)
             throw new ArgumentOutOfRangeException(nameof(limits));
-        var payloadBytes = (long)limits.Cells * instancesPerCell * PropInstanceData.ByteSize;
+        var payloadBytes = (limits.Cells + 1L) * instancesPerCell * PropInstanceData.ByteSize;
         if (meshBytes + payloadBytes + 16L * limits.ResidentInstances + 128 * 1024 > MaximumGpuBytes)
             throw new ArgumentOutOfRangeException(nameof(limits));
         GeometryBytes = (int)meshBytes;
@@ -76,13 +76,25 @@ public sealed class D3D12PropCells
 
     public void Publish(PropPublication publication, ReadOnlySpan<PropCellKey> coverage, IReadOnlySet<PropCellKey>? invalidated = null)
     {
+        if (coverage.Length > Limits.Cells)
+            throw new ArgumentException("Prop coverage exceeds cell capacity.", nameof(coverage));
+        var covered = coverage.ToArray();
+        HashSet<PropCellKey>? excluded = null;
+        if (invalidated is not null)
+        {
+            excluded = new(covered.Length);
+            foreach (var cell in covered)
+                if (invalidated.Contains(cell))
+                    excluded.Add(cell);
+        }
+
         lock (Gate)
         {
             if (Closed)
                 return;
             if (_world != Guid.Empty && publication.World != _world)
                 throw new ArgumentException("Prop publication belongs to a different world.", nameof(publication));
-            Admission.Publish(publication, coverage, invalidated);
+            Admission.Publish(publication, covered, excluded);
             Publication = publication;
             Array.Clear(Ready);
         }
