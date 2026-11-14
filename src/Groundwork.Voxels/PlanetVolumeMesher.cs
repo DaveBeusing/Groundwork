@@ -236,7 +236,7 @@ public static class PlanetVolumeMesher
                 continue;
             if (Vector3.Dot(face, a.Normal + b.Normal + c.Normal) <= 0)
             {
-                if (transition || plan.Descriptor.GeneratorVersion != PlanetGeologyField.GeneratorVersion)
+                if (transition || !PlanetGeologyField.UsesGeology(plan.Descriptor.GeneratorVersion))
                     inverted = true;
                 else if (output is not null)
                 {

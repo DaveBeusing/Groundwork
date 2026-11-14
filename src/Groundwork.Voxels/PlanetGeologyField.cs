@@ -47,6 +47,9 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
             descriptor.CellSizeMeters), recipe.Landform);
     }
 
+    internal static bool UsesGeology(uint generatorVersion) =>
+        generatorVersion is GeneratorVersion or ConnectedGeneratorVersion;
+
     public PlanetDescriptor Descriptor { get; }
     internal ushort OreMaterial => _recipe.Ore;
     internal ushort OreHostMaterial => _recipe.MiddleRock;

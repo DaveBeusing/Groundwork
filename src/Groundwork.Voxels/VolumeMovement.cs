@@ -142,7 +142,7 @@ internal static class VolumeWalker
         var delta = new CollisionVector(displacement);
         status = VolumeQueryStatus.Invalid;
         if (!Valid(state) || !limits.Valid || !delta.Finite || delta.Length is <= 0 or > 0.125 ||
-            g.Selection.Descriptor.GeneratorVersion != PlanetGeologyField.GeneratorVersion)
+            !PlanetGeologyField.UsesGeology(g.Selection.Descriptor.GeneratorVersion))
             return held;
 
         var next = state with { Position = (new CollisionVector(state.Position) + delta).Planet, Velocity = default };

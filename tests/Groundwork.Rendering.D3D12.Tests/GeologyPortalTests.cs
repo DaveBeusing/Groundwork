@@ -16,17 +16,27 @@ public sealed partial class PresentationSmokeTests
     [DataRow(false)]
     public Task GeologyPortalReadbackWithDebugLayerAndDred(bool warp) => VerifyGeologyPortal(warp, true);
 
-    private static async Task VerifyGeologyPortal(bool warp, bool requireDebug)
+    [TestMethod]
+    public Task WarpConnectedPortalReadbackMatchesCollisionAfterRebase() => VerifyGeologyPortal(true, false, connected: true);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public Task ConnectedPortalReadbackWithDebugLayerAndDred(bool warp) => VerifyGeologyPortal(warp, true, connected: true);
+
+    private static async Task VerifyGeologyPortal(bool warp, bool requireDebug, bool connected = false)
     {
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(120));
         var token = timeout.Token;
         var landform = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
         var recipe = new PlanetGeologyRecipe(landform, 12, 100, 19, 0, 7, 32768, 8, 112, 65536, 0, 21, 22, 23, 24);
+        var relief = new PlanetConnectedRecipe(recipe, 2, 512, 384, 256, 128);
         var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
-            new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 2, 1, 2, recipe.ParameterSha256, 128);
+            new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, connected ? 3u : 2u, 1, 2, connected ? relief.ParameterSha256 : recipe.ParameterSha256, 128);
         var start = new PlanetVector(59, 33, 26);
         var end = new PlanetVector(69, 33, 26);
-        var geology = new PlanetGeologyField(descriptor, recipe);
+        var geology = connected ? PlanetTerrainGenerator.CreateConnected(descriptor, relief) : new PlanetGeologyField(descriptor, recipe);
         using var run = new VolumeRun(geology: geology, camera: start,
             forward: new(1, 0, 0), displacement: new(10, 0, 0));
         var runtime = run.Fixture.Runtime;
@@ -152,6 +162,32 @@ public sealed partial class PresentationSmokeTests
 
         VolumeCamera Camera(VolumeViewIdentity identity) =>
             new(identity, start, Vector3.UnitX, Vector3.UnitZ, MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
+    }
+
+    [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task ConnectedCaveEntranceAndSealedChamberUsePublishedCollision(bool entrance)
+    {
+        var landform = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
+        var geology = new PlanetGeologyRecipe(landform, 12, 65, 19, 3, 7, 2500, 8, 112,
+            0, entrance ? 65536 : 0, 21, 22, 23, 24);
+        var recipe = new PlanetConnectedRecipe(geology, 2, 512, 384, 256, 128);
+        var descriptor = new PlanetDescriptor(new("00112233-4455-6677-8899-aabbccddeeff"),
+            new("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 3, 1, 2, recipe.ParameterSha256, entrance ? 116 : 128);
+        var field = PlanetTerrainGenerator.CreateConnected(descriptor, recipe);
+        var start = entrance ? new PlanetVector(116, 57, 32) : new PlanetVector(32, 32, 32);
+        var travel = entrance ? new PlanetVector(-19, -24, 0) : new PlanetVector(0, 0, 14);
+        using var run = new VolumeRun(geology: field, camera: start, forward: new(-1, 0, 0), displacement: travel);
+        Assert.IsTrue(run.Terrain.ConfirmMask(run.Terrain.View));
+        await run.Publish(1, cut: false);
+        using var lease = run.Terrain.TryRead();
+        Assert.IsNotNull(lease);
+        var shortSweep = lease.Sweep(new(start, start with { Z = start.Z + 0.5 }, 0.35), new(0, 0, 1));
+        Assert.AreEqual(VolumeQueryStatus.Clear, shortSweep.Status);
+        var route = lease.Sweep(new(start, start with { Z = start.Z + 0.5 }, 0.35), travel);
+        Assert.AreEqual(entrance ? VolumeQueryStatus.Clear : VolumeQueryStatus.Contact, route.Status,
+            $"Fraction {route.Fraction}");
     }
 
     private static void AssertGeologyNeighborhoodNormals(VolumeStreamingLease lease)

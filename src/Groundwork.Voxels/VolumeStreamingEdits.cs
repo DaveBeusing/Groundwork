@@ -85,7 +85,7 @@ public sealed partial class VolumeStreamingCoordinator
         ArgumentNullException.ThrowIfNull(baseline);
         ArgumentOutOfRangeException.ThrowIfNegativeOrZero(limit);
         ArgumentOutOfRangeException.ThrowIfGreaterThan(limit, MaximumOverlaySamples);
-        if (baseline.Descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion && baseline is not PlanetGeologyField)
+        if (PlanetGeologyField.UsesGeology(baseline.Descriptor.GeneratorVersion) && baseline is not PlanetGeologyField)
             throw new ArgumentException("Editable V2 terrain requires its natural geology source.", nameof(baseline));
         return baseline.Descriptor;
     }

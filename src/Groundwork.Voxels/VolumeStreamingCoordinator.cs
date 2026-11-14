@@ -175,7 +175,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         ArgumentNullException.ThrowIfNull(source);
         work = null;
         if (kind is VolumeWorkClass.Baseline || !Enum.IsDefined(kind) || selection.Descriptor != _descriptor ||
-            source.Descriptor != _descriptor || _descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion && !selection.RequiresFineCoverage ||
+            source.Descriptor != _descriptor || PlanetGeologyField.UsesGeology(_descriptor.GeneratorVersion) && !selection.RequiresFineCoverage ||
             targetRevision == 0 || targetRevision < sourceRevision ||
             !resources.IsNonnegative || resources.CpuBytes < RequiredEditableCpuBytes(selection, meshBytes) ||
             resources.LeaseSlots < selection.Requests.Length || resources.DensityJobs < 1 ||
@@ -354,7 +354,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             if (player is { } pose)
             {
                 var restoringCave = current is not VolumeWorldRoot &&
-                    _descriptor.GeneratorVersion == PlanetGeologyField.GeneratorVersion;
+                    PlanetGeologyField.UsesGeology(_descriptor.GeneratorVersion);
                 if (restoringCave ? !VolumeWalker.ValidateRestore(entry, pose, VolumeQueryLimits.Default) :
                     VolumeWalker.Validate(entry, pose, VolumeQueryLimits.Default).Status != VolumeQueryStatus.Clear)
                     return null;
