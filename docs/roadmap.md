@@ -54,6 +54,10 @@ The [Windows handover](package-e-handover.md) records clean master replays, veri
 
 The [Windows handover](package-g-handover.md) records clean master replays for both Far Horizon seeds, handoff pixel checks and the remaining reference-class and production qualification.
 
+## WP15 – Sunlight and terrain shadows (opt-in integration verified)
+
+The [Windows handover](wp15-opt-in-handover.md) records clean master tests for the opt-in path. Default enablement remains open pending the relative GPU budgets.
+
 ## Approved rendering and simulation packages
 
 The issues below are open and track approved scope. Each pair records its acceptance and performance limits. Start the Groundwork work against its listed prerequisites. WYU pins the exact verified Groundwork archive for the integration.
