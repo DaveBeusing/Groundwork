@@ -19,6 +19,7 @@ $source = Join-Path $PSScriptRoot '../src/Groundwork.Rendering.D3D12/Shaders'
 $output = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($OutputDirectory)
 $commonFlags = @('-HV', '2021', '-O3', '-WX', '-Zpr')
 $shaders = @(
+    @{ EntryPoint = 'VSProps'; Profile = 'vs_6_0'; Output = 'Props.vs.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'VSMain'; Profile = 'vs_6_0'; Output = 'Cube.vs.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'VSNormals'; Profile = 'vs_6_0'; Output = 'TerrainNormals.vs.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'VSDepth'; Profile = 'vs_6_0'; Output = 'ShadowDepth.vs.dxil'; Source = 'Cube.hlsl' },

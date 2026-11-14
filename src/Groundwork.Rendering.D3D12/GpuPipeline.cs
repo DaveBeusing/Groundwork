@@ -20,7 +20,7 @@ internal sealed unsafe partial class GpuDevice
         _normalPipeline = CreateFramePipeline(_root, sky: false, normals: true);
     }
 
-    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false)
+    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false, bool props = false)
     {
         var rootParameter = new D3D12_ROOT_PARAMETER
         {
@@ -28,7 +28,7 @@ internal sealed unsafe partial class GpuDevice
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_ALL,
         };
         rootParameter.Constants = new D3D12_ROOT_CONSTANTS { Num32BitValues = count };
-        D3D12_ROOT_PARAMETER* parameters = stackalloc D3D12_ROOT_PARAMETER[2];
+        D3D12_ROOT_PARAMETER* parameters = stackalloc D3D12_ROOT_PARAMETER[3];
         parameters[0] = rootParameter;
         var range = new D3D12_DESCRIPTOR_RANGE
         {
@@ -41,9 +41,19 @@ internal sealed unsafe partial class GpuDevice
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_PIXEL,
             DescriptorTable = new() { NumDescriptorRanges = 1, pDescriptorRanges = &range },
         };
+        if (props)
+        {
+            for (uint i = 1; i <= 2; i++)
+                parameters[i] = new D3D12_ROOT_PARAMETER
+                {
+                    ParameterType = D3D12_ROOT_PARAMETER_TYPE.D3D12_ROOT_PARAMETER_TYPE_SRV,
+                    ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_VERTEX,
+                    Descriptor = new() { ShaderRegister = i + 1 },
+                };
+        }
         var rootDescription = new D3D12_ROOT_SIGNATURE_DESC
         {
-            NumParameters = shadow ? 2u : 1u,
+            NumParameters = props ? 3u : shadow ? 2u : 1u,
             pParameters = parameters,
             Flags = D3D12_ROOT_SIGNATURE_FLAGS.D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
         };
@@ -66,9 +76,9 @@ internal sealed unsafe partial class GpuDevice
 
     }
 
-    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false, bool shadow = false, bool depthOnly = false)
+    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false, bool shadow = false, bool depthOnly = false, bool props = false)
     {
-        var vertexShader = LoadShader(depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
+        var vertexShader = LoadShader(props ? "Props.vs.dxil" : depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
         var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" : shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
         fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8, normal = "NORMAL\0"u8)
         {
@@ -218,6 +228,7 @@ internal sealed unsafe partial class GpuDevice
                 commands->IASetVertexBuffers(0, 1, &vertices);
             }
             Draw(commands, target, scene, shadows);
+            DrawProps(commands, target, scene);
             if (subsequent is { } next)
                 Draw(commands, target, next);
         }

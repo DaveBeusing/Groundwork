@@ -239,7 +239,10 @@ public sealed partial class D3D12Renderer : IRenderer
         lock (_lifecycle)
         {
             if (!_threadStarted)
+            {
+                _props?.Close();
                 Finish();
+            }
             context = _context;
         }
 

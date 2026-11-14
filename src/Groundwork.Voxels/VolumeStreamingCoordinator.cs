@@ -15,6 +15,9 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     private readonly WorldSafetyPorts _world;
     private readonly VolumeStreamingLimits _limits;
     private readonly PlanetDescriptor _descriptor;
+
+    /// <summary>Canonical identity of the volume's planet world.</summary>
+    public Guid WorldIdentity => _descriptor.WorldId;
     private readonly VolumeResources[] _used = new VolumeResources[5];
     private readonly VolumeGeneration?[] _entries;
     private readonly VolumeStreamingEvent[] _journal;
