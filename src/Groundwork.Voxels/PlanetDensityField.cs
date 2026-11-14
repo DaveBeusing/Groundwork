@@ -63,12 +63,14 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     }
 
     /// <summary>Samples a vertex in this field's planet lattice.</summary>
-    public long SampleDensity(LatticeCoordinate vertex)
+    public long SampleDensity(LatticeCoordinate vertex) => SampleDensity(vertex, 0);
+
+    internal long SampleDensity(LatticeCoordinate vertex, long relief)
     {
         ValidateCoordinate(vertex);
         var squared = Square(vertex.X) + Square(vertex.Y) + Square(vertex.Z);
         var distance = NearestSquareRoot(squared << 16);
-        return checked(distance - _radius - Landform(vertex).Elevation);
+        return checked(distance - _radius - Landform(vertex).Elevation - relief);
     }
 
     public PlanetLandform SampleLandform(LatticeCoordinate vertex)
@@ -178,7 +180,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         }
     }
 
-    private static void ValidateCoordinate(LatticeCoordinate coordinate)
+    internal static void ValidateCoordinate(LatticeCoordinate coordinate)
     {
         if (Outside(coordinate.X) || Outside(coordinate.Y) || Outside(coordinate.Z))
             throw new ArgumentOutOfRangeException(nameof(coordinate), "Coordinate is outside the version 1 density domain.");

@@ -16,4 +16,10 @@ public static class PlanetTerrainGenerator
             _ => throw new ArgumentException("The generator version requires its matching recipe.", nameof(descriptor)),
         };
     }
+
+    public static PlanetGeologyField CreateConnected(PlanetDescriptor descriptor, PlanetConnectedRecipe connected)
+    {
+        ArgumentNullException.ThrowIfNull(connected);
+        return PlanetGeologyField.CreateConnected(descriptor, connected);
+    }
 }

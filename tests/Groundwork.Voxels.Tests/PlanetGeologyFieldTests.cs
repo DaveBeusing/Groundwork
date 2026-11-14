@@ -207,7 +207,7 @@ public sealed class PlanetGeologyFieldTests
         _ => point with { Z = point.Z + amount },
     };
 
-    private static string BrickDigest(IPlanetBrickSource field, LatticeBrick[] bricks, bool reverse, bool parallel)
+    internal static string BrickDigest(IPlanetBrickSource field, LatticeBrick[] bricks, bool reverse, bool parallel)
     {
         var store = new PlanetBrickStore(field, bricks.Length * PlanetBrickStore.BrickPayloadBytes, bricks.Length);
         var order = reverse ? bricks.Reverse() : bricks;
