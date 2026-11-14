@@ -44,10 +44,12 @@ internal sealed unsafe partial class GpuDevice
 
         ID3D12Resource* CreateMap(uint index)
         {
+            var clear = new D3D12_CLEAR_VALUE { Format = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT };
+            clear.DepthStencil.Depth = 1;
             var texture = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT,
                 Texture(ShadowSize, ShadowSize, DXGI_FORMAT.DXGI_FORMAT_R32_TYPELESS,
                     D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear);
             var dsv = new D3D12_DEPTH_STENCIL_VIEW_DESC
             {
                 Format = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT,

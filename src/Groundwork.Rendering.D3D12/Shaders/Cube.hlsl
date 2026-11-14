@@ -103,12 +103,13 @@ float4 PSShadow(VertexOutput input) : SV_Target
     // Derivatives must run before the varying cascade branches.
     float3 plane = cross(ddx(input.Local), ddy(input.Local));
     float lightNormal = dot(plane, LightZ.xyz);
-    if (depth < 64 && abs(lightNormal) > 0.0001 * length(plane))
+    float normalLight = dot(input.Normal, SunDirection.xyz);
+    if (depth < 64 && normalLight > 0 && lightNormal * lightNormal > 1e-8 * dot(plane, plane))
     {
         float3 p = float3(dot(input.Local, LightX.xyz), dot(input.Local, LightY.xyz),
             (dot(input.Local, LightZ.xyz) - LightX.w) * LightY.w);
         float2 planeSlope = -float2(dot(plane, LightX.xyz), dot(plane, LightY.xyz)) * (LightY.w / lightNormal);
-        float slope = 1 - saturate(dot(input.Normal, SunDirection.xyz));
+        float slope = 1 - saturate(normalLight);
         // Receiver bias converts a fixed metre offset and a slope term to shadow depth.
         float bias = (0.012 + 0.04 * slope) * LightY.w;
         if (NearShadow.w > 0 && (depth < 26 || FarShadow.w == 0))
