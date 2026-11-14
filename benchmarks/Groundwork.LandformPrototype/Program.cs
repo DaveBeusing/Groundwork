@@ -15,7 +15,14 @@ if (args is [var mode] && mode is "profiles" or "baseline" or "linear" or "smoot
             new("93f87211-c2ae-4415-a010-a14771ed243e"), seed, 1, 1, 1, recipe.ParameterSha256, 4096), recipe);
         var evaluator = new Relief(seed);
         if (mode == "profiles")
+        {
             Profiles(field, evaluator);
+            foreach (var (name, feature, key) in Scenarios(field, evaluator))
+            {
+                VerifyLinearBrick(evaluator, key);
+                Console.Error.WriteLine($"seed={seed} {name} surface={feature.X},{feature.Y},{feature.Z} brick={key.X},{key.Y},{key.Z}");
+            }
+        }
         else if (mode == "paired")
             MeasurePaired(field, evaluator);
         else
@@ -75,10 +82,10 @@ static void Measure(PlanetDensityField field, Relief relief, string mode)
 {
     const int repeats = 192;
     var timings = new long[repeats];
-    foreach (var (name, x, z) in Scenarios())
+    foreach (var (name, feature, key) in Scenarios(field, relief))
     {
         var samples = new LatticeCoordinate[PlanetBrickStore.VertexCount];
-        var key = Relief.Vertex(x, z).Locate().Brick;
+        Console.Error.WriteLine($"seed={field.Descriptor.Seed} {name} surface={feature.X},{feature.Y},{feature.Z} brick={key.X},{key.Y},{key.Z}");
         var index = 0;
         for (var dz = 0; dz < PlanetBrickStore.VertexEdge; dz++)
         for (var dy = 0; dy < PlanetBrickStore.VertexEdge; dy++)
@@ -109,8 +116,49 @@ static void Measure(PlanetDensityField field, Relief relief, string mode)
     }
 }
 
-static (string Name, int X, int Z)[] Scenarios() =>
-    [("open", 96, 0), ("ridge", -96, -96), ("junction", 32, -32)];
+static IEnumerable<(string Name, LatticeCoordinate Feature, LatticeBrick Key)> Scenarios(
+    PlanetDensityField field, Relief relief)
+{
+    var crest = relief.Centres(-96).Ridge;
+    var (ridge, main, tributary) = relief.Centres(0);
+    if (main != tributary || ridge == main)
+        throw new InvalidOperationException("Expected the tributary to meet the main valley.");
+    foreach (var (name, x, z, sign) in new[] { ("open", 96L, 0, 0), ("ridge", crest, -96, 1), ("junction", main, 0, -1) })
+    {
+        var y = Relief.Vertex(x, z).Y;
+        long Density(long height)
+        {
+            var vertex = new LatticeCoordinate(x, height, z);
+            return field.SampleDensity(vertex) - relief.Delta(vertex, false);
+        }
+
+        var delta = relief.Delta(new(x, y, z), false);
+        if (Math.Sign(delta) != sign)
+            throw new InvalidOperationException($"Unexpected relief at {name}.");
+        // Find the last solid vertex below the candidate's first non-solid vertex.
+        var low = y - 32;
+        var high = y + 32;
+        if (Density(low) >= 0 || Density(high) < 0)
+            throw new InvalidOperationException($"Surface is outside the bounded search at {name}.");
+        while (high - low > 1)
+        {
+            var middle = (low + high) / 2;
+            if (Density(middle) < 0)
+                low = middle;
+            else
+                high = middle;
+        }
+        var feature = new LatticeCoordinate(x, low, z);
+        // Put the junction on the upper Z face so the brick includes the incoming branch.
+        var key = (name == "junction" ? feature with { Z = z - 1 } : feature).Locate().Brick;
+        var minimum = key.Vertex(0, 0, 0);
+        var maximum = key.Vertex(32, 32, 32);
+        if (x < minimum.X || x > maximum.X || z < minimum.Z || z > maximum.Z ||
+            low < minimum.Y || high > maximum.Y || Density(low) >= 0 || Density(high) < 0)
+            throw new InvalidOperationException($"Measured brick does not straddle the candidate surface at {name}.");
+        yield return (name, feature, key);
+    }
+}
 
 static void MeasurePaired(PlanetDensityField field, Relief relief)
 {
@@ -121,19 +169,16 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
     var baseline = new long[sweeps];
     var linear = new long[sweeps];
     var vertices = new LatticeCoordinate[PlanetBrickStore.VertexCount];
-    foreach (var (name, x, z) in Scenarios())
+    foreach (var (name, feature, key) in Scenarios(field, relief))
     {
-        var key = Relief.Vertex(x, z).Locate().Brick;
+        Console.Error.WriteLine($"seed={field.Descriptor.Seed} {name} surface={feature.X},{feature.Y},{feature.Z} brick={key.X},{key.Y},{key.Z}");
         var index = 0;
         for (var dz = 0; dz < edge; dz++)
         for (var dy = 0; dy < edge; dy++)
         for (var dx = 0; dx < edge; dx++)
             vertices[index++] = key.Vertex(dx, dy, dz);
 
-        relief.FillLinearColumns(key, columns);
-        for (var i = 0; i < vertices.Length; i++)
-            if (ColumnDelta(vertices[i], i, columns) != relief.Delta(vertices[i], false))
-                throw new InvalidOperationException("Linear brick column differs from the point evaluator.");
+        VerifyLinearBrick(relief, key);
 
         long checksum = 0;
         for (var i = 0; i < 32; i++)
@@ -206,6 +251,22 @@ static long Linear(PlanetDensityField field, Relief relief, LatticeBrick key, La
             sum += field.SampleDensity(vertices[start + x]) - (active ? row[x] : 0);
     }
     return sum;
+}
+
+static void VerifyLinearBrick(Relief relief, LatticeBrick key)
+{
+    const int edge = PlanetBrickStore.VertexEdge;
+    Span<long> columns = stackalloc long[edge * edge];
+    relief.FillLinearColumns(key, columns);
+    var i = 0;
+    for (var z = 0; z < edge; z++)
+    for (var y = 0; y < edge; y++)
+    for (var x = 0; x < edge; x++)
+    {
+        var vertex = key.Vertex(x, y, z);
+        if (ColumnDelta(vertex, i++, columns) != relief.Delta(vertex, false))
+            throw new InvalidOperationException("Linear brick column differs from the point evaluator.");
+    }
 }
 
 static long ColumnDelta(LatticeCoordinate vertex, int index, ReadOnlySpan<long> columns)
