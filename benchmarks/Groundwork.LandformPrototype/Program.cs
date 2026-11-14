@@ -257,8 +257,8 @@ static int PercentileIndex(int length, double percentile) => (int)Math.Ceiling(p
 
 static long Linear(PlanetDensityField field, Relief relief, LatticeBrick key, LatticeCoordinate[] vertices, Span<long> columns)
 {
-    relief.FillLinearColumns(key, columns);
-    return Sweep(field, vertices, columns);
+    var active = relief.FillLinearColumns(key, columns);
+    return Sweep(field, vertices, active ? columns : default);
 }
 
 static long Sweep(PlanetDensityField field, LatticeCoordinate[] vertices, ReadOnlySpan<long> columns)

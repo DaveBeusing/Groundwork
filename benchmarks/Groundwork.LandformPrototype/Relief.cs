@@ -21,13 +21,19 @@ internal readonly struct Relief(ulong seed)
         return Profile(vertex.X, vertex.Z, smooth);
     }
 
-    internal void FillLinearColumns(LatticeBrick brick, Span<long> columns)
+    internal bool FillLinearColumns(LatticeBrick brick, Span<long> columns)
     {
         const int edge = PlanetBrickStore.VertexEdge;
         var origin = brick.Vertex(0, 0, 0);
+        var hasRelief = false;
         for (var z = 0; z < edge; z++)
         for (var x = 0; x < edge; x++)
-            columns[z * edge + x] = Delta(new(origin.X + x, 1, origin.Z + z), false);
+        {
+            var delta = Delta(new(origin.X + x, 1, origin.Z + z), false);
+            columns[z * edge + x] = delta;
+            hasRelief |= delta != 0;
+        }
+        return hasRelief;
     }
 
     internal (long Linear, long Smooth) SampleProfile(long x, long z) => (Profile(x, z, false), Profile(x, z, true));

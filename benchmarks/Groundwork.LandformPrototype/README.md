@@ -99,3 +99,24 @@ Both previously flagged seed/block combinations passed on repetition. The new op
 Run Trace-Wp17Scheduler.ps1 from an administrative PowerShell on Windows. It builds Release, records context-switch and ready-thread stacks plus QPC anchors, and saves the ETL, per-sweep CSV and block percentiles. A successful capture prints [FERTIG] with the output directory. The optional second argument to the paired benchmark appends raw sweep evidence to a CSV. Each row identifies the process and native thread, start/end QPC, seed, brick scenario, block, variant and thread-cycle delta. Data is written after each block, outside the timed sweeps.
 
 A validation run without ETW emitted 17,280 sweep rows across 45 blocks. All 45 passed p95 and 44 passed p99. Seed 42 open block 3 exceeded p99 by 27.33%. Its baseline p99 was sweep 161 (4.6391 ms, 14,191,104 cycles) and its linear p99 was sweep 115 (5.9070 ms, 18,001,306 cycles). The two previously flagged blocks passed in this run. These counters show additional charged cycles for the new slow sweep but cannot attribute them to placement, frequency, or scheduler events. Kernel ETW capture is pending.
+
+## Scheduler capture and zero-relief shortcut
+
+The workstation recording WP17-ETW-20261114-182801 contains all 17,280 sweeps and decoded with zero lost ETW events. Nine application anchors align QPC with ETW. The previous confluence block did not reproduce (4.1737 ms baseline and 4.1628 ms linear at p99, with zero measured off-CPU time in the p99 sweeps).
+
+| Recorded overrun | Baseline / linear p99 | Baseline / linear p99-sweep cycles | Linear off CPU |
+| --- | --- | --- | --- |
+| Open, maximum seed, block 5 | 4.6475 / 5.7522 ms | 14,255,003 / 17,169,100 | 0.0056 ms |
+| Crest, maximum seed, block 4 | 5.2307 / 6.4146 ms | 14,279,884 / 18,727,834 | 0.0222 ms |
+
+CSwitch stacks include kernel frames and the benchmark thread migrated in both intervals. NVIDIA Display Container was switched in when the open sweep left CPU 23. Windows Terminal was switched in when the crest sweep left CPU 1. The measured off-CPU intervals account for little of the wall gap. The trace does not isolate an on-CPU source such as core frequency, migration cost or contention. It has no repeating confluence overrun to analyze.
+
+The candidate now uses the baseline density loop when all precomputed columns have zero relief. This removes unnecessary per-vertex subtraction in the open fixture. The point-versus-column checks passed and the profile CSV remained unchanged. A repeat without ETW retained all sweep samples.
+
+| Scenario | Mean p95 baseline / linear (ms) | Mean p99 baseline / linear (ms) | Blocks over +10% / +15% |
+| --- | --- | --- | --- |
+| Open | 6.3815 / 6.3868 | 6.9751 / 7.2289 | 0 / 1 |
+| Crest | 5.3345 / 5.2082 | 6.5158 / 6.4495 | 0 / 1 |
+| Confluence | 4.4517 / 4.5444 | 5.3373 / 5.4649 | 0 / 3 |
+
+See workstation-zero-relief.csv for all 45 blocks. The repeat passed all p95 blocks and 40 p99 blocks. The tail cause and consistent p99 compliance remain open.
