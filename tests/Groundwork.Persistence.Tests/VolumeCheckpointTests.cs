@@ -22,6 +22,11 @@ public sealed class VolumeCheckpointTests
     private static readonly PlanetDescriptor PlanetV2 = new(Planet.WorldId, Planet.PlanetId,
         42, PlanetGeologyField.GeneratorVersion, Planet.TerrainSchemaVersion, 2, Geology.ParameterSha256, 128);
 
+    private static readonly PlanetConnectedRecipe Connected = new(Geology, 2, 512, 384, 256, 128);
+    private static readonly PlanetDescriptor PlanetV3 = new(PlanetV2.WorldId, PlanetV2.PlanetId, PlanetV2.Seed,
+        PlanetGeologyField.ConnectedGeneratorVersion, PlanetV2.TerrainSchemaVersion, PlanetV2.MaterialCatalogVersion,
+        Connected.ParameterSha256, PlanetV2.RadiusMeters);
+
     private const long Depleted = 1L << 16;
     private const long Placed = 1L << 17;
 
@@ -88,13 +93,38 @@ public sealed class VolumeCheckpointTests
     }
 
     [TestMethod]
-    public void NtfsV2PreservesUnknownSchemaAndDamagedMember()
+    public void V3CodecUsesGeologyLayoutButRequiresItsExactGenerator()
+    {
+        var v1 = VolumeCheckpointCodec.Encode(Create(2));
+        var v2 = VolumeCheckpointCodec.Encode(CreateV2(2));
+        var v3 = VolumeCheckpointCodec.Encode(CreateGeology(2, PlanetV3));
+        Assert.IsTrue(v3.AsSpan(0, 8).SequenceEqual("GWVOLCP2"u8));
+        Assert.AreEqual((ushort)2, BinaryPrimitives.ReadUInt16LittleEndian(v3.AsSpan(8)));
+        var loaded = VolumeCheckpointCodec.Decode(v3, Slot, Lineage, PlanetV3);
+        Assert.AreEqual(VolumeCheckpointStatus.Valid, loaded.Status);
+        Assert.IsNotNull(loaded.Checkpoint);
+        CollectionAssert.AreEqual(v3, VolumeCheckpointCodec.Encode(loaded.Checkpoint));
+        Assert.AreEqual(VolumeCheckpointStatus.Incompatible, VolumeCheckpointCodec.Decode(v1, Slot, Lineage, PlanetV3).Status);
+        Assert.AreEqual(VolumeCheckpointStatus.Incompatible, VolumeCheckpointCodec.Decode(v2, Slot, Lineage, PlanetV3).Status);
+        Assert.AreEqual(VolumeCheckpointStatus.Incompatible, VolumeCheckpointCodec.Decode(v3, Slot, Lineage, PlanetV2).Status);
+
+        var overlay = loaded.Checkpoint.Overlay.ToArray();
+        BinaryPrimitives.WriteInt64LittleEndian(overlay.AsSpan(64), 1L << 18);
+        Assert.ThrowsExactly<InvalidDataException>(() => new VolumeCheckpoint(loaded.Checkpoint.Operation, Lineage,
+            PlanetV3, loaded.Checkpoint.Tick, loaded.Checkpoint.TerrainRevision, overlay, []));
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void NtfsGeologyPreservesUnknownSchemaAndDamagedMember(bool connected)
     {
         if (!OperatingSystem.IsWindows())
             Assert.Inconclusive("Requires Windows NTFS.");
-        using var fixture = new Fixture(planet: PlanetV2);
-        var first = CreateV2(0);
-        var second = CreateV2(1);
+        var planet = connected ? PlanetV3 : PlanetV2;
+        using var fixture = new Fixture(planet: planet);
+        var first = CreateGeology(0, planet);
+        var second = CreateGeology(1, planet);
         AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(first));
         AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(second));
         var firstPath = fixture.Member("volume.a");
@@ -102,14 +132,14 @@ public sealed class VolumeCheckpointTests
         var firstBytes = File.ReadAllBytes(firstPath);
         var secondBytes = File.ReadAllBytes(secondPath);
 
-        var unknownRecipe = new PlanetDescriptor(PlanetV2.WorldId, PlanetV2.PlanetId, PlanetV2.Seed,
-            PlanetV2.GeneratorVersion, PlanetV2.TerrainSchemaVersion, PlanetV2.MaterialCatalogVersion,
-            new string('b', 64), PlanetV2.RadiusMeters, PlanetV2.CellSizeMeters);
+        var unknownRecipe = new PlanetDescriptor(planet.WorldId, planet.PlanetId, planet.Seed,
+            planet.GeneratorVersion, planet.TerrainSchemaVersion, planet.MaterialCatalogVersion,
+            new string('b', 64), planet.RadiusMeters, planet.CellSizeMeters);
         Assert.AreEqual(VolumeCheckpointStatus.Incompatible,
             VolumeCheckpointCodec.Decode(secondBytes, Slot, Lineage, unknownRecipe).Status);
         var foreignRecipeSlot = new VolumeCheckpointSlot(fixture.Root, Slot, Lineage, unknownRecipe,
             static _ => SaveGameValidation.Valid);
-        var proposed = CreateV2(2);
+        var proposed = CreateGeology(2, planet);
         var foreignRecipeCut = new VolumeCheckpoint(proposed.Operation, Lineage, unknownRecipe, proposed.Tick,
             proposed.TerrainRevision, proposed.Overlay, proposed.Game, proposed.CaptureOrdinal, proposed.Player);
         var reservationPath = fixture.Member("volume.reservation");
@@ -127,7 +157,7 @@ public sealed class VolumeCheckpointTests
         SHA256.HashData(unknown.AsSpan(0, unknown.Length - 32), unknown.AsSpan(unknown.Length - 32));
         File.WriteAllBytes(secondPath, unknown);
         AssertStatus(VolumeSlotStatus.Incompatible, fixture.Reopen().Load());
-        AssertStatus(VolumeSlotStatus.Incompatible, fixture.Reopen().Save(CreateV2(2)));
+        AssertStatus(VolumeSlotStatus.Incompatible, fixture.Reopen().Save(CreateGeology(2, planet)));
         CollectionAssert.AreEqual(firstBytes, File.ReadAllBytes(firstPath));
         CollectionAssert.AreEqual(unknown, File.ReadAllBytes(secondPath));
 
@@ -136,7 +166,7 @@ public sealed class VolumeCheckpointTests
         var recovered = fixture.Reopen().Load();
         AssertStatus(VolumeSlotStatus.ReadOnlyRecovery, recovered);
         CollectionAssert.AreEqual(firstBytes, VolumeCheckpointCodec.Encode(recovered.Checkpoint!));
-        AssertStatus(VolumeSlotStatus.ReadOnlyRecovery, fixture.Reopen().Save(CreateV2(2)));
+        AssertStatus(VolumeSlotStatus.ReadOnlyRecovery, fixture.Reopen().Save(CreateGeology(2, planet)));
         CollectionAssert.AreEqual(firstBytes, File.ReadAllBytes(firstPath));
         CollectionAssert.AreEqual(secondBytes, File.ReadAllBytes(secondPath));
     }
@@ -233,19 +263,23 @@ public sealed class VolumeCheckpointTests
 
     [TestMethod]
     public Task NtfsChildProcessInterruptionPreservesTheDurableCut() =>
-        VerifyChildProcessInterruption(v2: false);
+        VerifyChildProcessInterruption(Planet);
 
     [TestMethod]
     public Task NtfsV2ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut() =>
-        VerifyChildProcessInterruption(v2: true);
+        VerifyChildProcessInterruption(PlanetV2);
 
-    private static async Task VerifyChildProcessInterruption(bool v2)
+    [TestMethod]
+    public Task NtfsV3ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut() =>
+        VerifyChildProcessInterruption(PlanetV3);
+
+    private static async Task VerifyChildProcessInterruption(PlanetDescriptor planet)
     {
         if (!OperatingSystem.IsWindows())
             Assert.Inconclusive("Requires Windows NTFS.");
         const string childVariable = "GROUNDWORK_D02_CHILD";
-        var planet = v2 ? PlanetV2 : Planet;
-        var oldBasis = v2 ? 1UL : 0UL;
+        var geology = planet.GeneratorVersion is 2 or 3;
+        var oldBasis = geology ? 1UL : 0UL;
         var proposed = Checkpoint(oldBasis + 1);
         var childRoot = Environment.GetEnvironmentVariable(childVariable);
         if (childRoot is not null)
@@ -264,7 +298,7 @@ public sealed class VolumeCheckpointTests
             Assert.Fail($"Child returned {result.Status} before termination.");
         }
 
-        SaveWriteStage[] stages = v2
+        SaveWriteStage[] stages = geology
             ? [SaveWriteStage.PartialBody, SaveWriteStage.AfterIntent, SaveWriteStage.AfterPublish, SaveWriteStage.BeforeAcknowledge]
             : [SaveWriteStage.PartialBody, SaveWriteStage.BeforeFlush, SaveWriteStage.AfterFlush, SaveWriteStage.BeforePublish,
                 SaveWriteStage.PartialIntent, SaveWriteStage.AfterIntent, SaveWriteStage.AfterPublish, SaveWriteStage.BeforeAcknowledge];
@@ -272,15 +306,19 @@ public sealed class VolumeCheckpointTests
         {
             using var fixture = new Fixture(planet: planet);
             AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Checkpoint(0)));
-            if (v2)
+            if (geology)
                 AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(Checkpoint(oldBasis)));
             var start = new ProcessStartInfo("dotnet") { UseShellExecute = false, CreateNoWindow = true };
             start.Environment[childVariable] = fixture.Root;
             start.Environment["GROUNDWORK_D02_STAGE"] = stage.ToString();
             start.ArgumentList.Add("vstest");
             start.ArgumentList.Add(typeof(VolumeCheckpointTests).Assembly.Location);
-            var childTest = v2 ? nameof(NtfsV2ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut)
-                : nameof(NtfsChildProcessInterruptionPreservesTheDurableCut);
+            var childTest = planet.GeneratorVersion switch
+            {
+                3 => nameof(NtfsV3ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut),
+                2 => nameof(NtfsV2ChildProcessInterruptionKeepsTerrainDepletionInventoryAndPoseInOneCut),
+                _ => nameof(NtfsChildProcessInterruptionPreservesTheDurableCut),
+            };
             start.ArgumentList.Add($"/TestCaseFilter:FullyQualifiedName={typeof(VolumeCheckpointTests).FullName}.{childTest}");
             using var process = Process.Start(start) ?? throw new InvalidOperationException("Could not start writer.");
             var ready = Path.Combine(fixture.Root, "ready");
@@ -309,7 +347,7 @@ public sealed class VolumeCheckpointTests
             var expected = published ? proposed : Checkpoint(oldBasis);
             CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(expected),
                 VolumeCheckpointCodec.Encode(loaded.Checkpoint!));
-            if (v2)
+            if (geology)
             {
                 CollectionAssert.AreEqual(VolumeCheckpointCodec.Encode(published ? proposed : Checkpoint(0)),
                     File.ReadAllBytes(fixture.Member("volume.a")));
@@ -321,7 +359,7 @@ public sealed class VolumeCheckpointTests
             Assert.IsEmpty(Directory.EnumerateFileSystemEntries(fixture.Member("staging")));
         }
 
-        VolumeCheckpoint Checkpoint(ulong basis) => v2 ? CreateV2(basis) : Create(basis);
+        VolumeCheckpoint Checkpoint(ulong basis) => geology ? CreateGeology(basis, planet) : Create(basis);
     }
 
     [TestMethod]
@@ -738,7 +776,9 @@ public sealed class VolumeCheckpointTests
         return new(new(Slot, generation, nonce), Lineage, Planet, 21 + generation, 4, overlay, [game], player: new(new(0, 0, 107), new(1, 0, 0), new(0, 0, -2)));
     }
 
-    private static VolumeCheckpoint CreateV2(ulong basis)
+    private static VolumeCheckpoint CreateV2(ulong basis) => CreateGeology(basis, PlanetV2);
+
+    private static VolumeCheckpoint CreateGeology(ulong basis, PlanetDescriptor planet)
     {
         var overlay = new byte[72];
         BinaryPrimitives.WriteInt32LittleEndian(overlay, 1);
@@ -755,7 +795,7 @@ public sealed class VolumeCheckpointTests
         BinaryPrimitives.WriteInt32LittleEndian(game, 2);
         BinaryPrimitives.WriteInt32LittleEndian(game.AsSpan(4), basis < 2 ? 0 : 1);
         var nonce = new Guid((int)basis + 1, 0, 0, new byte[8]);
-        return new(new(Slot, basis, nonce), Lineage, PlanetV2, 21 + basis, 4 + basis, overlay, game,
+        return new(new(Slot, basis, nonce), Lineage, planet, 21 + basis, 4 + basis, overlay, game,
             player: new(new(64 + (double)basis, 33, 26), new(0, 0, 1), new(0, 0, -0.25)));
     }
 

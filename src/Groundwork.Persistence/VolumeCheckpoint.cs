@@ -108,10 +108,10 @@ public sealed class VolumeCheckpoint
 
     private static bool ValidMaterialRow(long value, uint generatorVersion)
     {
-        // V2 stores material in bits 0–15, natural depletion in bit 16 and placement in bit 17.
+        // Geology overlays store material in bits 0–15, natural depletion in bit 16 and placement in bit 17.
         // The selected generator checks palette IDs and natural deposit eligibility when it restores the overlay.
         const long flags = (1L << 16) | (1L << 17);
-        return generatorVersion == PlanetGeologyField.GeneratorVersion
+        return generatorVersion is PlanetGeologyField.GeneratorVersion or PlanetGeologyField.ConnectedGeneratorVersion
             ? (value & ushort.MaxValue) != 0 && (value & flags) != 0 && (value & ~(flags | ushort.MaxValue)) == 0
             : value is >= 1 and <= ushort.MaxValue;
     }
@@ -137,7 +137,7 @@ public static class VolumeCheckpointCodec
         planet.TerrainSchemaVersion != PlanetDensityField.TerrainSchemaVersion ? (ushort)0 : planet.GeneratorVersion switch
         {
             PlanetDensityField.GeneratorVersion => Schema,
-            PlanetGeologyField.GeneratorVersion => GeologySchema,
+            PlanetGeologyField.GeneratorVersion or PlanetGeologyField.ConnectedGeneratorVersion => GeologySchema,
             _ => (ushort)0,
         };
 
