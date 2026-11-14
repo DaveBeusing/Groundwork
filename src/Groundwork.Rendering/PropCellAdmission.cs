@@ -305,6 +305,18 @@ public sealed class PropCellAdmission
         return false;
     }
 
+    internal void Close()
+    {
+        _coverage.Clear();
+        for (var slot = 0; slot < _cells.Length; slot++)
+        {
+            if (_cells[slot] is not { } cell)
+                continue;
+            Cancel(cell);
+            Remove(slot, cell);
+        }
+    }
+
     private bool TryMatch(PropCellRequest request, out int slot)
     {
         slot = -1;

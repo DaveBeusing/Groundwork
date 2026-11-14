@@ -276,6 +276,8 @@ public sealed partial class D3D12Renderer
         frame = new(sequence, camera.ClearColor, new RenderScene(Matrix4x4.Identity, camera.Tint,
             Matrix4x4.CreateLookTo(local, camera.Forward, camera.Up), camera.FieldOfView, camera.NearPlane, camera.FarPlane)
         {
+            PropOrigin = new(camera.View.Frame.Origin.X, camera.View.Frame.Origin.Y, camera.View.Frame.Origin.Z),
+            PropEye = new(camera.Position.X, camera.Position.Y, camera.Position.Z),
             Fog = camera.Fog,
             Sunlight = camera.Sunlight,
             ShadowOrigin = camera.TerrainShadows ? new(camera.View.Frame.Origin.X,

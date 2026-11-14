@@ -129,3 +129,27 @@ float4 PSMain(VertexOutput input) : SV_Target
 {
     return Shade(input, 1);
 }
+
+struct PropReference
+{
+    float3 CellOffset;
+    uint Payload;
+};
+ByteAddressBuffer PropPayloads : register(t2);
+StructuredBuffer<PropReference> PropReferences : register(t3);
+
+VertexOutput VSProps(float3 position : POSITION, float4 color : COLOR, uint instance : SV_InstanceID)
+{
+    PropReference reference = PropReferences[instance];
+    uint offset = reference.Payload * 32;
+    float3 translation = asfloat(PropPayloads.Load3(offset));
+    uint2 rotation = PropPayloads.Load2(offset + 12);
+    int4 packedRotation = int4((int)(rotation.x << 16) >> 16, (int)rotation.x >> 16,
+        (int)(rotation.y << 16) >> 16, (int)rotation.y >> 16);
+    float4 q = normalize(float4(packedRotation));
+    float3 v = position * asfloat(PropPayloads.Load(offset + 20));
+    float3 crossTerm = 2 * cross(q.xyz, v);
+    uint rgba = PropPayloads.Load(offset + 24);
+    float4 tint = float4(rgba & 255, (rgba >> 8) & 255, (rgba >> 16) & 255, rgba >> 24) / 255;
+    return VSMain(v + q.w * crossTerm + cross(q.xyz, crossTerm) + translation + reference.CellOffset, color * tint);
+}

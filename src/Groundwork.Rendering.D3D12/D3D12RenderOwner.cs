@@ -10,6 +10,23 @@ public sealed partial class D3D12Renderer
     // submitted to DXGI, together with the sequence and installed volume generation.
     internal Action<ulong, ulong, OffscreenFrame>? VolumePresentReadbackForTests { private get; init; }
 
+    private D3D12PropCells? _props;
+
+    /// <summary>Bind a dedicated prop stream before starting a volume renderer.</summary>
+    public void AttachPropCells(D3D12PropCells stream)
+    {
+        ArgumentNullException.ThrowIfNull(stream);
+        lock (_lifecycle)
+        lock (stream.Gate)
+        {
+            if (_volume is null || _threadStarted || Stopping || _props is not null || stream.Attached || stream.Closed)
+                throw new InvalidOperationException("Attach a fresh prop stream before starting a volume renderer.");
+            stream.BindWorld(_volume.WorldIdentity);
+            stream.Attached = true;
+            _props = stream;
+        }
+    }
+
     private const int MaximumExtent = 4096;
     private const int ProgressPollMilliseconds = 10;
     private static readonly TimeSpan OcclusionInterval = TimeSpan.FromMilliseconds(100);
@@ -38,6 +55,7 @@ public sealed partial class D3D12Renderer
             gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
                 retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null),
                 session: _deviceSession);
+            gpu.PropStream = _props;
             Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
                 gpu.DredEnabled, null, null));
             var snapshot = target.Read();
@@ -79,6 +97,7 @@ public sealed partial class D3D12Renderer
         finally
         {
             _initialGeometry = null;
+            _props?.Close();
             CloseAdmission();
             _ready.TrySetResult();
             SettleOwner(gpu, chain, target, lifetime, watchdog);
@@ -399,10 +418,13 @@ public sealed partial class D3D12Renderer
         RendererWatchdog watchdog, in RenderFrame frame)
     {
         using var operation = TryBegin(target);
-        return operation is not null && Matches(operation.Snapshot, chain) && watchdog.TryAdvance(RendererStage.Submit) &&
-            AuthorizeVolumeDraw(frame) && (frame.Scene.HasValue && VolumePresentReadbackForTests is not null
-                ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame)
-                : gpu.TryRender(chain.CurrentBuffer, frame));
+        if (operation is null || !Matches(operation.Snapshot, chain) || !watchdog.TryAdvance(RendererStage.Submit) ||
+            !AuthorizeVolumeDraw(frame))
+            return false;
+        gpu.PropTerrain = frame.Scene.HasValue ? _volumeInstalled?.Info : null;
+        return frame.Scene.HasValue && VolumePresentReadbackForTests is not null
+            ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame)
+            : gpu.TryRender(chain.CurrentBuffer, frame);
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,

@@ -27,6 +27,7 @@
     <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../eng/Confirm-D3D12Binding.ps1&quot; -PackagePath &quot;$(PkgTerraFX_Interop_Windows)/terrafx.interop.windows.10.0.26100.6.nupkg&quot;" />
     <Exec Command="pwsh -NoProfile -File &quot;$(MSBuildThisFileDirectory)../../eng/Build-D3D12Shaders.ps1&quot; -OutputDirectory &quot;$(_ShaderDirectory)&quot; $(_DxcArguments)" />
     <ItemGroup>
+      <EmbeddedResource Include="$(_ShaderDirectory)/Props.vs.dxil" LogicalName="Props.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.vs.dxil" LogicalName="Cube.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/TerrainNormals.vs.dxil" LogicalName="TerrainNormals.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/ShadowDepth.vs.dxil" LogicalName="ShadowDepth.vs.dxil" WithCulture="false" />
