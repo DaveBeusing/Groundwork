@@ -41,3 +41,17 @@ Linear is the first candidate to carry forward for optimization. It preserves th
 ## Reproduce
 
 Build this project in Release. From the repository root run its DLL in artifacts/bin/Groundwork.LandformPrototype/release with profiles, baseline, linear or smooth. Profile mode writes seed, feature, X, Z and the baseline, linear and smooth heights in 1/256-cell units. Benchmark modes write the columns listed in workstation-timings.csv. Diagnostics go to stderr. The existing 12 PlanetDensityFieldTests and PlanetGeologyFieldTests passed.
+
+## Linear brick-column follow-up
+
+The local linear relief depends only on X/Z within the positive-Y fixture. Compute it once for each of the 33 × 33 columns per brick and reuse it over Y. The sweep includes filling the 8,712-byte stack buffer. It checks every optimized vertex against the original evaluator before timing. The profile CSV matched the original bit-for-bit.
+
+Run the Release DLL with paired. Each seed/scenario alternates variant order within five blocks of 192 paired sweeps in one process. The table compares the mean of block percentiles. The largest individual paired delta is reported separately. See workstation-linear-columns.csv.
+
+| Scenario | p95 baseline / linear (ms) | p95 mean delta / worst pair | p99 baseline / linear (ms) | p99 mean delta / worst pair |
+| --- | --- | --- | --- | --- |
+| Open | 5.0355 / 5.1060 | +1.40% / +5.60% | 5.6464 / 5.5524 | -1.67% / +10.43% |
+| Ridge | 4.5990 / 4.7217 | +2.67% / +6.40% | 5.3936 / 5.3272 | -1.23% / +14.16% |
+| Junction | 5.1665 / 5.2687 | +1.98% / +8.11% | 5.6070 / 5.6321 | +0.45% / +13.74% |
+
+All 45 pairs meet +10% p95 and +15% p99. The paired loops allocated zero managed bytes. The combined process peaked at 33,423,360 bytes working set and 11,575,296 bytes paged memory. This run qualifies the local density prototype on the workstation. Complete brick generation, independent reference runs and V3 integration remain open.
