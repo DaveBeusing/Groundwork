@@ -168,6 +168,8 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
     Span<long> columns = stackalloc long[edge * edge];
     var baseline = new long[sweeps];
     var linear = new long[sweeps];
+    var baselineCycles = new ulong[sweeps];
+    var linearCycles = new ulong[sweeps];
     var vertices = new LatticeCoordinate[PlanetBrickStore.VertexCount];
     foreach (var (name, feature, key) in Scenarios(field, relief))
     {
@@ -183,7 +185,7 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
         long checksum = 0;
         for (var i = 0; i < 32; i++)
         {
-            checksum ^= Baseline(field, vertices);
+            checksum ^= Sweep(field, vertices, default);
             checksum ^= Linear(field, relief, key, vertices, columns);
         }
 
@@ -205,50 +207,62 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
             }
             var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
             Array.Sort(baseline);
+            Array.Sort(baselineCycles);
+            Array.Sort(linearCycles);
             Array.Sort(linear);
-            Console.WriteLine($"{field.Descriptor.Seed},{name},{pair + 1},{sweeps},{Ms(baseline, .95):F6},{Ms(linear, .95):F6},{Ms(baseline, .99):F6},{Ms(linear, .99):F6},{allocated},{checksum}");
+            Console.WriteLine($"{field.Descriptor.Seed},{name},{pair + 1},{sweeps},{Ms(baseline, .95):F6},{Ms(linear, .95):F6},{Ms(baseline, .99):F6},{Ms(linear, .99):F6},{allocated},{checksum},{baselineCycles[PercentileIndex(sweeps, .99)]},{linearCycles[PercentileIndex(sweeps, .99)]}");
         }
 
         void BaselineTimed(int i)
         {
+            var cycles = ThreadCycles.Read();
             var start = Stopwatch.GetTimestamp();
-            checksum = unchecked(checksum + Baseline(field, vertices));
+            checksum = unchecked(checksum + Sweep(field, vertices, default));
             baseline[i] = Stopwatch.GetTimestamp() - start;
+            baselineCycles[i] = ThreadCycles.Read() - cycles;
         }
 
         void LinearTimed(int i, Span<long> scratch)
         {
+            var cycles = ThreadCycles.Read();
             var start = Stopwatch.GetTimestamp();
             checksum = unchecked(checksum + Linear(field, relief, key, vertices, scratch));
             linear[i] = Stopwatch.GetTimestamp() - start;
+            linearCycles[i] = ThreadCycles.Read() - cycles;
         }
     }
 
     static double Ms(long[] samples, double percentile) =>
-        samples[(int)Math.Ceiling(percentile * samples.Length) - 1] * 1000d / Stopwatch.Frequency;
+        samples[PercentileIndex(samples.Length, percentile)] * 1000d / Stopwatch.Frequency;
 }
 
-static long Baseline(PlanetDensityField field, LatticeCoordinate[] vertices)
-{
-    long sum = 0;
-    foreach (var vertex in vertices)
-        sum += field.SampleDensity(vertex);
-    return sum;
-}
+static int PercentileIndex(int length, double percentile) => (int)Math.Ceiling(percentile * length) - 1;
 
 static long Linear(PlanetDensityField field, Relief relief, LatticeBrick key, LatticeCoordinate[] vertices, Span<long> columns)
 {
-    const int edge = PlanetBrickStore.VertexEdge;
     relief.FillLinearColumns(key, columns);
+    return Sweep(field, vertices, columns);
+}
+
+static long Sweep(PlanetDensityField field, LatticeCoordinate[] vertices, ReadOnlySpan<long> columns)
+{
+    const int edge = PlanetBrickStore.VertexEdge;
     long sum = 0;
     for (var z = 0; z < edge; z++)
     for (var y = 0; y < edge; y++)
     {
-        var row = columns.Slice(z * edge, edge);
         var start = (z * edge + y) * edge;
-        var active = vertices[start].Y > 0;
-        for (var x = 0; x < edge; x++)
-            sum += field.SampleDensity(vertices[start + x]) - (active ? row[x] : 0);
+        if (columns.IsEmpty || vertices[start].Y <= 0)
+        {
+            for (var x = 0; x < edge; x++)
+                sum += field.SampleDensity(vertices[start + x]);
+        }
+        else
+        {
+            var row = columns.Slice(z * edge, edge);
+            for (var x = 0; x < edge; x++)
+                sum += field.SampleDensity(vertices[start + x]) - row[x];
+        }
     }
     return sum;
 }

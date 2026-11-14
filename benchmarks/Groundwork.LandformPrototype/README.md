@@ -79,3 +79,17 @@ The repeated workstation comparison used the paired mode and 192 sweeps per vari
 The largest crest p95 delta was +6.14%. Two p99 blocks exceeded +15%, both for seed 18446744073709551615. The crest reached +25.66% in block 1 and open terrain +20.38% in block 3. The confluence held both thresholds in every block. See workstation-feature-bricks.csv. Timed loops allocated zero managed bytes. Process peak working set was 34,312,192 bytes.
 
 The combined means are within budget. The individual p99 overruns leave consistent tail compliance open. This is a single-process workstation comparison of density sweeps. Full brick generation and reference qualification are pending. The Windows workflow builds the prototype and checks fixture selection and exact column-to-point equality through the profiles mode.
+
+## Investigation of the p99 overruns
+
+The previous run recorded wall-clock percentiles only, so it cannot identify the cause of either original outlier. The repeat uses the same corrected brick keys and paired order. Both variants now use the same row traversal, and the candidate selects the relief branch once per row instead of once per vertex. The measured candidate still fills the column scratch and subtracts relief at each vertex. The profile CSV stays byte-identical and the column verification passes.
+
+The harness also records Windows thread-cycle p99 alongside wall-clock p99. These percentiles are sorted independently and thread cycles are affected by clock/core behavior. They do not identify the event that caused an individual wall-time sample.
+
+| Scenario | Mean p95 baseline / linear (ms) | Mean p99 baseline / linear (ms) | Worst block p95 / p99 | Blocks over +10% / +15% |
+| --- | --- | --- | --- | --- |
+| Open | 6.8347 / 6.8234 | 8.3076 / 8.2875 | +2.68% / +18.70% | 0 / 1 |
+| Crest | 6.4999 / 6.4891 | 7.0524 / 7.0547 | +1.60% / +9.25% | 0 / 0 |
+| Confluence | 5.3323 / 5.3370 | 5.6969 / 5.7758 | +5.41% / +20.76% | 0 / 1 |
+
+Both previously flagged seed/block combinations passed on repetition. The new open block (maximum seed, block 2) had +18.70% wall p99 and +16.46% thread-cycle p99. The new confluence block (20261111, block 4) had +20.76% wall p99 and +0.70% thread-cycle p99. The two signatures differ and do not establish one root cause. Persistent open-ground and confluence tail compliance remains unverified. No samples were excluded. Timed loops allocated zero managed bytes. See workstation-tail-investigation.csv.
