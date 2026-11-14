@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<WindowsPerformanceRecorder Version="1.0">
+  <Profiles>
+    <SystemCollector Id="Kernel" Name="NT Kernel Logger">
+      <BufferSize Value="256"/>
+      <Buffers Value="128"/>
+    </SystemCollector>
+    <EventCollector Id="Anchors" Name="WP17 Anchors">
+      <BufferSize Value="64"/>
+      <Buffers Value="16"/>
+    </EventCollector>
+    <SystemProvider Id="Scheduler">
+      <Keywords>
+        <Keyword Value="ProcessThread"/>
+        <Keyword Value="Loader"/>
+        <Keyword Value="CSwitch"/>
+        <Keyword Value="ReadyThread"/>
+      </Keywords>
+      <Stacks>
+        <Stack Value="CSwitch"/>
+        <Stack Value="ReadyThread"/>
+      </Stacks>
+    </SystemProvider>
+    <EventProvider Id="SweepClock" Name="03c45e87-2afa-4f65-8b53-5ad375f07b21" Level="5"/>
+    <Profile Id="WP17Scheduler.Verbose.File" Name="WP17Scheduler" Description="WP17 scheduler stacks and sweep QPC anchors" LoggingMode="File" DetailLevel="Verbose">
+      <Collectors>
+        <SystemCollectorId Value="Kernel">
+          <SystemProviderId Value="Scheduler"/>
+        </SystemCollectorId>
+        <EventCollectorId Value="Anchors">
+          <EventProviders><EventProviderId Value="SweepClock"/></EventProviders>
+        </EventCollectorId>
+      </Collectors>
+    </Profile>
+  </Profiles>
+</WindowsPerformanceRecorder>

@@ -93,3 +93,9 @@ The harness also records Windows thread-cycle p99 alongside wall-clock p99. Thes
 | Confluence | 5.3323 / 5.3370 | 5.6969 / 5.7758 | +5.41% / +20.76% | 0 / 1 |
 
 Both previously flagged seed/block combinations passed on repetition. The new open block (maximum seed, block 2) had +18.70% wall p99 and +16.46% thread-cycle p99. The new confluence block (20261111, block 4) had +20.76% wall p99 and +0.70% thread-cycle p99. The two signatures differ and do not establish one root cause. Persistent open-ground and confluence tail compliance remains unverified. No samples were excluded. Timed loops allocated zero managed bytes. See workstation-tail-investigation.csv.
+
+## Scheduler capture
+
+Run Trace-Wp17Scheduler.ps1 from an administrative PowerShell on Windows. It builds Release, records context-switch and ready-thread stacks plus QPC anchors, and saves the ETL, per-sweep CSV and block percentiles. A successful capture prints [FERTIG] with the output directory. The optional second argument to the paired benchmark appends raw sweep evidence to a CSV. Each row identifies the process and native thread, start/end QPC, seed, brick scenario, block, variant and thread-cycle delta. Data is written after each block, outside the timed sweeps.
+
+A validation run without ETW emitted 17,280 sweep rows across 45 blocks. All 45 passed p95 and 44 passed p99. Seed 42 open block 3 exceeded p99 by 27.33%. Its baseline p99 was sweep 161 (4.6391 ms, 14,191,104 cycles) and its linear p99 was sweep 115 (5.9070 ms, 18,001,306 cycles). The two previously flagged blocks passed in this run. These counters show additional charged cycles for the new slow sweep but cannot attribute them to placement, frequency, or scheduler events. Kernel ETW capture is pending.

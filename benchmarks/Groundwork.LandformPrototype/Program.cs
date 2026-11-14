@@ -2,10 +2,11 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Globalization;
 using System.Security.Cryptography;
+using System.Diagnostics.Tracing;
 using Groundwork.Voxels;
 
 CultureInfo.CurrentCulture = CultureInfo.InvariantCulture;
-if (args is [var mode] && mode is "profiles" or "baseline" or "linear" or "smooth" or "paired")
+if (args is [var mode, ..] && mode is "profiles" or "baseline" or "linear" or "smooth" or "paired")
 {
     var recipe = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
     ulong[] seeds = [42, 20261111, ulong.MaxValue];
@@ -24,7 +25,7 @@ if (args is [var mode] && mode is "profiles" or "baseline" or "linear" or "smoot
             }
         }
         else if (mode == "paired")
-            MeasurePaired(field, evaluator);
+            MeasurePaired(field, evaluator, args.Length == 2 ? args[1] : null);
         else
             Measure(field, evaluator, mode);
     }
@@ -160,12 +161,16 @@ static IEnumerable<(string Name, LatticeCoordinate Feature, LatticeBrick Key)> S
     }
 }
 
-static void MeasurePaired(PlanetDensityField field, Relief relief)
+static void MeasurePaired(PlanetDensityField field, Relief relief, string? sweepPath)
 {
     const int sweeps = 192;
     const int pairs = 5;
     const int edge = PlanetBrickStore.VertexEdge;
     Span<long> columns = stackalloc long[edge * edge];
+    using var output = sweepPath is null ? TextWriter.Null : new StreamWriter(sweepPath, append: true);
+    var markers = new SweepEvidence[2 * sweeps];
+    var markerIndex = 0;
+    var thread = ThreadCycles.NativeThreadId();
     var baseline = new long[sweeps];
     var linear = new long[sweeps];
     var baselineCycles = new ulong[sweeps];
@@ -181,6 +186,8 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
             vertices[index++] = key.Vertex(dx, dy, dz);
 
         VerifyLinearBrick(relief, key);
+        if (sweepPath is not null)
+            SweepTrace.Log.Anchor(Stopwatch.GetTimestamp());
 
         long checksum = 0;
         for (var i = 0; i < 32; i++)
@@ -191,6 +198,7 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
 
         for (var pair = 0; pair < pairs; pair++)
         {
+            markerIndex = 0;
             var before = GC.GetAllocatedBytesForCurrentThread();
             for (var i = 0; i < sweeps; i++)
             {
@@ -206,6 +214,9 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
                 }
             }
             var allocated = GC.GetAllocatedBytesForCurrentThread() - before;
+            if (sweepPath is not null)
+                foreach (var mark in markers)
+                    output.WriteLine($"{Environment.ProcessId},{thread},{Stopwatch.Frequency},{field.Descriptor.Seed},{name},{pair + 1},{mark.Index + 1},{(mark.Linear ? "linear" : "baseline")},{mark.Start},{mark.End},{mark.Cycles}");
             Array.Sort(baseline);
             Array.Sort(baselineCycles);
             Array.Sort(linearCycles);
@@ -218,8 +229,11 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
             var cycles = ThreadCycles.Read();
             var start = Stopwatch.GetTimestamp();
             checksum = unchecked(checksum + Sweep(field, vertices, default));
-            baseline[i] = Stopwatch.GetTimestamp() - start;
+            var end = Stopwatch.GetTimestamp();
+            baseline[i] = end - start;
             baselineCycles[i] = ThreadCycles.Read() - cycles;
+            if (sweepPath is not null)
+                markers[markerIndex++] = new(i, false, start, end, baselineCycles[i]);
         }
 
         void LinearTimed(int i, Span<long> scratch)
@@ -227,8 +241,11 @@ static void MeasurePaired(PlanetDensityField field, Relief relief)
             var cycles = ThreadCycles.Read();
             var start = Stopwatch.GetTimestamp();
             checksum = unchecked(checksum + Linear(field, relief, key, vertices, scratch));
-            linear[i] = Stopwatch.GetTimestamp() - start;
+            var end = Stopwatch.GetTimestamp();
+            linear[i] = end - start;
             linearCycles[i] = ThreadCycles.Read() - cycles;
+            if (sweepPath is not null)
+                markers[markerIndex++] = new(i, true, start, end, linearCycles[i]);
         }
     }
 
@@ -287,4 +304,15 @@ static long ColumnDelta(LatticeCoordinate vertex, int index, ReadOnlySpan<long> 
 {
     const int edge = PlanetBrickStore.VertexEdge;
     return vertex.Y > 0 ? columns[index / (edge * edge) * edge + index % edge] : 0;
+}
+
+internal readonly record struct SweepEvidence(int Index, bool Linear, long Start, long End, ulong Cycles);
+
+[EventSource(Name = "Groundwork-Landform-Sweeps", Guid = "03c45e87-2afa-4f65-8b53-5ad375f07b21")]
+internal sealed class SweepTrace : EventSource
+{
+    internal static readonly SweepTrace Log = new();
+
+    [Event(1)]
+    public void Anchor(long qpc) => WriteEvent(1, qpc);
 }
