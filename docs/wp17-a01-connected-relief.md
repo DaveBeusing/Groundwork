@@ -1,0 +1,9 @@
+# WP17-A01 connected relief
+
+Construct a PlanetConnectedRecipe from a WP12 geology recipe and bounded scale and amplitudes. Create a matching generator-3 descriptor and use PlanetTerrainGenerator.CreateConnected. SampleLandform exposes the combined uncarved profile for orbital callers. SampleUncarvedDensity subtracts the same connected relief from the WP12 baseline. Density carving, rock and ore depth, and portal admission use this uncarved density.
+
+The linear profile uses canonical Cartesian X/Z coordinates. It repeats every 256 × ScaleCells and has no chart-dependent branches. It uses two bounded triangular waves and four bands per query. A seeded phase translates the pattern. The tributary branches from the main channel and tapers toward their shared floor. The implementation repeats the feature pattern globally. WYU route and recipe selection remain pending.
+
+Signed coordinates wrap into a nonnegative period before quantization. Wave and envelope divisions truncate toward zero. Bands use the existing integer RoundDivide rule. Valid scales are 1–4096 cells and each amplitude is at most 256 lattice cells. Before reduction each coordinate is at most 2^54 plus the bounded phase. The wrapped coordinate scaled by 256 is below 2^29. Band products fit Int64. Portal margins include a bound on relief change over twelve Manhattan steps, with allowance for the cut's combined X/Z distance and tributary fade.
+
+The canonical recipe contains PLF3, 32 bytes of underlying geology digest and five little-endian Int32 values in constructor order after geology. Generator 3 requires that digest. V1 and V2 use their existing recipe identity and unchanged golden fixtures. V3 checkpoint dispatch and production streaming, meshing and traversal qualification belong to B01 and C01. Full brick performance qualification and WYU integration remain open.

@@ -18,19 +18,29 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
     private readonly PlanetDensityField _landform;
     private readonly PlanetGeologyRecipe _recipe;
     private readonly long _portalDepthMargin;
+    private readonly PlanetConnectedRelief? _relief;
+
+    public const uint ConnectedGeneratorVersion = 3;
 
     public PlanetGeologyField(PlanetDescriptor descriptor, PlanetGeologyRecipe recipe)
+        : this(descriptor, recipe, null) { }
+
+    internal static PlanetGeologyField CreateConnected(PlanetDescriptor descriptor, PlanetConnectedRecipe recipe) =>
+        new(descriptor, recipe.Geology, recipe);
+
+    private PlanetGeologyField(PlanetDescriptor descriptor, PlanetGeologyRecipe recipe, PlanetConnectedRecipe? connected)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(recipe);
-        if (descriptor.GeneratorVersion != GeneratorVersion ||
+        if (descriptor.GeneratorVersion != (connected is null ? GeneratorVersion : ConnectedGeneratorVersion) ||
             descriptor.TerrainSchemaVersion != PlanetDensityField.TerrainSchemaVersion ||
-            descriptor.ParameterSha256 != recipe.ParameterSha256)
-            throw new ArgumentException("The descriptor does not match the V2 geology recipe.", nameof(descriptor));
+            descriptor.ParameterSha256 != (connected?.ParameterSha256 ?? recipe.ParameterSha256))
+            throw new ArgumentException("The descriptor does not match the selected geology recipe.", nameof(descriptor));
 
         Descriptor = descriptor;
         _recipe = recipe;
-        _portalDepthMargin = PortalDepthMargin(recipe.Landform);
+        _relief = connected is null ? null : new(descriptor.Seed, connected);
+        _portalDepthMargin = PortalDepthMargin(recipe.Landform) + (connected?.MaximumReliefVariation ?? 0);
         _landform = new PlanetDensityField(new PlanetDescriptor(descriptor.WorldId, descriptor.PlanetId,
             descriptor.Seed, PlanetDensityField.GeneratorVersion, descriptor.TerrainSchemaVersion,
             descriptor.MaterialCatalogVersion, recipe.Landform.ParameterSha256, descriptor.RadiusMeters,
@@ -41,11 +51,30 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
     internal ushort OreMaterial => _recipe.Ore;
     internal ushort OreHostMaterial => _recipe.MiddleRock;
 
-    public long SampleDensity(LatticeCoordinate vertex) => Carve(vertex, _landform.SampleDensity(vertex));
+    /// <summary>Returns the uncarved relief shared by density, geology depth and orbital rendering.</summary>
+    public PlanetLandform SampleLandform(LatticeCoordinate vertex)
+    {
+        var baseline = _landform.SampleLandform(vertex);
+        var relief = SampleConnectedRelief(vertex);
+        return new(baseline.ContinentMask, baseline.BaseElevation, baseline.Mountain + relief.Ridge,
+            baseline.Valley + relief.Valley, baseline.Detail - relief.Cut);
+    }
+
+    /// <summary>Returns the V3 relief contributions, or zero for V2.</summary>
+    public PlanetConnectedSample SampleConnectedRelief(LatticeCoordinate vertex)
+    {
+        PlanetDensityField.ValidateCoordinate(vertex);
+        return _relief?.Sample(vertex) ?? default;
+    }
+
+    public long SampleUncarvedDensity(LatticeCoordinate vertex) =>
+        _landform.SampleDensity(vertex, _relief is null ? 0 : SampleConnectedRelief(vertex).Elevation);
+
+    public long SampleDensity(LatticeCoordinate vertex) => Carve(vertex, SampleUncarvedDensity(vertex));
 
     public ushort SampleMaterial(LatticeCoordinate cell)
     {
-        var baseline = _landform.SampleDensity(cell);
+        var baseline = SampleUncarvedDensity(cell);
         var shift = PlanetDensityField.RoundDivide(
             (long)_landform.Noise(cell, _recipe.StrataNoiseCells, StrataStream) * _recipe.StrataReliefCells * Unit, 32768);
         var depth = -baseline + shift;
@@ -122,7 +151,7 @@ public sealed class PlanetGeologyField : IPlanetBrickSource
         // Both halves make the same admission decision before carving their paths.
         var centre = new LatticeCoordinate(key.X * CellEdge + face.X, key.Y * CellEdge + face.Y,
             key.Z * CellEdge + face.Z);
-        var depth = -_landform.SampleDensity(centre);
+        var depth = -SampleUncarvedDensity(centre);
         if (depth < (long)_recipe.MinimumCaveDepth * Unit + _portalDepthMargin ||
             depth > (long)_recipe.MaximumCaveDepth * Unit - _portalDepthMargin)
             return baseline;
