@@ -538,6 +538,55 @@ public sealed class VolumeCollisionTests
         Assert.AreEqual(baseline, coordinator.Statistics.Readers);
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task LooseSphereContactDampsRollingAndSpinUntilSleep(bool rolling)
+    {
+        using var run = new Run(p => p.Z - 16);
+        await run.Publish();
+        using var frame = await run.Open();
+        var state = new LooseSphereState(P(0, 0, 16.25), System.Numerics.Quaternion.Identity,
+            rolling ? P(0.1, 0, 0) : default, rolling ? P(0, 0.4, 0) : P(0, 0, 1));
+        var result = default(LooseSphereStep);
+        var scratch = (State: state, Output: result, Limits: VolumeQueryLimits.Default);
+        VolumePhysicsReadAction<(LooseSphereState State, LooseSphereStep Output, VolumeQueryLimits Limits)> step =
+            static (scoped VolumePhysicsRead terrain, ref (LooseSphereState State, LooseSphereStep Output, VolumeQueryLimits Limits) data) =>
+                data.Output = LooseSpherePhysics.Step(terrain, data.State, new(0.25, 1, 0.2), data.Limits);
+
+        for (var i = 0; i < 90 && !scratch.State.Sleeping; i++)
+        {
+            var stamp = run.World.Publication.Committed.Read().Stamp;
+            Assert.AreEqual(VolumePhysicsReadStatus.Completed, run.Coordinator.ReadPhysicsTick(stamp, ref scratch, step));
+            Assert.AreEqual(VolumeQueryStatus.Contact, scratch.Output.Status);
+            if (i == 0)
+            {
+                Assert.IsFalse(scratch.Output.State.Sleeping);
+                if (rolling)
+                {
+                    Assert.IsLessThan(state.Velocity.X, scratch.Output.State.Velocity.X);
+                    Assert.IsLessThan(state.AngularVelocity.Y, scratch.Output.State.AngularVelocity.Y);
+                }
+                else
+                    Assert.IsLessThan(state.AngularVelocity.Z, scratch.Output.State.AngularVelocity.Z);
+            }
+            scratch.State = scratch.Output.State;
+            var completed = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(run.World, run.Tick, BarrierKind.CommitResults);
+            CoreRuntimeFixture.PublishObserver(run.World, completed, (int)run.Tick);
+            await run.Begin();
+        }
+
+        Assert.IsTrue(scratch.State.Sleeping);
+        Assert.AreEqual(default, scratch.State.Velocity);
+        Assert.AreEqual(default, scratch.State.AngularVelocity);
+        scratch.Limits = new(1, 1);
+        var asleepStamp = run.World.Publication.Committed.Read().Stamp;
+        Assert.AreEqual(VolumePhysicsReadStatus.Completed, run.Coordinator.ReadPhysicsTick(asleepStamp, ref scratch, step));
+        Assert.AreEqual(VolumeQueryStatus.Clear, scratch.Output.Status);
+        Assert.AreEqual(0, scratch.Output.Sweeps);
+        Assert.AreEqual(scratch.State, scratch.Output.State);
+    }
+
     private sealed class Source(Func<LatticeCoordinate, long> density, PlanetDescriptor? descriptor = null) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => descriptor ?? VolumeCollisionTests.Descriptor;

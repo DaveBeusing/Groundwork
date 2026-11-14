@@ -19,6 +19,7 @@ public static class LooseSpherePhysics
     public const int TicksToSleep = 30;
     private const double RestSpeed = 0.05;
     private const double BounceThreshold = 0.35;
+    private const double GroundResistance = 8;
 
     public static LooseSphereStep Step(scoped VolumePhysicsRead terrain, LooseSphereState state,
         LooseSphereSettings settings, VolumeQueryLimits? limits = null)
@@ -42,6 +43,7 @@ public static class LooseSpherePhysics
         velocity -= up * (PlanetSurfaceWalker.GravityStrength * StepSeconds);
         var remaining = StepSeconds;
         var supported = false;
+        var supportNormal = default(CollisionVector);
         var status = VolumeQueryStatus.Clear;
         var sweeps = 0;
         while (sweeps < 2 && remaining > 0)
@@ -62,7 +64,11 @@ public static class LooseSpherePhysics
             remaining *= 1 - hit.Fraction;
             var normal = new CollisionVector(hit.Normal);
             var inward = CollisionVector.Dot(velocity, normal);
-            supported |= CollisionVector.Dot(normal, up) >= 0.7 && -inward <= BounceThreshold;
+            if (!supported && CollisionVector.Dot(normal, up) >= 0.7 && inward < 0 && -inward <= BounceThreshold)
+            {
+                supported = true;
+                supportNormal = normal;
+            }
             if (inward >= 0)
                 break;
             var restitution = -inward > BounceThreshold ? settings.Restitution : 0;
@@ -80,6 +86,16 @@ public static class LooseSpherePhysics
                 velocity += impulse;
                 spin += CollisionVector.Cross(normal * -1, impulse) * (2.5 / settings.Radius);
             }
+        }
+
+        if (supported)
+        {
+            // Slip friction cannot dissipate pure rolling or spin about the contact normal.
+            // Apply ground resistance once per step while preserving normal velocity.
+            var decay = Math.Exp(-GroundResistance * settings.Friction * StepSeconds);
+            var normalVelocity = supportNormal * CollisionVector.Dot(velocity, supportNormal);
+            velocity = normalVelocity + (velocity - normalVelocity) * decay;
+            spin *= decay;
         }
 
         var speed = spin.Length;
