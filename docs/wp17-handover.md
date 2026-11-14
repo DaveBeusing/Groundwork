@@ -11,7 +11,7 @@ Ember Ridges is WYU's explicit V3 world selection. Groundwork supplies a seeded 
 
 ## Windows workstation results
 
-Groundwork built in Release with locked restore. All three focused V3 generator tests and all three V3 portal readback cases passed. The portal cases include WARP and hardware with Debug Layer and DRED. The focused checkpoint/restore run passed 24 of 25 tests, including V3. The V2 process-abort harness hit a sharing violation while reading its ready marker and passed on isolated retry. The initial intermittent failure remains recorded here.
+Groundwork built in Release with locked restore. All three focused V3 generator tests and all three V3 portal readback cases passed. The portal cases include WARP and hardware with Debug Layer and DRED. The focused checkpoint/restore run passed 24 of 25 tests, including V3. The V2 process-abort harness hit a sharing violation while reading its ready marker and passed on isolated retry. The full bootstrap run passed all 187 voxel and 51 D3D12 cases, then encountered the same ready-marker sharing violation in both legacy V1 and V2 process-abort cases.
 
 Both repositories were freshly cloned on `master` and started with clean working trees. WYU verified the manifest and all ten packages, restored the locked dependencies in a fresh package cache and built Release. All nine gameplay tests and the normal and controlled-fault headless shutdown checks passed.
 
