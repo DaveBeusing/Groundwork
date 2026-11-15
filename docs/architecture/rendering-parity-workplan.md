@@ -57,3 +57,22 @@ Every implementation issue states: goal, exact source paths/lane owner, accepted
 ## Release gate
 
 Do not claim Groundwork graphics or performance parity until frozen matched-content reference scenes on identical hardware establish comparable visual fidelity, CPU/GPU frame p50/p95/p99, memory/streaming behavior and failure recovery. The suggested 1080p/60-FPS and within-15%-of-reference targets from GWE-TR-001 are planning goals only, not adopted production limits.
+
+## GitHub issue tracker (created 2026-11-15)
+
+The issue records below are planning tickets, not evidence of implementation or ADR approval. Their exact acceptance gates and owned paths are in the issue bodies.
+
+| Slice | GitHub issue | First prerequisite(s) |
+| --- | --- | --- |
+| RPA-01 | [#153](https://github.com/DaveBeusing/Groundwork/issues/153) | ADR-0008 approval |
+| RPA-02 | [#156](https://github.com/DaveBeusing/Groundwork/issues/156) | #153 |
+| RPA-03 | [#157](https://github.com/DaveBeusing/Groundwork/issues/157) | #153 and existing #88 |
+| MAT-01 | [#154](https://github.com/DaveBeusing/Groundwork/issues/154) | ADR-0009 approval |
+| MAT-02 | [#158](https://github.com/DaveBeusing/Groundwork/issues/158) | #154 |
+| MAT-03 | [#159](https://github.com/DaveBeusing/Groundwork/issues/159) | #154 |
+| TEX-01 | [#155](https://github.com/DaveBeusing/Groundwork/issues/155) | ADR-0010 approval |
+| TEX-02 | [#160](https://github.com/DaveBeusing/Groundwork/issues/160) | #155 and #153 |
+| TEX-03 | [#161](https://github.com/DaveBeusing/Groundwork/issues/161) | #160 and #156; reference #88 |
+| INT-01 | [#162](https://github.com/DaveBeusing/Groundwork/issues/162) | #158, #159 and #160 |
+
+Review the [draft ADR PR #152](https://github.com/DaveBeusing/Groundwork/pull/152) before implementing any of these tickets. All implementation commits, tests and acceptance need separate evidence and PRs.
