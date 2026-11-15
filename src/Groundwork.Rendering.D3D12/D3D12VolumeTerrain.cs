@@ -510,7 +510,9 @@ public sealed partial class D3D12Renderer
         lock (_volumeGate)
         {
             return CanDrawVolume(frame) && (!frame.Scene.HasValue ||
-                frame.Sequence == _volumeInstalled!.Frame || _volume.AuthorizeCameraFrame(_volumeInstalled, frame.Sequence));
+                frame.Sequence == _volumeInstalled!.Frame || _volume.AuthorizeCameraFrame(_volumeInstalled, frame.Sequence)) &&
+                (_submittingFirstContentRetry is not { } retry || ReferenceEquals(_volumeInstalled, retry.Frame) &&
+                    !retry.IsExpired(FirstContentTimestamp(), _operationTimeout));
         }
     }
 

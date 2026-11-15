@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Numerics;
 using Groundwork.Core;
 using Groundwork.Core.Tests;
@@ -147,6 +148,111 @@ public sealed partial class PresentationSmokeTests
             Assert.IsFalse(run.Terrain.BeginTick(eligible));
             Assert.IsFalse(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual(1UL, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Terrain.TerrainRevision);
+            await renderer.StopAsync(token);
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
+        }
+        finally
+        {
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task FirstContentRetrySettlesAfterClosedListExpiryOrSupersedingMask(bool supersede)
+    {
+        using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(50));
+        var token = deadline.Token;
+        using var run = new VolumeRun(readers: 1);
+        var runtime = run.Fixture.Runtime;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
+        var rejected = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var interleaved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var device = new TaskCompletionSource<GpuDevice>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var retryTimestamp = 0L;
+        var attempts = 0;
+        var selectedNextMask = 0;
+        var signals = 0;
+        var view = run.Terrain.View;
+        var next = view;
+        var hooks = new GpuRetirementTestHooks(
+            SignalFailure: (gpu, _) =>
+            {
+                device.TrySetResult(gpu);
+                Interlocked.Increment(ref signals);
+                return null;
+            },
+            RejectPreparedPlan: sequence =>
+            {
+                if (sequence != 2 || Interlocked.Increment(ref attempts) != 1)
+                    return false;
+                rejected.TrySetResult();
+                return true;
+            },
+            RejectRecordedPlan: sequence =>
+            {
+                if (sequence == 2 && !supersede)
+                {
+                    Interlocked.Exchange(ref retryTimestamp, 2 * Stopwatch.Frequency);
+                    interleaved.TrySetResult();
+                }
+                return false;
+            });
+        var title = $"Groundwork pass retry cut {Guid.NewGuid():N}";
+        await using var window = new WindowsHostModule(new WindowsHostOptions(title, 361, 281, 32),
+            runtime.UiWake, runtime.RuntimeOwnership);
+        await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1, QualificationDiagnostics,
+            true, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(2), hooks)
+        {
+            FirstContentTimestampForTests = () => Interlocked.Read(ref retryTimestamp),
+            BeforeRetrySelectionForTests = owner =>
+            {
+                if (!supersede || Interlocked.Exchange(ref selectedNextMask, 1) != 0)
+                    return;
+                next = run.Terrain.ChangeView(view.Frame, view.RendererEpoch);
+                Assert.AreEqual(RenderSubmissionResult.Accepted, owner.TrySubmitVolumeMask(next, 3, Vector4.Zero));
+                interleaved.TrySetResult();
+            },
+        };
+        try
+        {
+            await window.InitializeAsync(context, token);
+            await window.StartAsync(token);
+            await renderer.InitializeAsync(context, token);
+            await renderer.StartAsync(token);
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(view, 1, Vector4.Zero));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 1, token);
+            await run.Publish(1, cut: false, renderer);
+            var beforeSignals = Volatile.Read(ref signals);
+            var root = (VolumeWorldRoot)run.World.Publication.Committed.Read().Root;
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(root.Terrain.Generation, 2, VolumeCameraAt(view, 32, 4)));
+            await rejected.Task.WaitAsync(token);
+            Assert.AreEqual(1, run.Terrain.Statistics.Readers);
+
+            // Resize supplies an eligible wake. The injected interleavings happen later:
+            // either a newer mask wins selection or the old retry expires after Close.
+            var hwnd = FindWindow(null, title);
+            Assert.AreNotEqual(nint.Zero, hwnd);
+            Assert.IsTrue(SetWindowPos(hwnd, 0, 0, 0, 421, 325, 0x0016));
+            await interleaved.Task.WaitAsync(token);
+            if (supersede)
+                await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
+            await AwaitStatus(renderer, _ => run.Terrain.Statistics.Readers == 0, token);
+            Assert.AreEqual(0, (await device.Task.WaitAsync(token)).LiveMeshBuffers);
+            Assert.AreEqual(supersede ? 3UL : 1UL, renderer.Read().LastPresentedSequence);
+            Assert.AreEqual(beforeSignals + (supersede ? 2 : 0), Volatile.Read(ref signals),
+                "Only an eligible replacement mask may signal draw and Present work.");
+
+            var stamp = await run.BeginHeldTick();
+            Assert.IsFalse(run.Terrain.BeginTick(stamp));
+            Assert.AreEqual(supersede ? next : view with { View = view.View + 1 }, run.Terrain.View);
+            Assert.AreSame(root, run.World.Publication.Committed.Read().Root);
+            Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
+            await run.FinishHeldTick();
             await renderer.StopAsync(token);
             AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
         }

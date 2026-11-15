@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using Groundwork.Core;
 using Groundwork.Platform.Windows;
+using Groundwork.Voxels;
 
 namespace Groundwork.Rendering.D3D12;
 
@@ -9,8 +10,14 @@ public sealed partial class D3D12Renderer
     // Tests opt in before startup. The callback observes the exact retired back buffer
     // submitted to DXGI, together with the sequence and installed volume generation.
     internal Action<ulong, ulong, OffscreenFrame>? VolumePresentReadbackForTests { private get; init; }
+    internal Action<D3D12Renderer>? BeforeRetrySelectionForTests { private get; init; }
+    internal Func<long>? FirstContentTimestampForTests { private get; init; }
 
     private D3D12PropCells? _props;
+    // The render owner sets this only during the synchronous submit attempt for that registration.
+    private FirstContentRetry? _submittingFirstContentRetry;
+
+    private long FirstContentTimestamp() => FirstContentTimestampForTests?.Invoke() ?? Stopwatch.GetTimestamp();
 
     /// <summary>Bind a dedicated prop stream before starting a volume renderer.</summary>
     public void AttachPropCells(D3D12PropCells stream)
@@ -129,7 +136,9 @@ public sealed partial class D3D12Renderer
                     throw new InvalidOperationException("The Direct3D 12 device was removed before frame retirement.");
                 if (!gpu.IsIdle)
                 {
-                    WaitForFrame(ProgressPollMilliseconds);
+                    // A superseding mask can be in flight while an old retry expires.
+                    // Its deadline cannot bypass retirement or make the fence poll spin.
+                    _wake!.WaitOne(ProgressPollMilliseconds);
                     continue;
                 }
 
@@ -148,7 +157,7 @@ public sealed partial class D3D12Renderer
             }
 
             if (retry is { } waiting && (!CanRetryFirstContent(waiting.Frame) ||
-                waiting.IsExpired(Stopwatch.GetTimestamp(), _operationTimeout)))
+                waiting.IsExpired(FirstContentTimestamp(), _operationTimeout)))
             {
                 SettleRejectedRegistration(gpu, waiting.Frame);
                 if (current?.Sequence == waiting.Frame.Frame)
@@ -213,6 +222,8 @@ public sealed partial class D3D12Renderer
             }
 
             SetSurface(RenderSurfaceState.Drawable, chain);
+            if (retry.HasValue)
+                BeforeRetrySelectionForTests?.Invoke(this);
             if (_admission.TryTakeLatest(out var latest))
             {
                 current = latest;
@@ -255,8 +266,10 @@ public sealed partial class D3D12Renderer
             if (!CanDrawVolume(frame))
             {
                 if (GetUnpresentedRegistration(frame) is { } revoked)
+                {
                     SettleRejectedRegistration(gpu, revoked);
-                retry = null;
+                    ClearRetry(revoked);
+                }
                 redraw = false;
                 continue;
             }
@@ -273,7 +286,8 @@ public sealed partial class D3D12Renderer
                 break;
 
             var firstContent = GetUnpresentedRegistration(frame);
-            var submission = TrySubmitFrame(gpu, target, chain, watchdog, frame);
+            var selectedRetry = retry is { } pending && ReferenceEquals(pending.Frame, firstContent) ? pending : (FirstContentRetry?)null;
+            var submission = TrySubmitFrame(gpu, target, chain, watchdog, frame, selectedRetry);
             if (submission != GpuFrameSubmitResult.Submitted)
             {
                 if (!watchdog.Complete())
@@ -283,10 +297,10 @@ public sealed partial class D3D12Renderer
                 {
                     if (firstContent is not null && executedFirst != frame.Sequence && CanRetryFirstContent(firstContent))
                     {
-                        retry = retry is { } previous && ReferenceEquals(previous.Frame, firstContent)
-                            ? previous.RejectAgain()
-                            : new FirstContentRetry(firstContent, Stopwatch.GetTimestamp(), 1);
-                        if (retry.Value.IsExpired(Stopwatch.GetTimestamp(), _operationTimeout))
+                        if (retry is { } previous && !ReferenceEquals(previous.Frame, firstContent))
+                            SettleRejectedRegistration(gpu, previous.Frame);
+                        retry = selectedRetry?.RejectAgain() ?? new FirstContentRetry(firstContent, FirstContentTimestamp(), 1);
+                        if (retry.Value.IsExpired(FirstContentTimestamp(), _operationTimeout))
                             continue;
                         // Retry on a real owner wake or settle on the monotonic deadline. Avoid
                         // a normal progress poll that would run the rejected plan repeatedly.
@@ -295,8 +309,10 @@ public sealed partial class D3D12Renderer
                     else
                     {
                         if (firstContent is not null)
+                        {
                             SettleRejectedRegistration(gpu, firstContent);
-                        retry = null;
+                            ClearRetry(firstContent);
+                        }
                         redraw = false;
                     }
                 }
@@ -306,8 +322,10 @@ public sealed partial class D3D12Renderer
             }
 
             if (firstContent is not null)
+            {
                 executedFirst = frame.Sequence;
-            retry = null;
+                ClearRetry(firstContent);
+            }
             pendingRetirement = true;
             stage = RendererStage.Present;
             var result = TryPresent(target, chain, watchdog, testOnly: false);
@@ -335,10 +353,18 @@ public sealed partial class D3D12Renderer
 
         void WaitForFrame(int maximum = Timeout.Infinite)
         {
-            var timeout = retry?.WaitMilliseconds(Stopwatch.GetTimestamp(), _operationTimeout) ?? maximum;
+            var timeout = retry?.WaitMilliseconds(FirstContentTimestamp(), _operationTimeout) ?? maximum;
             if (maximum != Timeout.Infinite)
                 timeout = Math.Min(maximum, timeout);
             _wake!.WaitOne(timeout);
+        }
+
+        // A newer neutral mask may submit while the old registration still holds its
+        // native mesh and reader. Keep that retry until its registration settles at idle.
+        void ClearRetry(VolumeFrameRegistration registration)
+        {
+            if (retry is { } pending && ReferenceEquals(pending.Frame, registration))
+                retry = null;
         }
     }
 
@@ -467,7 +493,7 @@ public sealed partial class D3D12Renderer
     private enum SurfaceApplication { Denied, Suspended, Applied }
 
     private GpuFrameSubmitResult TrySubmitFrame(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,
-        RendererWatchdog watchdog, in RenderFrame frame)
+        RendererWatchdog watchdog, in RenderFrame frame, FirstContentRetry? retry)
     {
         using var operation = TryBegin(target);
         if (operation is null || !Matches(operation.Snapshot, chain) || !watchdog.TryAdvance(RendererStage.Submit))
@@ -475,9 +501,17 @@ public sealed partial class D3D12Renderer
         if (!CanDrawVolume(frame))
             return GpuFrameSubmitResult.Rejected;
         gpu.PropTerrain = frame.Scene.HasValue ? _volumeInstalled?.Info : null;
-        return frame.Scene.HasValue && VolumePresentReadbackForTests is not null
-            ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame, this)
-            : gpu.TryRender(chain.CurrentBuffer, frame, this);
+        _submittingFirstContentRetry = retry;
+        try
+        {
+            return frame.Scene.HasValue && VolumePresentReadbackForTests is not null
+                ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame, this)
+                : gpu.TryRender(chain.CurrentBuffer, frame, this);
+        }
+        finally
+        {
+            _submittingFirstContentRetry = null;
+        }
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,
