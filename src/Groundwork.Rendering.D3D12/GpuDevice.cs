@@ -249,8 +249,9 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                         {
                             var commands = (ID3D12CommandList*)context.Commands;
                             var next = BeginQueueWork();
-                            _queue->ExecuteCommandLists(1, &commands);
                             _resourceDiagnostics?.BeginDraw(frame.Sequence, next);
+                            _retirementHooks?.BeforeExecute?.Invoke(frame.Sequence);
+                            _queue->ExecuteCommandLists(1, &commands);
                             Check(SignalQueueWork(next), "Signal queue");
                             _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;

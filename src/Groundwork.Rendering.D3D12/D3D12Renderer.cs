@@ -193,6 +193,12 @@ public sealed partial class D3D12Renderer : IRenderer
         Interlocked.Or(ref _gpuFaultCustody, (int)custody);
     }
 
+    private void LatchObservedGpuCustody()
+    {
+        if (Volatile.Read(ref _observedGpu) is { } gpu)
+            Interlocked.Or(ref _gpuFaultCustody, (int)gpu.ReadObservedCustody());
+    }
+
     public RenderSubmissionResult TrySubmit(in RenderFrame frame)
     {
         var result = _admission.TrySubmit(frame);
@@ -351,8 +357,7 @@ public sealed partial class D3D12Renderer : IRenderer
     {
         if (Interlocked.CompareExchange(ref _primary, ExceptionDispatchInfo.Capture(error), null) is not null)
             return;
-        if (Volatile.Read(ref _observedGpu) is { } gpu)
-            Interlocked.Or(ref _gpuFaultCustody, (int)gpu.ReadObservedCustody());
+        LatchObservedGpuCustody();
 
         CloseVolumeAdmission();
         lock (_lifecycle)
@@ -383,6 +388,7 @@ public sealed partial class D3D12Renderer : IRenderer
             "The renderer still owns native resources after cleanup failed.", error);
         if (Interlocked.CompareExchange(ref _incomplete, incomplete, null) is not null)
             return;
+        LatchObservedGpuCustody();
 
         _admission.RecordCleanupFault(new RenderFaultSummary((uint)RendererStage.Cleanup, error.HResult, null, null), incomplete: true);
         Report(FaultClass.IncompleteCleanup, FaultOrigin.Cleanup, error);

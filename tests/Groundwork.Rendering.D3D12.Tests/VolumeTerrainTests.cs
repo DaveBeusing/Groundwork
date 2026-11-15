@@ -150,7 +150,13 @@ public sealed partial class PresentationSmokeTests
         var hold = 1;
         var holdNext = 0;
         var nextObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var hooks = new GpuRetirementTestHooks(CompletedValue: (gpu, completed) =>
+        var firstPresentSignalEntry = 0L;
+        var hooks = new GpuRetirementTestHooks(SignalFailure: (_, value) =>
+        {
+            if (value == 4)
+                Volatile.Write(ref firstPresentSignalEntry, System.Diagnostics.Stopwatch.GetTimestamp());
+            return null;
+        }, CompletedValue: (gpu, completed) =>
         {
             if (completed == ulong.MaxValue)
                 return completed;
@@ -264,6 +270,12 @@ public sealed partial class PresentationSmokeTests
                 gpu.PresentedSequence == expectedSequence, TimeSpan.FromSeconds(2)));
             Assert.AreEqual(expectedSequence, gpu.FrameSequence);
             Assert.IsFalse(gpu.LedgerOverflowed);
+            Assert.IsFalse(gpu.LedgerHasUnknownSizes);
+            if (expectedSequence == 2)
+            {
+                Assert.IsGreaterThan(0L, gpu.PresentTimestamp);
+                Assert.IsLessThanOrEqualTo(Volatile.Read(ref firstPresentSignalEntry), gpu.PresentTimestamp);
+            }
             var terrain = gpu.GetBalance(D3D12ResourceOwner.Terrain);
             Assert.AreEqual((ulong)device.LiveMeshBytes, terrain.LiveBytes + terrain.RetainedBytes);
             if (phase == "shutdown")

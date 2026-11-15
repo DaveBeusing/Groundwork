@@ -169,7 +169,7 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal void Draw(ID3D12GraphicsCommandList* commands, bool shadows)
+        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows)
         {
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
@@ -185,6 +185,7 @@ internal sealed unsafe partial class GpuDevice
                 }
                 DrawMesh(commands, mesh);
             }
+            return stride != 0;
         }
 
         internal (float Min, float Max) ShadowDepth(ShadowBasis basis, ShadowCascade near, ShadowCascade far)
@@ -203,11 +204,18 @@ internal sealed unsafe partial class GpuDevice
             return (min, max);
         }
 
-        internal void DrawShadow(ID3D12GraphicsCommandList* commands, ShadowBasis basis, ShadowCascade cascade)
+        internal bool DrawShadow(ID3D12GraphicsCommandList* commands, ShadowBasis basis, ShadowCascade cascade)
         {
+            var drawn = false;
             foreach (ref readonly var mesh in _packed.AsSpan())
+            {
                 if (mesh.IndexCount != 0 && Intersects(mesh, basis, cascade))
+                {
                     DrawMesh(commands, mesh);
+                    drawn = true;
+                }
+            }
+            return drawn;
         }
 
         private static bool Intersects(in PackedMesh mesh, ShadowBasis basis, ShadowCascade cascade)

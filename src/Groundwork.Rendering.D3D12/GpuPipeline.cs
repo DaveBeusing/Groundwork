@@ -289,16 +289,6 @@ internal sealed unsafe partial class GpuDevice
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ShadowConstants shadows = default)
     {
-        if (_resourceDiagnostics is not null)
-        {
-            ObserveUse(target.Buffer);
-            ObserveUse(_depth);
-            ObserveUse(ActiveMeshGeometry is { } mesh ? mesh.Resource : _cubeGeometry);
-            if (shadows.Near.W != 0)
-                ObserveUse(_nearShadow);
-            if (shadows.Far.W != 0)
-                ObserveUse(_farShadow);
-        }
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
         var fogColorOpacity = Vector4.Zero;
@@ -335,11 +325,22 @@ internal sealed unsafe partial class GpuDevice
         }
         if (ActiveMeshGeometry is { } meshes)
         {
-            meshes.Draw(commands, shadows.Enabled);
+            if (!meshes.Draw(commands, shadows.Enabled))
+                return;
         }
         else
         {
             commands->DrawInstanced(VertexCount, 1, 0, 0);
+        }
+        if (_resourceDiagnostics is not null)
+        {
+            ObserveUse(target.Buffer);
+            ObserveUse(_depth);
+            ObserveUse(ActiveMeshGeometry is { } mesh ? mesh.Resource : _cubeGeometry);
+            if (shadows.Near.W != 0)
+                ObserveUse(_nearShadow);
+            if (shadows.Far.W != 0)
+                ObserveUse(_farShadow);
         }
     }
 

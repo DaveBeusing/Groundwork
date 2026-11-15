@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.CompilerServices;
+using Groundwork.Voxels;
 
 namespace Groundwork.Rendering.D3D12.Tests;
 
@@ -41,12 +42,27 @@ public sealed class ResourceDiagnosticsTests
     public void WarpPassObservationsPublishOnlyForSubmittedCommandLists()
     {
         var diagnostics = new ResourceDiagnostics();
-        var hooks = new GpuRetirementTestHooks(RejectRecordedPlan: sequence => sequence == 2);
+        D3D12ResourceSnapshot beforeExecute = default;
+        var sampledBeforeExecute = false;
+        var hooks = new GpuRetirementTestHooks(RejectRecordedPlan: sequence => sequence == 2,
+            BeforeExecute: sequence =>
+            {
+                if (sequence == 1)
+                    sampledBeforeExecute = diagnostics.TryRead(out beforeExecute);
+            });
         var gpu = new GpuDevice(warp: true, retirementHooks: hooks, resourceDiagnostics: diagnostics);
         using (gpu)
         {
             var clear = new RenderFrame(1, new Vector4(0.125f, 0.25f, 0.5f, 1));
             var first = GpuDevice.RenderOffscreen(gpu, 143, 89, clear);
+            Assert.IsTrue(sampledBeforeExecute);
+            Assert.AreEqual(D3D12CustodyStatus.UnassignedSubmission, beforeExecute.Custody);
+            Assert.AreEqual(1UL, beforeExecute.UnassignedFrameSequence);
+            Assert.AreEqual(1UL, beforeExecute.UnassignedFence);
+            Assert.AreEqual(0UL, beforeExecute.SubmittedFence);
+            Assert.AreEqual(1, beforeExecute.GetBalance(D3D12ResourceOwner.Presentation).Retained);
+            Assert.AreEqual(1, beforeExecute.GetBalance(D3D12ResourceOwner.Depth).Retained);
+            Assert.AreEqual(1, beforeExecute.GetBalance(D3D12ResourceOwner.Readback).Retained);
             Assert.IsTrue(diagnostics.TryRead(out var accepted));
             Assert.AreEqual(1UL, accepted.FrameSequence);
             Assert.AreEqual(1UL, accepted.DrawFence);
@@ -90,6 +106,60 @@ public sealed class ResourceDiagnosticsTests
             var balance = disposed.GetBalance(owner);
             Assert.AreEqual(0, balance.Live + balance.Retained);
         }
+    }
+
+    [TestMethod]
+    public void LedgerFlagsUnknownSizesAndSaturatesLargeTotals()
+    {
+        var diagnostics = new ResourceDiagnostics();
+        diagnostics.Track(1, D3D12ResourceOwner.Props, ulong.MaxValue);
+        diagnostics.Track(2, D3D12ResourceOwner.Props, 0);
+        diagnostics.Track(3, D3D12ResourceOwner.Props, 65536);
+        Assert.IsTrue(diagnostics.TryRead(out var unknown));
+        Assert.IsTrue(unknown.LedgerHasUnknownSizes);
+        Assert.IsFalse(unknown.LedgerOverflowed);
+        Assert.AreEqual(new D3D12ResourceBalance(3, 65536, 0, 0, 0, 0), unknown.GetBalance(D3D12ResourceOwner.Props));
+        diagnostics.Track(4, D3D12ResourceOwner.Props, ulong.MaxValue - 65535);
+        Assert.IsTrue(diagnostics.TryRead(out var saturated));
+        Assert.IsTrue(saturated.LedgerOverflowed);
+        Assert.AreEqual(ulong.MaxValue, saturated.GetBalance(D3D12ResourceOwner.Props).LiveBytes);
+        for (var pointer = 1; pointer <= 4; pointer++)
+            diagnostics.Release(pointer);
+        Assert.IsTrue(diagnostics.TryRead(out var released));
+        Assert.AreEqual(new D3D12ResourceBalance(0, 0, 0, 0, 4, ulong.MaxValue), released.GetBalance(D3D12ResourceOwner.Props));
+    }
+
+    [TestMethod]
+    public void WarpClearOnlyCascadeAndTerrainWithoutDrawReportActualUses()
+    {
+        var diagnostics = new ResourceDiagnostics();
+        var nearMesh = RenderMesh.Create([new(-0.2f, -0.2f, -4), new(0.2f, -0.2f, -4), new(0, 0.2f, -4)], [0, 1, 2]);
+        using var gpu = new GpuDevice(warp: true, region: new([new(nearMesh, Vector3.Zero)]), resourceDiagnostics: diagnostics);
+        var camera = new VolumeCamera(new(1, 1, PlanetLocalFrame.Create(default)), default, -Vector3.UnitZ,
+            Vector3.UnitY, 0.1f, 0.1f, 100, Vector4.One, Vector4.Zero)
+        {
+            Sunlight = new(Vector3.UnitY, new(0.85f), new(0.12f)),
+            TerrainShadows = true,
+        };
+        Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, 1, out var frame));
+        GpuDevice.RenderOffscreen(gpu, 64, 64, frame);
+        Assert.IsTrue(diagnostics.TryRead(out var first));
+        Assert.IsTrue(first.TryGetPass(GpuPassPlan.NearShadow, out var nearShadow));
+        Assert.IsTrue(first.TryGetPass(GpuPassPlan.FarShadow, out var farShadow));
+        Assert.AreEqual(new D3D12PassObservation(2, 2), nearShadow);
+        Assert.AreEqual(new D3D12PassObservation(2, 1), farShadow);
+
+        var emptyDraw = RenderMesh.Create([], []);
+        var previous = gpu.ActiveMeshGeometry;
+        gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(new RenderMeshRegion([new(emptyDraw, Vector3.Zero)]));
+        previous!.Dispose();
+        GpuDevice.RenderOffscreen(gpu, 64, 64, frame with { Sequence = 2 });
+        Assert.IsTrue(diagnostics.TryRead(out var second));
+        Assert.IsFalse(second.TryGetPass(GpuPassPlan.NearShadow, out _));
+        Assert.IsTrue(second.TryGetPass(GpuPassPlan.Terrain, out var terrain));
+        Assert.AreEqual(new D3D12PassObservation(0, 0), terrain);
+        Assert.IsTrue(second.TryGetPass(GpuPassPlan.Clear, out var clear));
+        Assert.AreEqual(new D3D12PassObservation(1, 2), clear);
     }
 
     [TestMethod]

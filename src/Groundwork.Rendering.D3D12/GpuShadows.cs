@@ -125,7 +125,6 @@ internal sealed unsafe partial class GpuDevice
         var map = index == 0 ? _nearShadow : _farShadow;
         var (basis, cascade, min, inverseDepth) = index == 0 ? work.Near : work.Far;
         ObserveUse(map);
-        ObserveUse(work.Mesh!.Resource);
         RecordTransition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
         var handle = ShadowDsv(index);
@@ -144,7 +143,8 @@ internal sealed unsafe partial class GpuDevice
         var transform = new Matrix4x4(x.X, y.X, z.X, 0, x.Y, y.Y, z.Y, 0, x.Z, y.Z, z.Z, 0,
             -cascade.Area.X * cascade.Area.Z, -cascade.Area.Y * cascade.Area.Z, -min * inverseDepth, 1);
         commands->SetGraphicsRoot32BitConstants(0, 16, &transform, 0);
-        work.Mesh!.DrawShadow(commands, basis, cascade);
+        if (work.Mesh!.DrawShadow(commands, basis, cascade))
+            ObserveUse(work.Mesh.Resource);
         RecordTransition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }

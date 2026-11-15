@@ -50,7 +50,10 @@ public struct D3D12ResourceSnapshot
     public ulong UnassignedFence { readonly get; internal set; }
     public ulong UnassignedFrameSequence { readonly get; internal set; }
     public D3D12CustodyStatus Custody { readonly get; internal set; }
+    /// <summary>At least one allocation was untracked, or a backing total saturated.</summary>
     public bool LedgerOverflowed { readonly get; internal set; }
+    /// <summary>At least one native allocation size was unavailable. Its count is included, and its bytes are omitted.</summary>
+    public bool LedgerHasUnknownSizes { readonly get; internal set; }
 
     internal OwnerBalances Balances;
     internal PassObservations Observations;
@@ -126,6 +129,11 @@ internal sealed class ResourceDiagnostics
 
     internal void Track(nint pointer, D3D12ResourceOwner owner, ulong bytes)
     {
+        if (bytes is 0 or ulong.MaxValue)
+        {
+            _state.LedgerHasUnknownSizes = true;
+            bytes = 0;
+        }
         foreach (ref var slot in _entries.AsSpan())
         {
             if (slot.Pointer != 0)
@@ -245,10 +253,10 @@ internal sealed class ResourceDiagnostics
         Publish();
     }
 
-    internal void Presented(ulong fence)
+    internal void Presented(ulong fence, long timestamp)
     {
         _state.PresentedSequence = _state.FrameSequence;
-        _state.PresentTimestamp = Stopwatch.GetTimestamp();
+        _state.PresentTimestamp = timestamp;
         _state.PresentFence = fence;
         Publish();
     }
@@ -295,8 +303,8 @@ internal sealed class ResourceDiagnostics
             ref var balance = ref _state.Balances[(int)entry.Owner];
             // Unsignaled work remains charged even if the native fence reports the sentinel.
             balance = entry.Pending || entry.LastUse > _state.CompletedFence
-                ? balance with { Retained = balance.Retained + 1, RetainedBytes = balance.RetainedBytes + entry.Bytes }
-                : balance with { Live = balance.Live + 1, LiveBytes = balance.LiveBytes + entry.Bytes };
+                ? balance with { Retained = balance.Retained + 1, RetainedBytes = AddSaturating(balance.RetainedBytes, entry.Bytes) }
+                : balance with { Live = balance.Live + 1, LiveBytes = AddSaturating(balance.LiveBytes, entry.Bytes) };
         }
         Interlocked.Increment(ref _revision);
         _published = _state;
@@ -312,7 +320,13 @@ internal sealed class ResourceDiagnostics
         return -1;
     }
 
-    private static ulong AddSaturating(ulong a, ulong b) => b > ulong.MaxValue - a ? ulong.MaxValue : a + b;
+    private ulong AddSaturating(ulong a, ulong b)
+    {
+        if (b <= ulong.MaxValue - a)
+            return a + b;
+        _state.LedgerOverflowed = true;
+        return ulong.MaxValue;
+    }
 
     private record struct Entry(nint Pointer, D3D12ResourceOwner Owner, ulong Bytes, ulong LastUse, bool Pending);
 }

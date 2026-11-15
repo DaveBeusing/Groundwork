@@ -460,8 +460,8 @@ public sealed partial class D3D12Renderer
             target?.Dispose();
             ReleasePrivateVolumeCustody();
             gpu?.Dispose();
-            Volatile.Write(ref _observedGpu, null);
             ReleaseVolumeCustody();
+            Volatile.Write(ref _observedGpu, null);
             if (gpu?.FinalDebugSummary is { } debugMessages)
                 Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
             lifetime?.Dispose();

@@ -30,7 +30,7 @@ internal sealed unsafe partial class GpuDevice
 
     internal void ObservePresentSignal(ulong fence) => _resourceDiagnostics?.Signal(fence, draw: false);
 
-    internal void ObservePresented(ulong fence) => _resourceDiagnostics?.Presented(fence);
+    internal void ObservePresented(ulong fence, long timestamp) => _resourceDiagnostics?.Presented(fence, timestamp);
 
     internal D3D12CustodyStatus ObserveTerminalCustody(bool confirmedRemoval)
     {

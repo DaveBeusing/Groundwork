@@ -28,6 +28,54 @@ public sealed partial class PresentationSmokeTests
     public Task WarpRetirementFaultKeepsTerminalEvidenceWithOptionalSink(bool throws) =>
         VerifyWarpRetirementFailure(injectSignalFailure: true, throws ? DiagnosticDelivery.Throwing : DiagnosticDelivery.Saturated);
 
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [TestCategory("D3D12MeshRetirementFaults")]
+    public async Task WarpStopDeadlinePreservesUnassignedCustodyEvidenceAfterNormalSignal()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var resume = new ManualResetEventSlim();
+        var token = timeout.Token;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromMilliseconds(300), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        var runtime = CreateRuntime(timing);
+        var context = new EngineModuleContext(TimeProvider.System, timing, runtime.Reporter, runtime.StopControl);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = new GpuRetirementTestHooks(BeforeExecute: sequence =>
+        {
+            if (sequence == 2)
+            {
+                entered.TrySetResult();
+                resume.Wait(token);
+            }
+        });
+        var title = $"Groundwork D3D12 stop deadline {Guid.NewGuid():N}";
+        await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32),
+            runtime.UiWake, runtime.RuntimeOwnership);
+        await using var renderer = D3D12Renderer.CreateWithMeshReplacement(window, runtime.RuntimeOwnership, CreateTerrainPair(),
+            _ => { }, QualificationDiagnostics, useWarp: true, operationTimeout: TimeSpan.FromSeconds(10), retirementHooks: hooks);
+        try
+        {
+            await StartMeshReplacement(window, renderer, context, title, useWarp: true, token);
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmit(CreateTerrainFrame() with { Sequence = 2 }));
+            await entered.Task.WaitAsync(token);
+            await Assert.ThrowsAsync<IncompleteCleanupException>(() => renderer.StopAsync(token).AsTask());
+            Assert.IsFalse(renderer.TryReadResourceDiagnostics(out _));
+
+            resume.Set();
+            await AwaitStatus(renderer, state => state.Lifecycle == RendererLifecycle.Stopped, token);
+            Assert.IsNull(renderer.Read().FirstFault);
+            Assert.IsNull(renderer.ReadDiagnostics().DeviceRemoval);
+            Assert.AreEqual(D3D12CustodyStatus.UnassignedSubmission | D3D12CustodyStatus.IncompleteCleanup,
+                renderer.ReadTerminalGpuCustody());
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
+        }
+        finally
+        {
+            resume.Set();
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+    }
+
     private static async Task VerifyWarpRetirementFailure(bool injectSignalFailure, DiagnosticDelivery delivery = DiagnosticDelivery.Off)
     {
         Assert.IsTrue(Environment.UserInteractive, "Run this test on an interactive Windows desktop.");
