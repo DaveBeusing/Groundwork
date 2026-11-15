@@ -26,11 +26,17 @@ public sealed partial class PresentationSmokeTests
         var first = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         var red = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         var green = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var lateFallback = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         var assigned = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
         using var readyBurst = new ManualResetEventSlim();
         using var releaseSignal = new ManualResetEventSlim();
         var staleTicket = default(D3D12TextureTicket);
         var stoppedSignal = 0;
+        var holdLatePresent = 0;
+        var lateDrawSignals = 0;
+        var latePublications = 0;
+        var activeCut = default(D3D12TextureView);
+        var lateTarget = default(D3D12TextureTarget);
         var rejectedHead = 0;
         var takes = 0;
         var expectCopy = 0;
@@ -46,12 +52,24 @@ public sealed partial class PresentationSmokeTests
                     if (Volatile.Read(ref stoppedSignal) != 0)
                         releaseSignal.Wait(token);
                 }
+                else if (Volatile.Read(ref holdLatePresent) != 0 &&
+                    Interlocked.Increment(ref lateDrawSignals) == 2)
+                {
+                    Volatile.Write(ref heldFence, fence);
+                    assigned.TrySetResult(fence);
+                }
                 return null;
             },
             CompletedValue: (_, completed) =>
             {
                 var fence = Volatile.Read(ref heldFence);
                 return fence != 0 && Volatile.Read(ref hold) != 0 ? Math.Min(completed, fence - 1) : completed;
+            },
+            RejectRecordedPlan: sequence =>
+            {
+                if (sequence == 4 && Interlocked.Increment(ref latePublications) == 1)
+                    Assert.IsTrue(stream.Publish(activeCut, 3, [lateTarget]));
+                return false;
             });
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
             QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), null, hooks)
@@ -68,6 +86,8 @@ public sealed partial class PresentationSmokeTests
             },
             VolumePresentReadbackForTests = (sequence, _, pixels) =>
             {
+                if (sequence == 4)
+                    lateFallback.TrySetResult(pixels);
                 if (sequence != 2)
                     return;
                 first.TrySetResult(pixels);
@@ -93,6 +113,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsNotNull(installed);
             var cut = new D3D12TextureView(run.Terrain.WorldIdentity, installed.Info.View,
                 installed.Info.TerrainRevision, installed.Info.Generation);
+            activeCut = cut;
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
                 renderer.TrySubmitVolumeTerrain(installed.Info.Generation, 2, VolumeCameraAt(view, 32, 7)));
             var fallback = await first.Task.WaitAsync(token);
@@ -120,19 +141,20 @@ public sealed partial class PresentationSmokeTests
             Assert.IsFalse(stream.TryGetResident(cut, slot, out _));
             Assert.IsFalse(red.Task.IsCompleted);
             Assert.IsGreaterThan(0L, stream.ReadUsage().StagingBytes);
-            // A precharged successor can wait behind a held copy without consuming
-            // another owner upload turn. Cancel it before releasing that fence.
+            // A precharged successor waits behind the held copy without consuming
+            // another turn, then settles without any added producer or frame event.
             Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryRequest(cut, staleTarget, reserve, out var blocked));
             Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(blocked, firstTexture));
             var beforePoll = Volatile.Read(ref takes);
             await Task.Delay(40, token);
             Assert.AreEqual(beforePoll, Volatile.Read(ref takes));
-            Assert.IsTrue(stream.Cancel(blocked));
 
             // No camera, producer, frame, or explicit owner wake follows this release.
             Volatile.Write(ref hold, 0);
             var redFrame = await red.Task.WaitAsync(token);
             Assert.AreEqual(fallback.DepthAt(x, y), redFrame.DepthAt(x, y));
+            while (!stream.TryGetResident(cut, staleSlot, out var renewed) || renewed != blocked)
+                await Task.Delay(10, token);
             Assert.AreEqual(0L, stream.ReadUsage().StagingBytes);
             Assert.IsTrue(stream.TryGetResident(cut, slot, out var previous));
 
@@ -145,7 +167,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(2UL, renderer.Read().LastPresentedSequence);
             Assert.AreEqual(1, stream.ReadUsage().Descriptors);
             var copied = renderer.ReadTextureDiagnostics();
-            Assert.AreEqual(8UL, copied.UploadedBytes);
+            Assert.AreEqual(12UL, copied.UploadedBytes);
             Assert.AreEqual(4UL, copied.LastCopyBytes);
             Assert.IsGreaterThan(0L, copied.NativeHighWaterBytes);
             Assert.AreEqual(RenderSubmissionResult.Accepted,
@@ -153,12 +175,31 @@ public sealed partial class PresentationSmokeTests
             await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
             Assert.AreEqual(copied, renderer.ReadTextureDiagnostics());
 
+            // Supersede the binding after the list closes and hold the separate
+            // post-Present fence for the resulting terrain-only submission.
+            lateTarget = new(slot, 3, new(slot.Semantic, firstTexture.AssetId));
+            assigned = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref heldFence, 0);
+            Volatile.Write(ref hold, 1);
+            Volatile.Write(ref holdLatePresent, 1);
+            Assert.AreEqual(RenderSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeCamera(installed.Info.Generation, 4, VolumeCameraAt(view, 32, 7)));
+            await assigned.Task.WaitAsync(token);
+            Assert.AreEqual(1, Volatile.Read(ref latePublications));
+            Assert.AreEqual(2, Volatile.Read(ref lateDrawSignals));
+            Assert.AreEqual(1, stream.ReadUsage().Descriptors);
+            Assert.IsFalse(lateFallback.Task.IsCompleted);
+            Volatile.Write(ref holdLatePresent, 0);
+            Volatile.Write(ref hold, 0);
+            var reRecorded = await lateFallback.Task.WaitAsync(token);
+            Assert.IsTrue(fallback.ColorAt(x, y).SequenceEqual(reRecorded.ColorAt(x, y)));
+            Assert.AreEqual(fallback.DepthAt(x, y), reRecorded.DepthAt(x, y));
+            Assert.AreEqual(copied.UploadedBytes, renderer.ReadTextureDiagnostics().UploadedBytes);
+
             assigned = new(TaskCreationOptions.RunContinuationsAsynchronously);
             Volatile.Write(ref stoppedSignal, 1);
             Volatile.Write(ref expectCopy, 1);
-            var stopTarget = new D3D12TextureTarget(slot, 3, new(slot.Semantic, firstTexture.AssetId));
-            Assert.IsTrue(stream.Publish(cut, 3, [stopTarget]));
-            Stage(stopTarget, firstTexture);
+            Stage(lateTarget, firstTexture);
             await assigned.Task.WaitAsync(token);
             using var stopWait = new CancellationTokenSource();
             var stop = Task.Run(() => renderer.StopAsync(stopWait.Token).AsTask(), token);
@@ -167,7 +208,7 @@ public sealed partial class PresentationSmokeTests
             stopWait.Cancel();
             await Assert.ThrowsAsync<OperationCanceledException>(() => stop.WaitAsync(TimeSpan.FromSeconds(3), token));
             Assert.IsGreaterThan(0L, stream.ReadUsage().StagingBytes);
-            Assert.AreEqual(D3D12TextureResult.Closed, stream.TryRequest(cut, stopTarget, reserve, out _));
+            Assert.AreEqual(D3D12TextureResult.Closed, stream.TryRequest(cut, lateTarget, reserve, out _));
             releaseSignal.Set();
             await AwaitStatus(renderer, state => state.Lifecycle == RendererLifecycle.Stopped, token);
             await renderer.StopAsync(token);
