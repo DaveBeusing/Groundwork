@@ -63,6 +63,8 @@ public sealed partial class D3D12Renderer
                 retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null),
                 session: _deviceSession);
             gpu.PropStream = _props;
+            if (_textures is { } textures)
+                _textureOwner = new(textures, gpu);
             Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
                 gpu.DredEnabled, null, null));
             var snapshot = target.Read();
@@ -156,6 +158,21 @@ public sealed partial class D3D12Renderer
                 }
             }
 
+            if (_textureOwner is { HasSubmittedCopy: true } textures)
+            {
+                stage = RendererStage.TextureUpload;
+                if (!textures.TryRetire(CurrentTextureView()))
+                {
+                    // Texture copies have their own progress deadline and retire
+                    // independently of camera, simulation and surface events.
+                    _wake!.WaitOne(ProgressPollMilliseconds);
+                    continue;
+                }
+                PublishTextureDiagnostics(gpu);
+                if (!watchdog.Complete())
+                    break;
+            }
+
             if (retry is { } waiting && (!CanRetryFirstContent(waiting.Frame) ||
                 waiting.IsExpired(FirstContentTimestamp(), _operationTimeout)))
             {
@@ -175,7 +192,11 @@ public sealed partial class D3D12Renderer
             {
                 SetSurface(RenderSurfaceState.Suspended, chain);
                 redraw |= current.HasValue;
-                WaitForFrame();
+                RefreshTextures(gpu);
+                if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage))
+                    break;
+                WaitForFrame(_textureOwner is { HasSubmittedCopy: true }
+                    ? ProgressPollMilliseconds : Timeout.Infinite);
                 continue;
             }
 
@@ -230,6 +251,9 @@ public sealed partial class D3D12Renderer
                 redraw = true;
             }
 
+            if (RefreshTextures(gpu))
+                redraw |= current is { Scene: not null };
+
             if (_admission.MeshRegionReplacement is { } meshes && meshes.TryTake(out var candidate))
             {
                 stage = RendererStage.MeshReplacement;
@@ -259,7 +283,10 @@ public sealed partial class D3D12Renderer
 
             if (!redraw || current is not { } frame)
             {
-                WaitForFrame();
+                if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage))
+                    break;
+                WaitForFrame(_textureOwner is { HasSubmittedCopy: true }
+                    ? ProgressPollMilliseconds : Timeout.Infinite);
                 continue;
             }
 
@@ -455,6 +482,10 @@ public sealed partial class D3D12Renderer
             target?.Dispose();
             ReleasePrivateVolumeCustody();
             gpu?.Dispose();
+            _textureOwner?.SettleAfterDeviceDisposal();
+            if (_textureOwner is not null && gpu is not null)
+                PublishTextureDiagnostics(gpu);
+            _textureOwner = null;
             ReleaseVolumeCustody();
             if (gpu?.FinalDebugSummary is { } debugMessages)
                 Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
@@ -501,6 +532,7 @@ public sealed partial class D3D12Renderer
         if (!CanDrawVolume(frame))
             return GpuFrameSubmitResult.Rejected;
         gpu.PropTerrain = frame.Scene.HasValue ? _volumeInstalled?.Info : null;
+        CaptureFrameTexture(gpu, frame);
         _submittingFirstContentRetry = retry;
         try
         {
@@ -511,6 +543,7 @@ public sealed partial class D3D12Renderer
         finally
         {
             _submittingFirstContentRetry = null;
+            ClearFrameTexture(gpu);
         }
     }
 

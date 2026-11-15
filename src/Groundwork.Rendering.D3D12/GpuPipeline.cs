@@ -21,7 +21,7 @@ internal sealed unsafe partial class GpuDevice
         _normalPipeline = CreateFramePipeline(_root, sky: false, normals: true);
     }
 
-    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false, bool props = false)
+    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false, bool props = false, bool texture = false)
     {
         var rootParameter = new D3D12_ROOT_PARAMETER
         {
@@ -42,6 +42,19 @@ internal sealed unsafe partial class GpuDevice
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_PIXEL,
             DescriptorTable = new() { NumDescriptorRanges = 1, pDescriptorRanges = &range },
         };
+        var textureRange = new D3D12_DESCRIPTOR_RANGE
+        {
+            RangeType = D3D12_DESCRIPTOR_RANGE_TYPE.D3D12_DESCRIPTOR_RANGE_TYPE_SRV,
+            NumDescriptors = 1,
+            BaseShaderRegister = 4,
+        };
+        if (texture)
+            parameters[2] = new D3D12_ROOT_PARAMETER
+            {
+                ParameterType = D3D12_ROOT_PARAMETER_TYPE.D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE,
+                ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_PIXEL,
+                DescriptorTable = new() { NumDescriptorRanges = 1, pDescriptorRanges = &textureRange },
+            };
         if (props)
         {
             for (uint i = 1; i <= 2; i++)
@@ -63,12 +76,18 @@ internal sealed unsafe partial class GpuDevice
             MaxLOD = float.MaxValue,
             ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_PIXEL,
         };
+        D3D12_STATIC_SAMPLER_DESC* samplers = stackalloc D3D12_STATIC_SAMPLER_DESC[2];
+        samplers[0] = shadowSampler;
+        samplers[1] = shadowSampler;
+        samplers[1].ShaderRegister = 1;
+        samplers[1].AddressU = samplers[1].AddressV = D3D12_TEXTURE_ADDRESS_MODE.D3D12_TEXTURE_ADDRESS_MODE_WRAP;
+        samplers[1].MaxLOD = 0;
         var rootDescription = new D3D12_ROOT_SIGNATURE_DESC
         {
-            NumParameters = props ? 3u : shadow ? 2u : 1u,
+            NumParameters = props || texture ? 3u : shadow ? 2u : 1u,
             pParameters = parameters,
-            NumStaticSamplers = shadow ? 1u : 0u,
-            pStaticSamplers = shadow ? &shadowSampler : null,
+            NumStaticSamplers = texture ? 2u : shadow ? 1u : 0u,
+            pStaticSamplers = texture || shadow ? samplers : null,
             Flags = D3D12_ROOT_SIGNATURE_FLAGS.D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
         };
         ID3DBlob* rootBlob = null;
@@ -90,10 +109,13 @@ internal sealed unsafe partial class GpuDevice
 
     }
 
-    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false, bool shadow = false, bool depthOnly = false, bool props = false)
+    private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false,
+        bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false)
     {
         var vertexShader = LoadShader(props ? "Props.vs.dxil" : depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
-        var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" : shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
+        var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" :
+            texture ? shadow ? "TextureShadowTerrain.ps.dxil" : "TextureTerrain.ps.dxil" :
+            shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
         fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8, normal = "NORMAL\0"u8)
         {
             D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[3]
@@ -277,10 +299,11 @@ internal sealed unsafe partial class GpuDevice
             };
             commands->IASetVertexBuffers(0, 1, &vertices);
         }
-        Draw(commands, target, scene, shadows);
+        Draw(commands, target, scene, shadows, FindTexture(_frameTexture));
     }
 
-    private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ShadowConstants shadows = default)
+    private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
+        ShadowConstants shadows = default, TextureEntry? texture = null)
     {
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
@@ -302,7 +325,18 @@ internal sealed unsafe partial class GpuDevice
         }
         var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity,
             fogDepth, sunDirection, sunDirect, sunAmbient);
-        if (shadows.Enabled)
+        if (texture is { Ready: true })
+        {
+            commands->SetGraphicsRootSignature(_textureRoot);
+            var heap = _shadowSrv;
+            commands->SetDescriptorHeaps(1, &heap);
+            commands->SetGraphicsRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
+            commands->SetGraphicsRootDescriptorTable(2, TextureGpuDescriptor(texture.Identity.Slot));
+            commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
+            if (shadows.Enabled)
+                commands->SetGraphicsRoot32BitConstants(0, 20, &shadows, FrameConstantCount);
+        }
+        else if (shadows.Enabled)
         {
             commands->SetGraphicsRootSignature(_shadowColorRoot);
             var heap = _shadowSrv;
@@ -318,12 +352,25 @@ internal sealed unsafe partial class GpuDevice
         }
         if (ActiveMeshGeometry is { } meshes)
         {
-            meshes.Draw(commands, shadows.Enabled);
+            meshes.Draw(commands, shadows.Enabled, texture is not null);
         }
         else
         {
+            if (texture is not null)
+                commands->SetPipelineState(_texturePipeline);
             commands->DrawInstanced(VertexCount, 1, 0, 0);
         }
+    }
+
+    private ID3D12PipelineState* TerrainPipeline(bool shadows, bool normals, bool textured)
+    {
+        if (textured)
+            return shadows
+                ? normals ? _textureShadowNormalPipeline : _textureShadowPipeline
+                : normals ? _textureNormalPipeline : _texturePipeline;
+        return shadows
+            ? normals ? _shadowNormalPipeline : _shadowColorPipeline
+            : normals ? _normalPipeline : _pipeline;
     }
 
     internal static Vector4 GetFogDepthConstants(in RenderFog fog)

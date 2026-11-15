@@ -209,7 +209,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             frame.Scene.HasValue, frame.Sky.HasValue,
             frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null,
             frame.Scene.HasValue && subsequent.HasValue, shadows.NearKind, shadows.FarKind,
-            readback is not null, owner is not null);
+            readback is not null, owner is not null, frame.Scene.HasValue ? FrameTextureImport() : default);
         if (GetPassPlan(shape) is not { } plan)
             return GpuFrameSubmitResult.Rejected;
 
@@ -229,14 +229,16 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 // Hold the recorded prop cut through Execute and Signal. Check the
                 // volume authority immediately before the native submission.
                 var propGate = _propFrameStream?.Gate;
+                var textureGate = owner?.RecordedTextureGate;
                 propGate?.Enter();
+                textureGate?.Enter();
                 try
                 {
-                    if (RecordedPropsAreCurrent())
+                    if (RecordedPropsAreCurrent() && (owner is null || owner.RecordedTextureIsCurrent()))
                     {
                         if (owner is not null && !owner.AuthorizeRecordedFrame(frame))
                             return GpuFrameSubmitResult.Rejected;
-                        if (RecordedPropsAreCurrent())
+                        if (RecordedPropsAreCurrent() && (owner is null || owner.RecordedTextureIsCurrent()))
                         {
                             var commands = (ID3D12CommandList*)context.Commands;
                             var next = BeginQueueWork();
@@ -253,14 +255,17 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 }
                 finally
                 {
+                    textureGate?.Exit();
                     propGate?.Exit();
                 }
 
-                // Prop churn alone must not spend a protected terrain retry or wait for
-                // another wake. Re-record once with the validated route omitting props.
+                // Appearance churn alone cannot spend a protected terrain retry.
+                // Re-record once without the optional appearance bindings.
                 deferredProps = _propFrameStream;
                 AbortRecordedProps();
-                if (attempt != 0 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
+                owner?.ClearFrameTexture(this);
+                if (attempt != 0 ||
+                    GetPassPlan(shape with { Props = false, Texture = owner is null ? shape.Texture : default }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
             }
@@ -403,6 +408,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         _presentReadback?.Dispose();
         _presentReadback = null;
         ReleaseProps();
+        ReleaseTextures();
         ReleaseShadows();
         Release(_normalPipeline);
         _normalPipeline = null;

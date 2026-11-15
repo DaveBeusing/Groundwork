@@ -279,6 +279,7 @@ public sealed partial class D3D12Renderer : IRenderer
     private void CloseAdmission()
     {
         CloseVolumeAdmission();
+        _textures?.Close();
         lock (_lifecycle)
         {
             _admission.BeginStop();
@@ -315,6 +316,7 @@ public sealed partial class D3D12Renderer : IRenderer
             return;
 
         CloseVolumeAdmission();
+        _textures?.Close();
         lock (_lifecycle)
         {
             _admission.RecordTerminalFault(new RenderFaultSummary((uint)stage, error.HResult, removedReason, sequence));

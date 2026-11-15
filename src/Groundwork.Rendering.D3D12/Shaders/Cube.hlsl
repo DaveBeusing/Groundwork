@@ -45,9 +45,9 @@ VertexOutput VSNormals(float3 position : POSITION, float4 color : COLOR, uint pa
     return output;
 }
 
-float4 Shade(VertexOutput input, float visibility)
+float4 Shade(VertexOutput input, float visibility, float4 albedo)
 {
-    float4 color = Tint * input.Color;
+    float4 color = Tint * input.Color * albedo;
     if (SunDirection.w > 0)
     {
         float magnitude = dot(input.Normal, input.Normal);
@@ -68,6 +68,8 @@ float4 Shade(VertexOutput input, float visibility)
 Texture2D<float> NearDepth : register(t0);
 Texture2D<float> FarDepth : register(t1);
 SamplerState ShadowSampler : register(s0);
+Texture2D<float4> MaterialTexture : register(t4);
+SamplerState MaterialSampler : register(s1);
 
 float4 VSDepth(float3 position : POSITION) : SV_Position
 {
@@ -95,7 +97,7 @@ float CompareShadow(Texture2D<float> map, float4 area, float3 receiver, float2 p
     return lerp(lerp(lit.x, lit.y, weight.x), lerp(lit.z, lit.w, weight.x), weight.y);
 }
 
-float4 PSShadow(VertexOutput input) : SV_Target
+float ShadowVisibility(VertexOutput input)
 {
     float depth = input.ViewDepth;
     float visibility = 1;
@@ -121,12 +123,33 @@ float4 PSShadow(VertexOutput input) : SV_Target
         }
         visibility = lerp(visibility, 1, smoothstep(60, 64, depth));
     }
-    return Shade(input, visibility);
+    return visibility;
+}
+
+float4 PSShadow(VertexOutput input) : SV_Target
+{
+    return Shade(input, ShadowVisibility(input), 1);
 }
 
 float4 PSMain(VertexOutput input) : SV_Target
 {
-    return Shade(input, 1);
+    return Shade(input, 1, 1);
+}
+
+float4 SampleMaterial(VertexOutput input)
+{
+    // Static TEX-02 test route. Planet-canonical mapping belongs to INT-01.
+    return MaterialTexture.SampleLevel(MaterialSampler, input.Local.xy + 0.5, 0);
+}
+
+float4 PSTexture(VertexOutput input) : SV_Target
+{
+    return Shade(input, 1, SampleMaterial(input));
+}
+
+float4 PSShadowTexture(VertexOutput input) : SV_Target
+{
+    return Shade(input, ShadowVisibility(input), SampleMaterial(input));
 }
 
 struct PropReference

@@ -7,7 +7,7 @@ internal enum ShadowPassKind : byte { Disabled, Draw, Cached }
 
 internal readonly record struct GpuPassShape(
     int Width, int Height, int GeometryBytes, bool Scene, bool Sky, bool Props, bool FollowOn,
-    ShadowPassKind Near, ShadowPassKind Far, bool Readback, bool Present);
+    ShadowPassKind Near, ShadowPassKind Far, bool Readback, bool Present, GpuFrameTextureImport Texture = default);
 
 /// <summary>Portable declarations for the existing recorder. Native bindings stay with the queue owner.</summary>
 internal static class GpuPassPlan
@@ -29,6 +29,7 @@ internal static class GpuPassPlan
     private static readonly RenderResourceId FarMap = new(4, 1);
     private static readonly RenderResourceId Geometry = new(5, 1);
     private static readonly RenderResourceId PackedReadback = new(6, 1);
+    private static readonly RenderResourceId MaterialTexture = new(7, 1);
 
     internal static bool TryCreate(in GpuPassShape shape, out ValidatedRenderPlan? plan)
     {
@@ -37,13 +38,15 @@ internal static class GpuPassPlan
             shape.Height is < 1 or > RenderPlanLimits.TextureDimension ||
             shape.GeometryBytes is < 0 or > RenderPlanLimits.BufferBytes ||
             !Enum.IsDefined(shape.Near) || !Enum.IsDefined(shape.Far) ||
-            !shape.Scene && (shape.Props || shape.FollowOn || shape.GeometryBytes != 0 ||
+            shape.Texture != default && shape.Texture.Format is not (RenderResourceFormat.Rgba8Unorm or
+                RenderResourceFormat.Rgba8UnormSrgb or RenderResourceFormat.Bc1Unorm or RenderResourceFormat.Bc1UnormSrgb) ||
+            !shape.Scene && (shape.Props || shape.FollowOn || shape.GeometryBytes != 0 || shape.Texture != default ||
                 shape.Near != ShadowPassKind.Disabled || shape.Far != ShadowPassKind.Disabled) ||
             !shape.Readback && !shape.Present ||
             shape.Readback && (long)shape.Width * shape.Height * (sizeof(uint) + sizeof(float)) > RenderPlanLimits.BufferBytes)
             return false;
 
-        var resources = ImmutableArray.CreateBuilder<RenderResourceDescriptor>(6);
+        var resources = ImmutableArray.CreateBuilder<RenderResourceDescriptor>(7);
         var passes = ImmutableArray.CreateBuilder<RenderPassDescriptor>(10);
         RenderPassId previous = default;
         var extent = new RenderExtent(RenderExtentClass.FrameTexture, shape.Width, shape.Height);
@@ -78,6 +81,14 @@ internal static class GpuPassPlan
                 inputs.Add(Input(NearMap, RenderResourceState.ShaderRead));
             if (far != ShadowPassKind.Disabled)
                 inputs.Add(Input(FarMap, RenderResourceState.ShaderRead));
+            if (shape.Texture != default)
+            {
+                resources.Add(Import(MaterialTexture, shape.Texture.Format,
+                    new(RenderExtentClass.FixedTexture, shape.Texture.Width, shape.Texture.Height),
+                    RenderResourceUsage.ShaderRead, RenderResourceState.ShaderRead, initialized: true)
+                    with { Admission = RenderResourceAdmission.OptionalVisual });
+                inputs.Add(Input(MaterialTexture, RenderResourceState.ShaderRead));
+            }
             Add(Terrain, inputs.ToImmutable(), Attachments(RenderLoadAction.Load));
             // Prop storage is prepared and validated by its bounded native arena under the stream gate.
             if (shape.Props)

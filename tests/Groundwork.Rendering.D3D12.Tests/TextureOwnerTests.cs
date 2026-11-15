@@ -1,0 +1,161 @@
+using System.Numerics;
+using Groundwork.Core;
+using Groundwork.Platform.Windows;
+using Groundwork.Rendering.Materials;
+using Groundwork.Rendering.Textures;
+
+namespace Groundwork.Rendering.D3D12.Tests;
+
+public sealed partial class PresentationSmokeTests
+{
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task StaticTextureRetiresAndRedrawsPausedVolumeWithoutAnotherFrame(bool warp)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var token = timeout.Token;
+        using var run = new VolumeRun(openFloor: true);
+        var runtime = run.Fixture.Runtime;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
+        await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork textures {Guid.NewGuid():N}",
+            TerrainWidth, TerrainHeight, 32), runtime.UiWake, runtime.RuntimeOwnership);
+        var stream = new D3D12TextureHandoff(new(4, 4, 4096, 4096, 4096, 512 * 1024, 512 * 1024, 4));
+        var first = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var red = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var green = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var assigned = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var expectCopy = 0;
+        var hold = 0;
+        ulong heldFence = 0;
+        var hooks = new GpuRetirementTestHooks(
+            SignalFailure: (_, fence) =>
+            {
+                if (Interlocked.Exchange(ref expectCopy, 0) != 0)
+                {
+                    Volatile.Write(ref heldFence, fence);
+                    assigned.TrySetResult(fence);
+                }
+                return null;
+            },
+            CompletedValue: (_, completed) =>
+            {
+                var fence = Volatile.Read(ref heldFence);
+                return fence != 0 && Volatile.Read(ref hold) != 0 ? Math.Min(completed, fence - 1) : completed;
+            });
+        await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
+            QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), null, hooks)
+        {
+            VolumePresentReadbackForTests = (sequence, _, pixels) =>
+            {
+                if (sequence != 2)
+                    return;
+                first.TrySetResult(pixels);
+                var color = pixels.ColorAt(TerrainWidth / 2, TerrainHeight / 2);
+                if (color[0] > 0 && color[1] == 0 && color[2] == 0)
+                    red.TrySetResult(pixels);
+                if (color[1] > 0 && color[0] == 0 && color[2] == 0)
+                    green.TrySetResult(pixels);
+            },
+        };
+        renderer.AttachTextureHandoff(stream);
+        try
+        {
+            await window.InitializeAsync(context, token);
+            await window.StartAsync(token);
+            await renderer.InitializeAsync(context, token);
+            await renderer.StartAsync(token);
+            var view = run.Terrain.View;
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(view, 1, Vector4.Zero));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 1, token);
+            await run.Publish(1, cut: false, renderer);
+            using var installed = run.Terrain.TryRead();
+            Assert.IsNotNull(installed);
+            var cut = new D3D12TextureView(run.Terrain.WorldIdentity, installed.Info.View,
+                installed.Info.TerrainRevision, installed.Info.Generation);
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(installed.Info.Generation, 2, VolumeCameraAt(view, 32, 7)));
+            var fallback = await first.Task.WaitAsync(token);
+            var x = TerrainWidth / 2;
+            var y = TerrainHeight / 2;
+            Assert.IsLessThan(1f, fallback.DepthAt(x, y));
+
+            var firstTexture = MakeStaticColor(255, 0);
+            var replacement = MakeStaticColor(0, 255);
+            var slot = new D3D12TextureSlot(1, MaterialTextureSemantic.BaseColor);
+            var firstTarget = new D3D12TextureTarget(slot, 1, new(slot.Semantic, firstTexture.AssetId));
+            var nextTarget = new D3D12TextureTarget(slot, 2, new(slot.Semantic, replacement.AssetId));
+            Assert.IsTrue(stream.Publish(cut, 1, [firstTarget]));
+            Volatile.Write(ref hold, 1);
+            Volatile.Write(ref expectCopy, 1);
+            Stage(firstTarget, firstTexture);
+            await assigned.Task.WaitAsync(token);
+            Assert.IsFalse(stream.TryGetResident(cut, slot, out _));
+            Assert.IsFalse(red.Task.IsCompleted);
+            Assert.IsGreaterThan(0L, stream.ReadUsage().StagingBytes);
+
+            // No camera, producer, frame, or explicit owner wake follows this release.
+            Volatile.Write(ref hold, 0);
+            var redFrame = await red.Task.WaitAsync(token);
+            Assert.AreEqual(fallback.DepthAt(x, y), redFrame.DepthAt(x, y));
+            Assert.AreEqual(0L, stream.ReadUsage().StagingBytes);
+            Assert.IsTrue(stream.TryGetResident(cut, slot, out var previous));
+
+            Assert.IsTrue(stream.Publish(cut, 2, [nextTarget]));
+            Stage(nextTarget, replacement);
+            var greenFrame = await green.Task.WaitAsync(token);
+            Assert.AreEqual(redFrame.DepthAt(x, y), greenFrame.DepthAt(x, y));
+            Assert.IsTrue(stream.TryGetResident(cut, slot, out var current));
+            Assert.AreNotEqual(previous, current);
+            Assert.AreEqual(2UL, renderer.Read().LastPresentedSequence);
+            Assert.AreEqual(1, stream.ReadUsage().Descriptors);
+            var copied = renderer.ReadTextureDiagnostics();
+            Assert.AreEqual(8UL, copied.UploadedBytes);
+            Assert.AreEqual(4UL, copied.LastCopyBytes);
+            Assert.IsGreaterThan(0L, copied.NativeHighWaterBytes);
+            Assert.AreEqual(RenderSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeCamera(installed.Info.Generation, 3, VolumeCameraAt(view, 32, 7)));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
+            Assert.AreEqual(copied, renderer.ReadTextureDiagnostics());
+
+            await renderer.StopAsync(token);
+            Assert.AreEqual(default(D3D12TextureUsage), stream.ReadUsage());
+            Assert.AreEqual(0L, renderer.ReadTextureDiagnostics().ResidentAndPendingBytes);
+            var diagnostics = renderer.ReadDiagnostics();
+            AssertPlanetAdapter(diagnostics.Adapter, warp);
+            AssertCleanDiagnostics(diagnostics, diagnosticsRequested: true);
+
+            void Stage(D3D12TextureTarget target, CookedTexture texture)
+            {
+                var reserve = new D3D12TextureReservation(256, 256, 256, 128 * 1024, 128 * 1024);
+                Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryRequest(cut, target, reserve, out var ticket));
+                Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(ticket, texture));
+            }
+        }
+        finally
+        {
+            Volatile.Write(ref hold, 0);
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+    }
+
+    private static CookedTexture MakeStaticColor(byte red, byte green)
+    {
+        Span<byte> source = stackalloc byte[22];
+        source.Clear();
+        source[2] = 2;
+        source[12] = 1;
+        source[14] = 1;
+        source[16] = 32;
+        source[17] = 0x28;
+        source[19] = green;
+        source[20] = red;
+        source[21] = byte.MaxValue;
+        var limits = new TextureLimits(256, 256, 256, 4, 1);
+        Assert.AreEqual(TextureCookError.None, TextureCooker.CookTga32(source,
+            new(TextureColorSpace.Srgb, TextureSemantic.Color, 1), limits, out var texture));
+        return texture!;
+    }
+}
