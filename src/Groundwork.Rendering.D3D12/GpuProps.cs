@@ -17,10 +17,25 @@ internal sealed unsafe partial class GpuDevice
     private byte* _propGeometryMapped;
     private PackedMesh[]? _propMeshes;
     private VisibleProp[]? _visibleProps;
-    private int[]? _propSlots;
-    private int _propSpareSlot;
-    private PropCellRequest _propUploadRequest;
-    private int _propUploadCount;
+    private int[]?[] _propResidentPayloads = [];
+    private PropUpload?[] _propUploads = [];
+    private int[] _propFreePayloads = [];
+    private int _propFreeCount;
+    private int[] _propCandidateBySlot = [];
+    private int[] _propPreparedUploads = [];
+    private int _propPreparedCount;
+    private int _propNextReady;
+    private D3D12PropCells? _propFrameStream;
+    private ulong _propFrameVersion;
+    private bool _propAdmissionPrepared;
+    private bool _propReportPendingWorkers;
+    private D3D12PropStatistics? _propFrameStatistics;
+    private ulong? _propUploadSequence;
+    private int _propPayloadWritten;
+    private int _propMetadataWritten;
+    private PropReference[] _propReferences = [];
+    private PropReference[] _propWrittenReferences = [];
+    private int _propWrittenReferenceCount;
     private bool _propUnavailable;
     internal Action? PropInitializationForTests;
     private int _propMeshCursor;
@@ -31,34 +46,50 @@ internal sealed unsafe partial class GpuDevice
 
     private readonly record struct PropReference(Vector3 Offset, uint Payload);
 
-    private void DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene)
+    private sealed class PropUpload(PropCellRequest request, int slot, int[] payload)
+    {
+        internal readonly PropCellRequest Request = request;
+        internal readonly int Slot = slot;
+        internal readonly int[] Payload = payload;
+        internal int Written;
+    }
+
+    private bool DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ulong sequence)
     {
         if (PropStream is not { } stream || PropTerrain is not { } terrain || scene.PropOrigin is not { } origin)
-            return;
+            return true;
 
         // The window owner only renders after the preceding submission and Present retire.
         // Offscreen callers also wait for retirement before touching this arena again.
         if (!IsIdle)
-            return;
+            return true;
         lock (stream.Gate)
         {
+            _propFrameStream = stream;
+            _propFrameVersion = stream.ViewVersion;
+            if (_propUploadSequence != sequence)
+            {
+                ResetPropUploadBudget();
+                _propUploadSequence = sequence;
+            }
             if (stream.Closed || stream.Publication.RendererEpoch != terrain.View.RendererEpoch ||
                 stream.Publication.TerrainRevision != terrain.TerrainRevision ||
                 stream.Publication.CoverageGeneration != terrain.Generation || !origin.IsValid || !scene.PropEye.IsValid)
             {
-                stream.Statistics = new(0, 0, 0, 0, 0, 0, _propNativeBytes);
-                return;
+                RecordPropStatistics(0, 0);
+                return true;
             }
 
             if (!TryInitializeProps(stream))
-                return;
-            var reserve = 16 * stream.Limits.ResidentInstances;
-            var available = D3D12PropCells.MaximumUploadBytes - reserve;
-            var uploaded = UploadProps(stream, available);
+                return true;
+            stream.Admission.BeginFrame();
+            _propAdmissionPrepared = true;
+            PreparePropUploads(stream);
             if (_propMeshCursor != _propMeshes!.Length)
             {
-                stream.Statistics = new(uploaded, uploaded, 0, 0, 0, stream.Admission.Usage.PendingCells, _propNativeBytes);
-                return;
+                _propReportPendingWorkers = true;
+                RecordPropStatistics(0, 0);
+                return true;
             }
 
             var lens = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
@@ -72,20 +103,24 @@ internal sealed unsafe partial class GpuDevice
             {
                 if (plane.IsValid)
                     continue;
-                stream.Statistics = new(uploaded, uploaded, 0, 0, 0, stream.Admission.Usage.PendingCells, _propNativeBytes);
-                return;
+                _propReportPendingWorkers = true;
+                RecordPropStatistics(0, 0);
+                return true;
             }
-            var count = stream.Admission.Select(scene.PropEye, planes, _visibleProps);
-            var metadata = new Span<PropReference>(_propMapped + _propPayloadCapacity, count);
+            var count = stream.Admission.SelectFrame(scene.PropEye, planes, _visibleProps);
             for (var i = 0; i < count; i++)
             {
                 var visible = _visibleProps![i];
-                if (!stream.Admission.TryRead(visible, out _, out var point))
-                    throw new InvalidOperationException("Prop visibility references a nonresident cell.");
+                if (!stream.Admission.TryReadFrame(visible, out _, out var point))
+                    throw new InvalidOperationException("Prop visibility references a missing frame cell.");
                 var delta = point.RelativeTo(origin);
-                metadata[i] = new(new((float)delta.X, (float)delta.Y, (float)delta.Z),
-                    (uint)(_propSlots![visible.CellSlot] * stream.InstancesPerCell + visible.InstanceIndex));
+                var candidate = _propCandidateBySlot[visible.CellSlot];
+                var payload = candidate >= 0 ? _propUploads[candidate]!.Payload : _propResidentPayloads[visible.CellSlot]!;
+                _propReferences[i] = new(new((float)delta.X, (float)delta.Y, (float)delta.Z),
+                    (uint)payload[visible.InstanceIndex]);
             }
+            if (!WritePropReferences(count))
+                return false;
 
             var draws = 0;
             if (count != 0)
@@ -115,12 +150,8 @@ internal sealed unsafe partial class GpuDevice
                     start = end;
                 }
             }
-            var metadataBytes = count * sizeof(PropReference);
-            var deferred = 0;
-            foreach (var request in stream.Ready)
-                if (request.Generation != 0)
-                    deferred++;
-            stream.Statistics = new(uploaded + metadataBytes, uploaded, metadataBytes, draws, count, deferred, _propNativeBytes);
+            RecordPropStatistics(draws, count);
+            return true;
         }
     }
 
@@ -147,7 +178,12 @@ internal sealed unsafe partial class GpuDevice
     private void InitializeProps(D3D12PropCells stream)
     {
 
-        _propPayloadCapacity = checked((stream.Limits.Cells + 1) * stream.InstancesPerCell * PropInstanceData.ByteSize);
+        // Physical indices are independent of logical cells. Only charged resident and
+        // pending records need space, including when every pending cell is a replacement.
+        var residentRecords = Math.Min(stream.Limits.ResidentInstances, stream.Limits.Cells * stream.InstancesPerCell);
+        var pendingRecords = Math.Min(stream.Limits.PendingInstances, stream.Limits.PendingCells * stream.InstancesPerCell);
+        var payloadRecords = residentRecords + pendingRecords;
+        _propPayloadCapacity = payloadRecords * PropInstanceData.ByteSize;
         var data = Buffer((ulong)(_propPayloadCapacity + 16 * stream.Limits.ResidentInstances));
         var geometry = Buffer((ulong)stream.GeometryBytes);
         var dataBytes = _device->GetResourceAllocationInfo(1, 1, &data).SizeInBytes;
@@ -163,10 +199,16 @@ internal sealed unsafe partial class GpuDevice
         _propNativeBytes = (long)(dataBytes + geometryBytes);
         _propMeshes = new PackedMesh[stream.Assets.Length * 2];
         _visibleProps = new VisibleProp[stream.Limits.ResidentInstances];
-        _propSlots = new int[stream.Limits.Cells];
-        for (var i = 0; i < _propSlots.Length; i++)
-            _propSlots[i] = i;
-        _propSpareSlot = _propSlots.Length;
+        _propResidentPayloads = new int[stream.Limits.Cells][];
+        _propUploads = new PropUpload[stream.Limits.PendingCells];
+        _propCandidateBySlot = new int[stream.Limits.Cells];
+        _propPreparedUploads = new int[stream.Limits.PendingCells];
+        _propFreePayloads = new int[payloadRecords];
+        _propFreeCount = payloadRecords;
+        for (var i = 0; i < payloadRecords; i++)
+            _propFreePayloads[i] = payloadRecords - i - 1;
+        _propReferences = new PropReference[stream.Limits.ResidentInstances];
+        _propWrittenReferences = new PropReference[stream.Limits.ResidentInstances];
         _propRoot = CreateFrameRoot(FrameConstantCount, props: true);
         _propPipeline = CreateFramePipeline(_propRoot, sky: false, props: true);
     }
@@ -179,66 +221,181 @@ internal sealed unsafe partial class GpuDevice
         return (byte*)mapped;
     }
 
-    private int UploadProps(D3D12PropCells stream, int available)
+    private void PreparePropUploads(D3D12PropCells stream)
     {
-        var uploaded = 0;
+        _propNextReady = _nextPropRequest;
+        Array.Fill(_propCandidateBySlot, -1);
+        for (var slot = 0; slot < _propResidentPayloads.Length; slot++)
+        {
+            if (_propResidentPayloads[slot] is not { } payload || stream.Admission.GetResidentCount(slot) != 0)
+                continue;
+            RecyclePropPayload(payload);
+            _propResidentPayloads[slot] = null;
+        }
+        for (var index = 0; index < _propUploads.Length; index++)
+        {
+            if (_propUploads[index] is not { } upload || upload.Request == stream.Ready[index])
+                continue;
+            RecyclePropPayload(upload.Payload);
+            _propUploads[index] = null;
+        }
+
+        var available = D3D12PropCells.MaximumUploadBytes - Math.Max(16 * stream.Limits.ResidentInstances, _propMetadataWritten);
         while (_propMeshCursor < _propMeshes!.Length)
         {
             var asset = stream.Assets[_propMeshCursor / 2];
             var mesh = (_propMeshCursor & 1) == 0 ? asset.Near : asset.Far;
             var bytes = MeshBytes(mesh);
-            if (bytes > available - uploaded)
-                return uploaded;
+            if (bytes > available - _propPayloadWritten)
+                return;
             _propMeshes[_propMeshCursor++] = PackMesh(new(mesh, Vector3.Zero), _propGeometryMapped,
                 _propGeometry->GetGPUVirtualAddress(), ref _propGeometryOffset);
-            uploaded += bytes;
+            _propPayloadWritten += bytes;
         }
 
         for (var scan = 0; scan < stream.Ready.Length; scan++)
         {
             var index = (_nextPropRequest + scan) % stream.Ready.Length;
             var request = stream.Ready[index];
-            if (request != _propUploadRequest && _propUploadCount != 0)
-            {
-                _propUploadRequest = default;
-                _propUploadCount = 0;
-            }
             if (request.Generation == 0)
                 continue;
             var result = stream.Admission.ReadStagedLength(request, out var slot, out var count);
             if (result != PropCellResult.Accepted)
-            {
-                if (result == PropCellResult.Stale)
-                    stream.Ready[index] = default;
-                _propUploadCount = 0;
                 continue;
-            }
 
-            var writeCount = Math.Min(count - _propUploadCount, (available - uploaded) / PropInstanceData.ByteSize);
-            if (writeCount != 0)
+            var upload = _propUploads[index];
+            var writeCount = Math.Min(count - (upload?.Written ?? 0), (available - _propPayloadWritten) / PropInstanceData.ByteSize);
+            if (upload is null && (writeCount != 0 || count == 0))
+                _propUploads[index] = upload = new(request, slot, ReservePropPayload(count));
+            if (upload is not null)
+                CopyPropPayload(stream, upload, writeCount);
+            if (upload is null || upload.Written != count)
             {
-                var offset = (_propSpareSlot * stream.InstancesPerCell + _propUploadCount) * PropInstanceData.ByteSize;
-                stream.Admission.CopyStagedRange(slot, _propUploadCount,
-                    new Span<PropInstanceData>(_propMapped + offset, writeCount));
-                _propUploadCount += writeCount;
-                uploaded += writeCount * PropInstanceData.ByteSize;
-            }
-            if (_propUploadCount != count)
-            {
-                _propUploadRequest = request;
-                _nextPropRequest = index;
+                _propNextReady = index;
                 break;
             }
 
-            // Only switch the physical slot after every record is ready. At this point the
-            // prior frame has retired, so its slot becomes the spare for the next candidate.
-            if (stream.Admission.TryInstall(request) != PropCellResult.Accepted)
-                throw new InvalidOperationException("Prop install changed during upload.");
-            (_propSlots![slot], _propSpareSlot) = (_propSpareSlot, _propSlots[slot]);
-            stream.Ready[index] = default;
-            _propUploadCount = 0;
+            stream.Admission.PrepareFrameInstall(request, slot);
+            _propCandidateBySlot[slot] = index;
+            _propPreparedUploads[_propPreparedCount++] = index;
         }
-        return uploaded;
+    }
+
+    private int[] ReservePropPayload(int count)
+    {
+        var payload = new int[count];
+        for (var i = 0; i < count; i++)
+            payload[i] = _propFreePayloads[--_propFreeCount];
+        return payload;
+    }
+
+    private void RecyclePropPayload(int[] payload)
+    {
+        for (var i = payload.Length - 1; i >= 0; i--)
+            _propFreePayloads[_propFreeCount++] = payload[i];
+    }
+
+    private void CopyPropPayload(D3D12PropCells stream, PropUpload upload, int count)
+    {
+        var end = upload.Written + count;
+        while (upload.Written < end)
+        {
+            var first = upload.Written;
+            var physical = upload.Payload[first];
+            var run = 1;
+            while (first + run < end && upload.Payload[first + run] == physical + run)
+                run++;
+            stream.Admission.CopyStagedRange(upload.Slot, first,
+                new Span<PropInstanceData>(_propMapped + physical * PropInstanceData.ByteSize, run));
+            upload.Written += run;
+            _propPayloadWritten += run * PropInstanceData.ByteSize;
+        }
+    }
+
+    private bool WritePropReferences(int count)
+    {
+        var changed = 0;
+        for (var i = 0; i < count; i++)
+            if (i >= _propWrittenReferenceCount || _propReferences[i] != _propWrittenReferences[i])
+                changed++;
+        var bytes = changed * sizeof(PropReference);
+        if (bytes > D3D12PropCells.MaximumUploadBytes - _propPayloadWritten - _propMetadataWritten)
+            return false;
+
+        // The last submission retired before recording. An identical retry can reuse
+        // mapped references and payloads while keeping its original byte charge.
+        var metadata = new Span<PropReference>(_propMapped + _propPayloadCapacity, count);
+        for (var i = 0; i < count; i++)
+        {
+            if (i < _propWrittenReferenceCount && _propReferences[i] == _propWrittenReferences[i])
+                continue;
+            metadata[i] = _propReferences[i];
+            _propWrittenReferences[i] = _propReferences[i];
+        }
+        _propWrittenReferenceCount = Math.Max(_propWrittenReferenceCount, count);
+        _propMetadataWritten += bytes;
+        return true;
+    }
+
+    private void RecordPropStatistics(int draws, int count) =>
+        _propFrameStatistics = new(_propPayloadWritten + _propMetadataWritten, _propPayloadWritten,
+            _propMetadataWritten, draws, count, 0, _propNativeBytes);
+
+    private bool RecordedPropsAreCurrent() => _propFrameStream is not { } stream || stream.ViewVersion == _propFrameVersion;
+
+    private void PublishRecordedProps()
+    {
+        if (_propFrameStream is { } stream && RecordedPropsAreCurrent())
+        {
+            var prepared = _propAdmissionPrepared;
+            if (_propAdmissionPrepared)
+            {
+                stream.Admission.CommitFrame();
+                _propAdmissionPrepared = false;
+                for (var i = 0; i < _propPreparedCount; i++)
+                {
+                    var index = _propPreparedUploads[i];
+                    var upload = _propUploads[index]!;
+                    if (_propResidentPayloads[upload.Slot] is { } predecessor)
+                        RecyclePropPayload(predecessor);
+                    _propResidentPayloads[upload.Slot] = upload.Payload;
+                    stream.Ready[index] = default;
+                    _propUploads[index] = null;
+                }
+                _nextPropRequest = _propNextReady;
+            }
+            if (_propFrameStatistics is { } statistics)
+            {
+                var deferred = 0;
+                if (_propReportPendingWorkers)
+                    deferred = stream.Admission.Usage.PendingCells;
+                else if (prepared)
+                    foreach (var request in stream.Ready)
+                        if (request.Generation != 0)
+                            deferred++;
+                stream.Statistics = statistics with { DeferredCells = deferred };
+            }
+        }
+        ResetPropUploadBudget();
+    }
+
+    private void AbortRecordedProps()
+    {
+        if (_propAdmissionPrepared)
+            _propFrameStream!.Admission.AbortFrame();
+        _propAdmissionPrepared = false;
+        _propReportPendingWorkers = false;
+        _propFrameStream = null;
+        _propFrameStatistics = null;
+        _propPreparedCount = 0;
+    }
+
+    private void ResetPropUploadBudget()
+    {
+        _propUploadSequence = null;
+        _propPayloadWritten = 0;
+        _propMetadataWritten = 0;
+        _propWrittenReferenceCount = 0;
     }
 
     private static bool SameGroup(VisibleProp left, VisibleProp right) =>

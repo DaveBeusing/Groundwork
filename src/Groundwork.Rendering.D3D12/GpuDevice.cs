@@ -215,30 +215,46 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
         Check(context.Allocator->Reset(), "Reset allocator");
         Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
+        var submitted = false;
         try
         {
-            Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
+            var recorded = Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
             Check(context.Commands->Close(), "Close command list");
+            if (!recorded || _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
+                return GpuFrameSubmitResult.Rejected;
+
+            // Producers can change the prop cut between recording and authorization. Hold
+            // that cut through Execute and its signal, with volume authority checked last.
+            var propGate = _propFrameStream?.Gate;
+            propGate?.Enter();
+            try
+            {
+                if (!RecordedPropsAreCurrent() || owner is not null && !owner.AuthorizeRecordedFrame(frame) ||
+                    !RecordedPropsAreCurrent())
+                    return GpuFrameSubmitResult.Rejected;
+
+                var commands = (ID3D12CommandList*)context.Commands;
+                var next = BeginQueueWork();
+                _queue->ExecuteCommandLists(1, &commands);
+                Check(SignalQueueWork(next), "Signal queue");
+                context.Retirement = next;
+                _nextFrame = (_nextFrame + 1) % _frames.Length;
+                PublishRecordedProps();
+                PublishShadows(shadows);
+                submitted = true;
+                return GpuFrameSubmitResult.Submitted;
+            }
+            finally
+            {
+                propGate?.Exit();
+            }
         }
-        catch
+        finally
         {
-            InvalidateShadowCache();
-            throw;
+            AbortRecordedProps();
+            if (!submitted)
+                InvalidateShadowCache();
         }
-        if (_retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true ||
-            owner is not null && !owner.AuthorizeRecordedFrame(frame))
-        {
-            InvalidateShadowCache();
-            return GpuFrameSubmitResult.Rejected;
-        }
-        var commands = (ID3D12CommandList*)context.Commands;
-        var next = BeginQueueWork();
-        _queue->ExecuteCommandLists(1, &commands);
-        Check(SignalQueueWork(next), "Signal queue");
-        PublishShadows(shadows);
-        context.Retirement = next;
-        _nextFrame = (_nextFrame + 1) % _frames.Length;
-        return GpuFrameSubmitResult.Submitted;
     }
 
     private ValidatedRenderPlan? GetPassPlan(in GpuPassShape shape)

@@ -11,12 +11,24 @@ public sealed class PropCellAdmission
         internal ulong Request;
         internal int Reservation;
         internal Instance[]? Staged;
+        internal bool[]? StagedNear;
         internal PropPoint Origin;
         internal PropPoint StagedOrigin;
         internal double Radius;
         internal double StagedRadius;
         internal Instance[] Instances = [];
         internal bool[] Near = [];
+    }
+
+    private sealed class FrameSelection(PropCellLimits limits)
+    {
+        internal readonly bool[] Replacements = new bool[limits.Cells];
+        internal readonly int[] InstallSlots = new int[limits.PendingCells];
+        internal readonly bool[] Near = new bool[limits.ResidentInstances];
+        internal int Installs;
+        internal int Residents;
+        internal bool Active;
+        internal bool Selected;
     }
 
     private readonly PropCellLimits _limits;
@@ -29,6 +41,7 @@ public sealed class PropCellAdmission
     private readonly Dictionary<PropCellRequest, int> _workers = new();
     private ulong _generation;
     private PropPublication _publication;
+    private FrameSelection? _frame;
 
     public PropCellUsage Usage { get; private set; }
     public PropCellUsage Peak { get; private set; }
@@ -156,6 +169,7 @@ public sealed class PropCellAdmission
         }
         cell.StagedOrigin = origin;
         cell.StagedRadius = radius;
+        cell.StagedNear = new bool[instances.Length];
         cell.Staged = instances;
         _workers.Remove(request);
         return PropCellResult.Accepted;
@@ -182,7 +196,22 @@ public sealed class PropCellAdmission
         return PropCellResult.Accepted;
     }
 
-    internal PropCellResult ReadStagedLength(PropCellRequest request, out int slot, out int count)
+    internal void BeginFrame()
+    {
+        var frame = _frame ??= new(_limits);
+        if (frame.Active)
+            throw new InvalidOperationException("A prop frame is already being prepared.");
+        frame.Residents = Usage.ResidentInstances;
+        frame.Active = true;
+    }
+
+    internal int GetResidentCount(int slot) => _cells[slot]?.Instances.Length ?? 0;
+
+    internal PropCellResult ReadStagedLength(PropCellRequest request, out int slot, out int count) =>
+        ReadStagedLength(request, _frame is { Active: true } frame ? frame.Residents : Usage.ResidentInstances,
+            out slot, out count);
+
+    private PropCellResult ReadStagedLength(PropCellRequest request, int residents, out int slot, out int count)
     {
         count = 0;
         if (!TryMatch(request, out slot))
@@ -191,7 +220,7 @@ public sealed class PropCellAdmission
         if (cell.Staged is not { } instances)
             return PropCellResult.Pending;
         count = instances.Length;
-        var otherResidents = Usage.ResidentInstances - cell.Instances.Length;
+        var otherResidents = residents - cell.Instances.Length;
         return count > _limits.ResidentInstances - otherResidents ? PropCellResult.Quota : PropCellResult.Accepted;
     }
 
@@ -204,36 +233,101 @@ public sealed class PropCellAdmission
 
     public PropCellResult TryInstall(PropCellRequest request)
     {
-        if (!TryMatch(request, out var slot))
-            return PropCellResult.Stale;
+        var result = ReadStagedLength(request, Usage.ResidentInstances, out var slot, out _);
+        if (result != PropCellResult.Accepted)
+            return result;
         var cell = _cells[slot]!;
-        if (cell.Staged is not { } instances)
-            return PropCellResult.Pending;
-        var retained = Usage.ResidentInstances - cell.Instances.Length;
-        if (instances.Length > _limits.ResidentInstances - retained)
-            return PropCellResult.Quota;
+        RetainNear(cell);
+        Install(slot, cell);
+        return PropCellResult.Accepted;
+    }
 
-        var near = new bool[instances.Length];
-        var old = 0;
+    internal void PrepareFrameInstall(PropCellRequest request, int slot)
+    {
+        var frame = ActiveFrame();
+        if (frame.Selected || frame.Replacements[slot] ||
+            ReadStagedLength(request, frame.Residents, out var currentSlot, out var count) != PropCellResult.Accepted ||
+            currentSlot != slot)
+            throw new InvalidOperationException("The prop replacement is no longer eligible for this frame.");
+
+        frame.Replacements[slot] = true;
+        frame.InstallSlots[frame.Installs++] = slot;
+        frame.Residents += count - _cells[slot]!.Instances.Length;
+    }
+
+    private static void RetainNear(Cell cell)
+    {
+        var instances = cell.Staged!;
+        var near = cell.StagedNear!;
+        var resident = 0;
         for (var i = 0; i < instances.Length; i++)
-        {
-            var ordinal = instances[i].Id.Ordinal;
-            while (old < cell.Instances.Length && cell.Instances[old].Id.Ordinal < ordinal)
-                old++;
-            near[i] = old < cell.Instances.Length && cell.Instances[old].Id.Ordinal == ordinal &&
-                cell.Instances[old].Model == instances[i].Model && cell.Near[old];
-        }
+            near[i] = WasNear(cell, instances[i], ref resident);
+    }
+
+    private static bool WasNear(Cell cell, in Instance instance, ref int resident)
+    {
+        var ordinal = instance.Id.Ordinal;
+        while (resident < cell.Instances.Length && cell.Instances[resident].Id.Ordinal < ordinal)
+            resident++;
+        return resident < cell.Instances.Length && cell.Instances[resident].Id.Ordinal == ordinal &&
+            cell.Instances[resident].Model == instance.Model && cell.Near[resident];
+    }
+
+    private void Install(int slot, Cell cell)
+    {
+        var retained = Usage.ResidentInstances - cell.Instances.Length;
+        var instances = cell.Staged!;
         cell.Origin = cell.StagedOrigin;
         cell.Radius = cell.StagedRadius;
         cell.Instances = instances;
-        cell.Near = near;
+        cell.Near = cell.StagedNear!;
         Cancel(cell);
         Usage = Usage with { ResidentInstances = retained + instances.Length };
         Peak = Peak with { ResidentInstances = Math.Max(Peak.ResidentInstances, Usage.ResidentInstances) };
         if (instances.Length == 0)
             Remove(slot, cell);
-        return PropCellResult.Accepted;
     }
+
+    // The renderer validates that no producer mutation intervened before calling CommitFrame.
+    internal void CommitFrame()
+    {
+        var frame = ActiveFrame();
+        if (frame.Selected)
+        {
+            var offset = 0;
+            for (var slot = 0; slot < _cells.Length; slot++)
+            {
+                if (_cells[slot] is not { } cell)
+                    continue;
+                var near = frame.Replacements[slot] ? cell.StagedNear! : cell.Near;
+                frame.Near.AsSpan(offset, near.Length).CopyTo(near);
+                offset += near.Length;
+            }
+        }
+        for (var i = 0; i < frame.Installs; i++)
+        {
+            var slot = frame.InstallSlots[i];
+            var cell = _cells[slot]!;
+            if (!frame.Selected)
+                RetainNear(cell);
+            Install(slot, cell);
+        }
+        AbortFrame();
+    }
+
+    internal void AbortFrame()
+    {
+        if (_frame is not { Active: true } frame)
+            return;
+        for (var i = 0; i < frame.Installs; i++)
+            frame.Replacements[frame.InstallSlots[i]] = false;
+        frame.Installs = 0;
+        frame.Selected = false;
+        frame.Active = false;
+    }
+
+    private FrameSelection ActiveFrame() => _frame is { Active: true } frame ? frame :
+        throw new InvalidOperationException("No prop frame is being prepared.");
 
     /// <summary>Release an unstaged reservation after the worker, its terrain lease and its result have settled.</summary>
     /// <remarks>Also call for requests that were never dispatched. An invalidated token can still settle once.</remarks>
@@ -274,51 +368,78 @@ public sealed class PropCellAdmission
     }
 
     /// <summary>Produce sorted references into resident cells, without allocations or truncation.</summary>
-    public int Select(PropPoint eye, ReadOnlySpan<PropFrustumPlane> frustum, Span<VisibleProp> output)
+    public int Select(PropPoint eye, ReadOnlySpan<PropFrustumPlane> frustum, Span<VisibleProp> output) =>
+        Select(eye, frustum, output, null);
+
+    internal int SelectFrame(PropPoint eye, ReadOnlySpan<PropFrustumPlane> frustum, Span<VisibleProp> output) =>
+        Select(eye, frustum, output, ActiveFrame());
+
+    private int Select(PropPoint eye, ReadOnlySpan<PropFrustumPlane> frustum, Span<VisibleProp> output,
+        FrameSelection? frame)
     {
         if (!eye.IsValid || frustum.Length != 6)
             throw new ArgumentException("A finite eye and six frustum planes are required.");
         foreach (var plane in frustum)
             if (!plane.IsValid)
                 throw new ArgumentException("Frustum planes must have unit normals.", nameof(frustum));
-        if (output.Length < Usage.ResidentInstances)
+        if (output.Length < (frame?.Residents ?? Usage.ResidentInstances))
             throw new ArgumentException("Visibility scratch must fit the resident instance count.", nameof(output));
 
         var count = 0;
+        var offset = 0;
         for (var slot = 0; slot < _cells.Length; slot++)
         {
-            if (_cells[slot] is not { } cell || cell.Instances.Length == 0)
+            if (_cells[slot] is not { } cell)
                 continue;
-            var center = cell.Origin.RelativeTo(eye);
-            var cellVisible = Intersects(center, cell.Radius, frustum);
-            for (var i = 0; i < cell.Instances.Length; i++)
+            var replacing = frame?.Replacements[slot] == true;
+            var instances = replacing ? cell.Staged! : cell.Instances;
+            if (instances.Length == 0)
+                continue;
+            var center = (replacing ? cell.StagedOrigin : cell.Origin).RelativeTo(eye);
+            var cellVisible = Intersects(center, replacing ? cell.StagedRadius : cell.Radius, frustum);
+            Span<bool> near = frame is null ? cell.Near : frame.Near.AsSpan(offset, instances.Length);
+            var resident = 0;
+            for (var i = 0; i < instances.Length; i++)
             {
-                ref readonly var instance = ref cell.Instances[i];
+                ref readonly var instance = ref instances[i];
                 var model = _models[instance.Model];
                 var t = instance.Data.Translation;
                 var position = new PropPoint(center.X + t.X, center.Y + t.Y, center.Z + t.Z);
                 var distance = position.LengthSquared;
-                var threshold = (double)(cell.Near[i] ? model.NearExit : model.NearEnter);
-                cell.Near[i] = distance <= threshold * threshold;
+                var wasNear = replacing ? WasNear(cell, instance, ref resident) : cell.Near[i];
+                var threshold = (double)(wasNear ? model.NearExit : model.NearEnter);
+                near[i] = distance <= threshold * threshold;
                 if (cellVisible && distance <= (double)model.Range * model.Range &&
                     Intersects(position, (double)instance.Data.Scale * model.Radius, frustum))
-                    output[count++] = new(instance.Id, model.Model, model.Material, cell.Near[i] ? (byte)0 : (byte)1, (uint)slot, i);
+                    output[count++] = new(instance.Id, model.Model, model.Material, near[i] ? (byte)0 : (byte)1, (uint)slot, i);
             }
+            offset += instances.Length;
         }
         output[..count].Sort(static (left, right) => left.CompareTo(right));
+        if (frame is not null)
+            frame.Selected = true;
         return count;
     }
 
     /// <summary>Valid until the next owner mutation. The native owner must charge and retain its own uploaded copy.</summary>
-    public bool TryRead(VisibleProp visible, out PropInstanceData data, out PropPoint origin)
+    public bool TryRead(VisibleProp visible, out PropInstanceData data, out PropPoint origin) =>
+        TryRead(visible, null, out data, out origin);
+
+    internal bool TryReadFrame(VisibleProp visible, out PropInstanceData data, out PropPoint origin) =>
+        TryRead(visible, ActiveFrame(), out data, out origin);
+
+    private bool TryRead(VisibleProp visible, FrameSelection? frame, out PropInstanceData data, out PropPoint origin)
     {
-        if (visible.CellSlot < (uint)_cells.Length && _cells[(int)visible.CellSlot] is { } cell &&
-            (uint)visible.InstanceIndex < (uint)cell.Instances.Length &&
-            cell.Instances[visible.InstanceIndex].Id == visible.Id)
+        if (visible.CellSlot < (uint)_cells.Length && _cells[(int)visible.CellSlot] is { } cell)
         {
-            data = cell.Instances[visible.InstanceIndex].Data;
-            origin = cell.Origin;
-            return true;
+            var replacing = frame?.Replacements[visible.CellSlot] == true;
+            var instances = replacing ? cell.Staged! : cell.Instances;
+            if ((uint)visible.InstanceIndex < (uint)instances.Length && instances[visible.InstanceIndex].Id == visible.Id)
+            {
+                data = instances[visible.InstanceIndex].Data;
+                origin = replacing ? cell.StagedOrigin : cell.Origin;
+                return true;
+            }
         }
         data = default;
         origin = default;
@@ -362,6 +483,7 @@ public sealed class PropCellAdmission
         cell.Request = 0;
         cell.Reservation = 0;
         cell.Staged = null;
+        cell.StagedNear = null;
     }
 
     private void Remove(int slot, Cell cell)
