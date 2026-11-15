@@ -213,41 +213,58 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (GetPassPlan(shape) is not { } plan)
             return GpuFrameSubmitResult.Rejected;
 
-        Check(context.Allocator->Reset(), "Reset allocator");
-        Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
         var submitted = false;
+        D3D12PropCells? deferredProps = null;
         try
         {
-            var recorded = Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
-            Check(context.Commands->Close(), "Close command list");
-            if (!recorded || _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
-                return GpuFrameSubmitResult.Rejected;
-
-            // Producers can change the prop cut between recording and authorization. Hold
-            // that cut through Execute and its signal, with volume authority checked last.
-            var propGate = _propFrameStream?.Gate;
-            propGate?.Enter();
-            try
+            for (var attempt = 0; attempt < 2; attempt++)
             {
-                if (!RecordedPropsAreCurrent() || owner is not null && !owner.AuthorizeRecordedFrame(frame) ||
-                    !RecordedPropsAreCurrent())
+                Check(context.Allocator->Reset(), "Reset allocator");
+                Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
+                Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
+                Check(context.Commands->Close(), "Close command list");
+                if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
                     return GpuFrameSubmitResult.Rejected;
 
-                var commands = (ID3D12CommandList*)context.Commands;
-                var next = BeginQueueWork();
-                _queue->ExecuteCommandLists(1, &commands);
-                Check(SignalQueueWork(next), "Signal queue");
-                context.Retirement = next;
-                _nextFrame = (_nextFrame + 1) % _frames.Length;
-                PublishRecordedProps();
-                PublishShadows(shadows);
-                submitted = true;
-                return GpuFrameSubmitResult.Submitted;
+                // Hold the recorded prop cut through Execute and Signal. Check the
+                // volume authority immediately before the native submission.
+                var propGate = _propFrameStream?.Gate;
+                propGate?.Enter();
+                try
+                {
+                    if (RecordedPropsAreCurrent())
+                    {
+                        if (owner is not null && !owner.AuthorizeRecordedFrame(frame))
+                            return GpuFrameSubmitResult.Rejected;
+                        if (RecordedPropsAreCurrent())
+                        {
+                            var commands = (ID3D12CommandList*)context.Commands;
+                            var next = BeginQueueWork();
+                            _queue->ExecuteCommandLists(1, &commands);
+                            Check(SignalQueueWork(next), "Signal queue");
+                            context.Retirement = next;
+                            _nextFrame = (_nextFrame + 1) % _frames.Length;
+                            PublishRecordedProps(deferredProps);
+                            PublishShadows(shadows);
+                            submitted = true;
+                            return GpuFrameSubmitResult.Submitted;
+                        }
+                    }
+                }
+                finally
+                {
+                    propGate?.Exit();
+                }
+
+                // Prop churn alone must not spend a protected terrain retry or wait for
+                // another wake. Re-record once with the validated route omitting props.
+                deferredProps = _propFrameStream;
+                AbortRecordedProps();
+                if (attempt != 0 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
+                    return GpuFrameSubmitResult.Rejected;
+                plan = terrainPlan;
             }
-            finally
-            {
-                propGate?.Exit();
-            }
+            return GpuFrameSubmitResult.Rejected;
         }
         finally
         {

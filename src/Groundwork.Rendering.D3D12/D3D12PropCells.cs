@@ -14,7 +14,7 @@ public sealed class D3D12PropCells
     internal readonly Lock Gate = new();
     internal readonly PropCellAdmission Admission;
     internal readonly D3D12PropAsset[] Assets;
-    internal readonly PropCellRequest[] Ready;
+    internal readonly StagedCell[] Ready;
     internal readonly PropCellLimits Limits;
     internal readonly int InstancesPerCell;
     internal readonly int GeometryBytes;
@@ -24,6 +24,8 @@ public sealed class D3D12PropCells
     internal bool Attached;
     internal bool Closed;
     internal D3D12PropStatistics Statistics;
+
+    internal readonly record struct StagedCell(PropCellRequest Request, int[] PayloadIndices);
 
     public D3D12PropCells(PropCellLimits limits, int instancesPerCell, ulong seed, uint recipe,
         ReadOnlySpan<D3D12PropAsset> assets)
@@ -73,7 +75,7 @@ public sealed class D3D12PropCells
         Limits = limits;
         InstancesPerCell = instancesPerCell;
         Assets = assets.ToArray();
-        Ready = new PropCellRequest[limits.PendingCells];
+        Ready = new StagedCell[limits.PendingCells];
     }
 
     public void Publish(PropPublication publication, ReadOnlySpan<PropCellKey> coverage, IReadOnlySet<PropCellKey>? invalidated = null)
@@ -122,7 +124,17 @@ public sealed class D3D12PropCells
                 return PropCellResult.Stale;
             var result = Admission.TryStage(request, origin, instances);
             if (result == PropCellResult.Accepted)
-                Ready[Array.IndexOf(Ready, default)] = request;
+            {
+                try
+                {
+                    Ready[Array.IndexOf(Ready, default)] = new(request, new int[instances.Length]);
+                }
+                catch
+                {
+                    Admission.TryCancel(request);
+                    throw;
+                }
+            }
             return result;
         }
     }
@@ -139,10 +151,14 @@ public sealed class D3D12PropCells
         {
             if (Closed || !Admission.TryCancel(request))
                 return false;
-            var index = Array.IndexOf(Ready, request);
-            if (index >= 0)
-                Ready[index] = default;
-            ViewVersion++;
+            for (var i = 0; i < Ready.Length; i++)
+            {
+                if (Ready[i].Request != request)
+                    continue;
+                Ready[i] = default;
+                ViewVersion++;
+                break;
+            }
             return true;
         }
     }
@@ -154,7 +170,7 @@ public sealed class D3D12PropCells
             if (Closed || !Admission.TryEvict(cell))
                 return false;
             for (var i = 0; i < Ready.Length; i++)
-                if (Ready[i].Cell == cell)
+                if (Ready[i].Request.Cell == cell)
                     Ready[i] = default;
             ViewVersion++;
             return true;

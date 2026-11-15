@@ -18,7 +18,7 @@ internal sealed unsafe partial class GpuDevice
     private PackedMesh[]? _propMeshes;
     private VisibleProp[]? _visibleProps;
     private int[]?[] _propResidentPayloads = [];
-    private PropUpload?[] _propUploads = [];
+    private PropUpload[] _propUploads = [];
     private int[] _propFreePayloads = [];
     private int _propFreeCount;
     private int[] _propCandidateBySlot = [];
@@ -29,6 +29,7 @@ internal sealed unsafe partial class GpuDevice
     private ulong _propFrameVersion;
     private bool _propAdmissionPrepared;
     private bool _propReportPendingWorkers;
+    private bool _propReportReady;
     private D3D12PropStatistics? _propFrameStatistics;
     private ulong? _propUploadSequence;
     private int _propPayloadWritten;
@@ -46,7 +47,7 @@ internal sealed unsafe partial class GpuDevice
 
     private readonly record struct PropReference(Vector3 Offset, uint Payload);
 
-    private sealed class PropUpload(PropCellRequest request, int slot, int[] payload)
+    private struct PropUpload(PropCellRequest request, int slot, int[] payload)
     {
         internal readonly PropCellRequest Request = request;
         internal readonly int Slot = slot;
@@ -54,15 +55,15 @@ internal sealed unsafe partial class GpuDevice
         internal int Written;
     }
 
-    private bool DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ulong sequence)
+    private void DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ulong sequence)
     {
         if (PropStream is not { } stream || PropTerrain is not { } terrain || scene.PropOrigin is not { } origin)
-            return true;
+            return;
 
         // The window owner only renders after the preceding submission and Present retire.
         // Offscreen callers also wait for retirement before touching this arena again.
         if (!IsIdle)
-            return true;
+            return;
         lock (stream.Gate)
         {
             _propFrameStream = stream;
@@ -77,11 +78,11 @@ internal sealed unsafe partial class GpuDevice
                 stream.Publication.CoverageGeneration != terrain.Generation || !origin.IsValid || !scene.PropEye.IsValid)
             {
                 RecordPropStatistics(0, 0);
-                return true;
+                return;
             }
 
             if (!TryInitializeProps(stream))
-                return true;
+                return;
             stream.Admission.BeginFrame();
             _propAdmissionPrepared = true;
             PreparePropUploads(stream);
@@ -89,7 +90,7 @@ internal sealed unsafe partial class GpuDevice
             {
                 _propReportPendingWorkers = true;
                 RecordPropStatistics(0, 0);
-                return true;
+                return;
             }
 
             var lens = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
@@ -105,8 +106,9 @@ internal sealed unsafe partial class GpuDevice
                     continue;
                 _propReportPendingWorkers = true;
                 RecordPropStatistics(0, 0);
-                return true;
+                return;
             }
+            _propReportReady = true;
             var count = stream.Admission.SelectFrame(scene.PropEye, planes, _visibleProps);
             for (var i = 0; i < count; i++)
             {
@@ -115,12 +117,19 @@ internal sealed unsafe partial class GpuDevice
                     throw new InvalidOperationException("Prop visibility references a missing frame cell.");
                 var delta = point.RelativeTo(origin);
                 var candidate = _propCandidateBySlot[visible.CellSlot];
-                var payload = candidate >= 0 ? _propUploads[candidate]!.Payload : _propResidentPayloads[visible.CellSlot]!;
+                var payload = candidate >= 0 ? _propUploads[candidate].Payload : _propResidentPayloads[visible.CellSlot]!;
                 _propReferences[i] = new(new((float)delta.X, (float)delta.Y, (float)delta.Z),
                     (uint)payload[visible.InstanceIndex]);
             }
             if (!WritePropReferences(count))
-                return false;
+            {
+                // A changed prop cut can exhaust the upload allowance of a retried
+                // sequence. Defer this optional pass so protected terrain can submit.
+                stream.Admission.AbortFrame();
+                _propAdmissionPrepared = false;
+                RecordPropStatistics(0, 0);
+                return;
+            }
 
             var draws = 0;
             if (count != 0)
@@ -151,7 +160,6 @@ internal sealed unsafe partial class GpuDevice
                 }
             }
             RecordPropStatistics(draws, count);
-            return true;
         }
     }
 
@@ -234,10 +242,11 @@ internal sealed unsafe partial class GpuDevice
         }
         for (var index = 0; index < _propUploads.Length; index++)
         {
-            if (_propUploads[index] is not { } upload || upload.Request == stream.Ready[index])
+            var upload = _propUploads[index];
+            if (upload.Request.Generation == 0 || upload.Request == stream.Ready[index].Request)
                 continue;
             RecyclePropPayload(upload.Payload);
-            _propUploads[index] = null;
+            _propUploads[index] = default;
         }
 
         var available = D3D12PropCells.MaximumUploadBytes - Math.Max(16 * stream.Limits.ResidentInstances, _propMetadataWritten);
@@ -256,20 +265,24 @@ internal sealed unsafe partial class GpuDevice
         for (var scan = 0; scan < stream.Ready.Length; scan++)
         {
             var index = (_nextPropRequest + scan) % stream.Ready.Length;
-            var request = stream.Ready[index];
+            var ready = stream.Ready[index];
+            var request = ready.Request;
             if (request.Generation == 0)
                 continue;
             var result = stream.Admission.ReadStagedLength(request, out var slot, out var count);
             if (result != PropCellResult.Accepted)
                 continue;
 
-            var upload = _propUploads[index];
-            var writeCount = Math.Min(count - (upload?.Written ?? 0), (available - _propPayloadWritten) / PropInstanceData.ByteSize);
-            if (upload is null && (writeCount != 0 || count == 0))
-                _propUploads[index] = upload = new(request, slot, ReservePropPayload(count));
-            if (upload is not null)
-                CopyPropPayload(stream, upload, writeCount);
-            if (upload is null || upload.Written != count)
+            ref var upload = ref _propUploads[index];
+            var writeCount = Math.Min(count - upload.Written, (available - _propPayloadWritten) / PropInstanceData.ByteSize);
+            if (upload.Request.Generation == 0 && (writeCount != 0 || count == 0))
+            {
+                ReservePropPayload(ready.PayloadIndices);
+                upload = new(request, slot, ready.PayloadIndices);
+            }
+            if (writeCount != 0)
+                CopyPropPayload(stream, ref upload, writeCount);
+            if (upload.Request.Generation == 0 || upload.Written != count)
             {
                 _propNextReady = index;
                 break;
@@ -281,12 +294,10 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private int[] ReservePropPayload(int count)
+    private void ReservePropPayload(int[] payload)
     {
-        var payload = new int[count];
-        for (var i = 0; i < count; i++)
+        for (var i = 0; i < payload.Length; i++)
             payload[i] = _propFreePayloads[--_propFreeCount];
-        return payload;
     }
 
     private void RecyclePropPayload(int[] payload)
@@ -295,7 +306,7 @@ internal sealed unsafe partial class GpuDevice
             _propFreePayloads[_propFreeCount++] = payload[i];
     }
 
-    private void CopyPropPayload(D3D12PropCells stream, PropUpload upload, int count)
+    private void CopyPropPayload(D3D12PropCells stream, ref PropUpload upload, int count)
     {
         var end = upload.Written + count;
         while (upload.Written < end)
@@ -337,17 +348,18 @@ internal sealed unsafe partial class GpuDevice
         return true;
     }
 
-    private void RecordPropStatistics(int draws, int count) =>
-        _propFrameStatistics = new(_propPayloadWritten + _propMetadataWritten, _propPayloadWritten,
-            _propMetadataWritten, draws, count, 0, _propNativeBytes);
+    private void RecordPropStatistics(int draws, int count) => _propFrameStatistics = PropStatistics(draws, count);
+
+    private D3D12PropStatistics PropStatistics(int draws, int count) =>
+        new(_propPayloadWritten + _propMetadataWritten, _propPayloadWritten, _propMetadataWritten,
+            draws, count, 0, _propNativeBytes);
 
     private bool RecordedPropsAreCurrent() => _propFrameStream is not { } stream || stream.ViewVersion == _propFrameVersion;
 
-    private void PublishRecordedProps()
+    private void PublishRecordedProps(D3D12PropCells? deferredProps)
     {
         if (_propFrameStream is { } stream && RecordedPropsAreCurrent())
         {
-            var prepared = _propAdmissionPrepared;
             if (_propAdmissionPrepared)
             {
                 stream.Admission.CommitFrame();
@@ -355,12 +367,12 @@ internal sealed unsafe partial class GpuDevice
                 for (var i = 0; i < _propPreparedCount; i++)
                 {
                     var index = _propPreparedUploads[i];
-                    var upload = _propUploads[index]!;
+                    var upload = _propUploads[index];
                     if (_propResidentPayloads[upload.Slot] is { } predecessor)
                         RecyclePropPayload(predecessor);
                     _propResidentPayloads[upload.Slot] = upload.Payload;
                     stream.Ready[index] = default;
-                    _propUploads[index] = null;
+                    _propUploads[index] = default;
                 }
                 _nextPropRequest = _propNextReady;
             }
@@ -369,14 +381,26 @@ internal sealed unsafe partial class GpuDevice
                 var deferred = 0;
                 if (_propReportPendingWorkers)
                     deferred = stream.Admission.Usage.PendingCells;
-                else if (prepared)
-                    foreach (var request in stream.Ready)
-                        if (request.Generation != 0)
-                            deferred++;
+                else if (_propReportReady)
+                    deferred = CountReadyProps(stream);
                 stream.Statistics = statistics with { DeferredCells = deferred };
             }
         }
+        if (deferredProps is not null)
+        {
+            lock (deferredProps.Gate)
+                deferredProps.Statistics = PropStatistics(0, 0) with { DeferredCells = CountReadyProps(deferredProps) };
+        }
         ResetPropUploadBudget();
+    }
+
+    private static int CountReadyProps(D3D12PropCells stream)
+    {
+        var count = 0;
+        foreach (var candidate in stream.Ready)
+            if (candidate.Request.Generation != 0)
+                count++;
+        return count;
     }
 
     private void AbortRecordedProps()
@@ -385,6 +409,7 @@ internal sealed unsafe partial class GpuDevice
             _propFrameStream!.Admission.AbortFrame();
         _propAdmissionPrepared = false;
         _propReportPendingWorkers = false;
+        _propReportReady = false;
         _propFrameStream = null;
         _propFrameStatistics = null;
         _propPreparedCount = 0;

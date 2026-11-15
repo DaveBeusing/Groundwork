@@ -205,7 +205,7 @@ internal sealed unsafe partial class GpuDevice
         return shader;
     }
 
-    private bool Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
+    private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
         RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan)
     {
         var rtv = target.Rtv;
@@ -234,10 +234,7 @@ internal sealed unsafe partial class GpuDevice
                 RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants);
             }
             else if (pass.Id == GpuPassPlan.Props)
-            {
-                if (!DrawProps(commands, target, frame.Scene!.Value, frame.Sequence))
-                    return false;
-            }
+                DrawProps(commands, target, frame.Scene!.Value, frame.Sequence);
             else if (pass.Id == GpuPassPlan.FollowOn)
                 Draw(commands, target, subsequent!.Value);
             else if (pass.Id == GpuPassPlan.Copy)
@@ -252,7 +249,6 @@ internal sealed unsafe partial class GpuDevice
                 throw new InvalidOperationException("The validated pass has no fixed-route recorder.");
             // DXGI Present is issued by the owner. CPU readback consumes only retired work.
         }
-        return true;
     }
 
     private static void BindFrameTargets(ID3D12GraphicsCommandList* commands, GpuTarget target,
