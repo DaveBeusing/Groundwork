@@ -86,7 +86,7 @@ internal sealed unsafe partial class GpuDevice
         return handle;
     }
 
-    private ShadowConstants RecordShadows(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene)
+    private ShadowWork PrepareShadows(GpuTarget target, in RenderScene scene)
     {
         if (scene.ShadowOrigin is null || scene.Sunlight is not { } sun || sun.Direct == Vector3.Zero ||
             ActiveMeshGeometry is not { } mesh)
@@ -103,46 +103,68 @@ internal sealed unsafe partial class GpuDevice
         InitializeShadows();
         var inverseDepth = 1 / range;
         min -= 1;
-        // The maps are read and written on the same direct queue. A cache
-        // hit needs no barriers because the last pass left the map readable.
-        if (!ReferenceEquals(_shadowMesh, mesh))
-        {
-            InvalidateShadowCache();
-            _shadowMesh = mesh;
-        }
-        DrawCascade(near, _nearShadow, 0, ref _nearShadowKey);
-        DrawCascade(far, _farShadow, 1, ref _farShadowKey);
-        return new(new(basis.X, min), new(basis.Y, inverseDepth), new(basis.Z, 0), near.Area, far.Area);
+        return new(mesh, new(basis, near, min, inverseDepth), new(basis, far, min, inverseDepth),
+            Kind(near, _nearShadowKey), Kind(far, _farShadowKey),
+            new(new(basis.X, min), new(basis.Y, inverseDepth), new(basis.Z, 0), near.Area, far.Area));
 
-        void DrawCascade(ShadowCascade cascade, ID3D12Resource* map, uint index, ref ShadowMapKey? cached)
+        ShadowPassKind Kind(ShadowCascade cascade, ShadowMapKey? cached)
         {
             if (!cascade.Valid)
-                return;
-            var key = new ShadowMapKey(basis, cascade, min, inverseDepth);
-            if (cached == key)
-                return;
-            Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
-            var handle = ShadowDsv(index);
-            commands->ClearDepthStencilView(handle, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
-            var viewport = new D3D12_VIEWPORT { Width = ShadowSize, Height = ShadowSize, MaxDepth = 1 };
-            var scissor = new TerraFX.Interop.Windows.RECT { right = ShadowSize, bottom = ShadowSize };
-            commands->RSSetViewports(1, &viewport);
-            commands->RSSetScissorRects(1, &scissor);
-            commands->OMSetRenderTargets(0, null, false, &handle);
-            commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            commands->SetPipelineState(_shadowDepthPipeline);
-            commands->SetGraphicsRootSignature(_shadowDepthRoot);
-            var x = basis.X * cascade.Area.Z;
-            var y = basis.Y * cascade.Area.Z;
-            var z = basis.Z * inverseDepth;
-            var transform = new Matrix4x4(x.X, y.X, z.X, 0, x.Y, y.Y, z.Y, 0, x.Z, y.Z, z.Z, 0,
-                -cascade.Area.X * cascade.Area.Z, -cascade.Area.Y * cascade.Area.Z, -min * inverseDepth, 1);
-            commands->SetGraphicsRoot32BitConstants(0, 16, &transform, 0);
-            mesh.DrawShadow(commands, basis, cascade);
-            Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            cached = key;
+                return ShadowPassKind.Disabled;
+            return ReferenceEquals(_shadowMesh, mesh) && cached == new ShadowMapKey(basis, cascade, min, inverseDepth)
+                ? ShadowPassKind.Cached : ShadowPassKind.Draw;
+        }
+    }
+
+    private void RecordShadowCascade(ID3D12GraphicsCommandList* commands, in ShadowWork work, uint index)
+    {
+        var kind = index == 0 ? work.NearKind : work.FarKind;
+        if (kind != ShadowPassKind.Draw)
+            return;
+        var map = index == 0 ? _nearShadow : _farShadow;
+        var (basis, cascade, min, inverseDepth) = index == 0 ? work.Near : work.Far;
+        Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
+        var handle = ShadowDsv(index);
+        commands->ClearDepthStencilView(handle, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
+        var viewport = new D3D12_VIEWPORT { Width = ShadowSize, Height = ShadowSize, MaxDepth = 1 };
+        var scissor = new TerraFX.Interop.Windows.RECT { right = ShadowSize, bottom = ShadowSize };
+        commands->RSSetViewports(1, &viewport);
+        commands->RSSetScissorRects(1, &scissor);
+        commands->OMSetRenderTargets(0, null, false, &handle);
+        commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+        commands->SetPipelineState(_shadowDepthPipeline);
+        commands->SetGraphicsRootSignature(_shadowDepthRoot);
+        var x = basis.X * cascade.Area.Z;
+        var y = basis.Y * cascade.Area.Z;
+        var z = basis.Z * inverseDepth;
+        var transform = new Matrix4x4(x.X, y.X, z.X, 0, x.Y, y.Y, z.Y, 0, x.Z, y.Z, z.Z, 0,
+            -cascade.Area.X * cascade.Area.Z, -cascade.Area.Y * cascade.Area.Z, -min * inverseDepth, 1);
+        commands->SetGraphicsRoot32BitConstants(0, 16, &transform, 0);
+        work.Mesh!.DrawShadow(commands, basis, cascade);
+        Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+    }
+
+    private void PublishShadows(in ShadowWork work)
+    {
+        if (work.Mesh is null)
+            return;
+
+        // Only work that received a draw fence can seed the cache used by the next recording.
+        if (!ReferenceEquals(_shadowMesh, work.Mesh))
+        {
+            InvalidateShadowCache();
+            _shadowMesh = work.Mesh;
+        }
+        if (work.NearKind == ShadowPassKind.Draw)
+        {
+            _nearShadowKey = work.Near;
+            RecordedShadowPasses++;
+        }
+        if (work.FarKind == ShadowPassKind.Draw)
+        {
+            _farShadowKey = work.Far;
             RecordedShadowPasses++;
         }
     }
@@ -173,6 +195,9 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private readonly record struct ShadowMapKey(ShadowBasis Basis, ShadowCascade Cascade, float Min, float InverseDepth);
+
+    private readonly record struct ShadowWork(MeshGeometry? Mesh, ShadowMapKey Near, ShadowMapKey Far,
+        ShadowPassKind NearKind, ShadowPassKind FarKind, ShadowConstants Constants);
 
     private readonly record struct ShadowConstants(Vector4 LightX, Vector4 LightY, Vector4 LightZ,
         Vector4 Near, Vector4 Far)

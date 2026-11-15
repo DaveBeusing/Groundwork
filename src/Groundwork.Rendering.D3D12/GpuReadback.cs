@@ -33,9 +33,9 @@ internal sealed unsafe partial class GpuDevice
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COMMON);
             target = gpu.Attach(color, width, height);
             color = null;
-            readback = new Readback(gpu._device, target.Buffer, gpu._depth);
-            if (!gpu.TryRender(target, frame, subsequent, readback))
-                throw new InvalidOperationException("The initial GPU allocator was unavailable.");
+            readback = new Readback(gpu, target);
+            if (gpu.TryRender(target, frame, subsequent, readback, owner: null) != GpuFrameSubmitResult.Submitted)
+                throw new InvalidOperationException("The offscreen frame could not be recorded and submitted.");
 
             long started = Stopwatch.GetTimestamp();
             while (!gpu.IsIdle)
@@ -65,18 +65,18 @@ internal sealed unsafe partial class GpuDevice
     private int _presentReadbackWidth;
     private int _presentReadbackHeight;
 
-    internal bool TryRenderWithPresentReadback(GpuTarget target, in RenderFrame frame)
+    internal GpuFrameSubmitResult TryRenderWithPresentReadback(GpuTarget target, in RenderFrame frame, D3D12Renderer owner)
     {
-        if (_presentReadback is null || target.Width != _presentReadbackWidth || target.Height != _presentReadbackHeight)
+        if (_presentReadback is null || !_presentReadback.Matches(this, target))
         {
             // The owner retires the previous submission before acquiring another back buffer.
-            var readback = new Readback(_device, target.Buffer, _depth);
+            var readback = new Readback(this, target);
             _presentReadback?.Dispose();
             _presentReadback = readback;
             _presentReadbackWidth = target.Width;
             _presentReadbackHeight = target.Height;
         }
-        return TryRender(target, frame, null, _presentReadback);
+        return TryRender(target, frame, null, _presentReadback, owner);
     }
 
     internal OffscreenFrame ReadRetiredPresent() =>
@@ -84,15 +84,24 @@ internal sealed unsafe partial class GpuDevice
 
     private sealed class Readback : IDisposable
     {
+        private readonly GpuDevice _owner;
+        private readonly ulong _depthGeneration;
+        private readonly int _width;
+        private readonly int _height;
         private ID3D12Resource* _buffer;
         private readonly D3D12_PLACED_SUBRESOURCE_FOOTPRINT _color;
         private readonly D3D12_PLACED_SUBRESOURCE_FOOTPRINT _depth;
         private readonly ulong _bytes;
 
-        internal Readback(ID3D12Device* device, ID3D12Resource* color, ID3D12Resource* depth)
+        internal Readback(GpuDevice owner, GpuTarget target)
         {
-            var colorDescription = color->GetDesc();
-            var depthDescription = depth->GetDesc();
+            _owner = owner;
+            _depthGeneration = owner._depthGeneration;
+            _width = target.Width;
+            _height = target.Height;
+            var device = owner._device;
+            var colorDescription = target.Buffer->GetDesc();
+            var depthDescription = owner._depth->GetDesc();
             D3D12_PLACED_SUBRESOURCE_FOOTPRINT colorFootprint, depthFootprint;
             ulong colorBytes, depthBytes;
             device->GetCopyableFootprints(&colorDescription, 0, 1, 0, &colorFootprint, null, null, &colorBytes);
@@ -101,8 +110,23 @@ internal sealed unsafe partial class GpuDevice
             _color = colorFootprint;
             _depth = depthFootprint;
             _bytes = Math.Max(depthOffset + depthBytes, _depth.Offset + (ulong)_depth.Footprint.RowPitch * depthDescription.Height);
+            if (!ContainsLogicalRows(_color, _depth.Offset) || !ContainsLogicalRows(_depth, _bytes))
+                throw new InvalidOperationException("The native copy footprints do not cover the declared color and depth rows.");
             _buffer = CreateResource(device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_READBACK,
                 Buffer(_bytes), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
+        }
+
+        internal bool Matches(GpuDevice owner, GpuTarget target) =>
+            _buffer != null && ReferenceEquals(_owner, owner) && _depthGeneration == owner._depthGeneration &&
+            target.Width == _width && target.Height == _height;
+
+        private bool ContainsLogicalRows(D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint, ulong end)
+        {
+            var rowBytes = checked((uint)_width * sizeof(uint));
+            return footprint.Footprint.Width == (uint)_width && footprint.Footprint.Height == (uint)_height &&
+                footprint.Footprint.Depth == 1 && footprint.Footprint.RowPitch >= rowBytes &&
+                footprint.Offset <= end &&
+                (ulong)(_height - 1) * footprint.Footprint.RowPitch + rowBytes <= end - footprint.Offset;
         }
 
         internal void Record(ID3D12GraphicsCommandList* commands, ID3D12Resource* color, ID3D12Resource* depth)
@@ -148,6 +172,8 @@ internal sealed unsafe partial class GpuDevice
                 {
                     var color = (byte*)mapped + _color.Offset + row * _color.Footprint.RowPitch;
                     var depth = (byte*)mapped + _depth.Offset + row * _depth.Footprint.RowPitch;
+                    // The portable readback pass declares packed texels only. Never expose the
+                    // bytes between rows, the two planes, or the end of the native resource.
                     new ReadOnlySpan<byte>(color, width * 4).CopyTo(colors.AsSpan(row * width * 4, width * 4));
                     new ReadOnlySpan<float>(depth, width).CopyTo(depths.AsSpan(row * width, width));
                 }
