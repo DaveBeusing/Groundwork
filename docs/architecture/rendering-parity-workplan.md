@@ -30,15 +30,15 @@ All three decisions are proposals. Their implementation is gated on independent 
 | --- | --- | --- | --- | --- |
 
 | RPA-01 | Pure pass/resource description and validator | `Groundwork.Rendering/Passes` and corresponding portable tests | ADR-0008 accepted | Deterministic plans, bounded negative hazard/cycle/state tests |
-| RPA-02 | Adapt the fixed native sequence and own live state/custody handoff | Rendering.D3D12 and WARP tests | RPA-01 | Readback and pass/barrier parity, current-view rejection and GPU retirement |
+| RPA-02 | Adapt the fixed native sequence and own live state/custody handoff | Rendering.D3D12 and WARP tests | RPA-01 | Readback and pass/barrier parity, registered first-content recovery, correlated protected latency and GPU retirement |
 | RPA-03 | Pass resource/fence diagnostic ledger | Rendering.D3D12 and Diagnostics | RPA-02, #88 | Exact live/retained counts, unknown retirement, opt-in overhead A/B |
 | MAT-01 | Portable PBR descriptor and ushort palette binding | `Groundwork.Rendering/Materials` and corresponding portable tests | ADR-0009 accepted | Parameter and generator-ID stability, visual revision and Save/Continue |
 | MAT-02 | Untextured analytic PBR shader path | Rendering.D3D12 shaders and tests | MAT-01 | GGX/Smith/Fresnel WARP goldens, legacy fallback |
 | MAT-03 | Canonical triplanar mapping and material seam contract | Voxels/Rendering and portable tests | MAT-01 | Canonical LOD, face seams, unaffected edit and rebase control points |
 | TEX-01 | Deterministic cooked metadata and offline importer | `Groundwork.Rendering/Textures` and corresponding portable tests | ADR-0010 accepted | Clean-run digest and bytes, bounded invalid input, layouts and interpretation |
-| TEX-02 | Bounded static D3D12 upload, bindings and fallback | Rendering.D3D12 and WARP tests | TEX-01 and RPA-02 | Readback, live state and stale binding rejection, pressure, held fence and device loss |
-| TEX-03 | Bounded mip promotion, demotion and physical eviction | Rendering.D3D12 and diagnostics tests | TEX-02, #88 | Actual allocated high-water and reclamation, usable-mip progress under mixed pressure |
-| INT-01 | Textured voxel/PBR fixture and minimal near/orbit runtime bindings | Rendering/Voxels/Windows code and tests | RPA-02, MAT-02, MAT-03 and TEX-02 | Validated passes, combined shadows/materials, held older binding, canonical handoff and hardware evidence |
+| TEX-02 | Bounded static D3D12 upload, bindings and fallback | Rendering.D3D12 and WARP tests | TEX-01 and RPA-02 | Readback, native descriptor preflight, slot-version rejection, paused copy retirement, pressure and device loss |
+| TEX-03 | Bounded mip promotion, demotion and physical eviction | Rendering.D3D12 and diagnostics tests | TEX-02, #88 | Actual allocated high-water and legal BC1 tier reclamation, usable-mip progress under shared visual pressure |
+| INT-01 | Textured voxel/PBR fixture and minimal near/orbit runtime bindings | Rendering/Voxels/Windows code and tests | RPA-02, MAT-02, MAT-03 and TEX-02 | Validated passes, combined shadows/materials, held older binding, paused redraw, mixed-material canonical handoff and hardware evidence |
 
 The first three packages own disjoint source and test directories within the existing portable Rendering and Rendering.Tests projects. MAT-01 consumes the documented cooked identity syntax without a code dependency on the TEX-01 importer. No shared project, lock, package or solution edits for those slices without coordination. Keep MAT-02 shader changes separate from native state work in RPA-02, and serialize later native edits when their owned files overlap.
 
