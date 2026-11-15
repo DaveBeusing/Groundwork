@@ -150,7 +150,7 @@ public sealed partial class D3D12Renderer
             if (retry is { } waiting && (!CanRetryFirstContent(waiting.Frame) ||
                 waiting.IsExpired(Stopwatch.GetTimestamp(), _operationTimeout)))
             {
-                SettleRejectedRegistration(waiting.Frame);
+                SettleRejectedRegistration(gpu, waiting.Frame);
                 if (current?.Sequence == waiting.Frame.Frame)
                 {
                     current = null;
@@ -255,7 +255,7 @@ public sealed partial class D3D12Renderer
             if (!CanDrawVolume(frame))
             {
                 if (GetUnpresentedRegistration(frame) is { } revoked)
-                    SettleRejectedRegistration(revoked);
+                    SettleRejectedRegistration(gpu, revoked);
                 retry = null;
                 redraw = false;
                 continue;
@@ -295,7 +295,7 @@ public sealed partial class D3D12Renderer
                     else
                     {
                         if (firstContent is not null)
-                            SettleRejectedRegistration(firstContent);
+                            SettleRejectedRegistration(gpu, firstContent);
                         retry = null;
                         redraw = false;
                     }

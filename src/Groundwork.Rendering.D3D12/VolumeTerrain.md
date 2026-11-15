@@ -39,8 +39,8 @@ cells and metadata in its mapped arena before a prop draw.
 A rejected first-content recording that has never executed retains one exact
 registration. The owner retries on an eligible wake, up to three rejections
 and within the operation timeout. Idle and suspended waits honor the same
-monotonic deadline. Settlement drops the retained registration and sends Core
-one recovery request. At a later finalized BeginTick, Core checks that the
+monotonic deadline. Settlement releases the idle native mesh before the
+retained reader and sends Core one recovery request. At a later finalized BeginTick, Core checks that the
 registration still identifies the current root and view before advancing the
 view within the same renderer epoch. The host uses the new view to request a
 mask and prepare the same terrain revision through the existing recovery lane.

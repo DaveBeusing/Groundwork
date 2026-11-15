@@ -66,15 +66,22 @@ public sealed partial class PresentationSmokeTests
         var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
         var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
         var rejection = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var device = new TaskCompletionSource<GpuDevice>(TaskCreationOptions.RunContinuationsAsynchronously);
         var rejected = 0;
-        var hooks = new GpuRetirementTestHooks(RejectPreparedPlan: sequence =>
-        {
-            if (sequence != 2)
-                return false;
-            Interlocked.Increment(ref rejected);
-            rejection.TrySetResult();
-            return true;
-        });
+        var hooks = new GpuRetirementTestHooks(
+            SignalFailure: (gpu, _) =>
+            {
+                device.TrySetResult(gpu);
+                return null;
+            },
+            RejectPreparedPlan: sequence =>
+            {
+                if (sequence != 2)
+                    return false;
+                Interlocked.Increment(ref rejected);
+                rejection.TrySetResult();
+                return true;
+            });
         await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork pass recovery {Guid.NewGuid():N}", 363, 281, 32),
             runtime.UiWake, runtime.RuntimeOwnership);
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1, QualificationDiagnostics,
@@ -101,6 +108,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
                 renderer.TrySubmitVolumeCamera(generation, 3, VolumeCameraAt(view, 32, 5)));
             await AwaitStatus(renderer, _ => run.Terrain.Statistics.Readers == 0, token);
+            Assert.AreEqual(0, (await device.Task.WaitAsync(token)).LiveMeshBuffers);
             Assert.IsLessThan(FirstContentRetry.MaximumRejections, Volatile.Read(ref rejected),
                 "Recovery must result from the deadline even when eligible retry wakes do not reach the attempt limit.");
             Assert.AreEqual(1UL, renderer.Read().LastPresentedSequence);

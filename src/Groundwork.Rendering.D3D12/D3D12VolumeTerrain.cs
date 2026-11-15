@@ -527,13 +527,20 @@ public sealed partial class D3D12Renderer
             return VolumeAdmissionOpen && ReferenceEquals(_volumeInstalled, registration) && _volume!.IsCurrentFrame(registration);
     }
 
-    private void SettleRejectedRegistration(VolumeFrameRegistration registration)
+    private void SettleRejectedRegistration(GpuDevice gpu, VolumeFrameRegistration registration)
     {
         lock (_volumeGate)
         {
             if (!ReferenceEquals(_volumeInstalled, registration))
                 return;
 
+            if (!gpu.IsIdle)
+                throw new InvalidOperationException("The rejected frame's native custody has not settled.");
+
+            // Release the matched native allocation before its Core reader and credit.
+            // Its geometry never executes on the retry path and cannot be drawn again.
+            gpu.ActiveMeshGeometry?.Dispose();
+            gpu.ActiveMeshGeometry = null;
             // Core compares the exact current registration under its own gate. A newer
             // view never loses authority because a previously rejected frame settled.
             _volume!.TryRequestFrameRecovery(_volumeAuthority!, registration);
