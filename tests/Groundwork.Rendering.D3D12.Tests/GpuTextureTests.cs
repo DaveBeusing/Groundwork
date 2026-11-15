@@ -129,10 +129,23 @@ public sealed unsafe class GpuTextureTests
             Assert.AreEqual(before, gpu.TextureStatistics);
             AssertCenter(gpu, 3, 255, 0, 0);
 
+            beforeSignals = signals;
+            gpu.TexturePreparationFailureForTests = step =>
+                step == GpuTexturePreparationStep.Close ? outOfMemory : null;
+            Assert.IsFalse(gpu.TrySubmitTexture(green, 1, requirements, out unsubmitted));
+            Assert.AreEqual(default, unsubmitted);
+            Assert.IsFalse(gpu.HasTextureCopy);
+            Assert.IsTrue(gpu.IsIdle);
+            Assert.AreEqual(beforeSignals, signals);
+            Assert.AreEqual(before.NativeBytes, gpu.TextureStatistics.NativeBytes);
+            Assert.AreEqual(before.UploadedBytes, gpu.TextureStatistics.UploadedBytes);
+            Assert.AreEqual(0L, gpu.TextureStatistics.StagingBytes);
+            AssertCenter(gpu, 4, 255, 0, 0);
+
             gpu.TexturePreparationFailureForTests = null;
             var replacement = Upload(gpu, green);
             Assert.IsTrue(gpu.SetFrameTexture(replacement, 1));
-            AssertCenter(gpu, 4, 0, 255, 0);
+            AssertCenter(gpu, 5, 0, 255, 0);
             VerifyCombinedShadowAndTexture(gpu);
             Assert.IsTrue(gpu.TryReleaseTexture(predecessor));
             Assert.IsTrue(gpu.TryReleaseTexture(replacement));

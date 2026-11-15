@@ -16,7 +16,7 @@ internal readonly record struct GpuFrameTextureImport(RenderResourceFormat Forma
 internal readonly record struct GpuTextureStatistics(long NativeBytes, long StagingBytes, long NativePeakBytes,
     ulong UploadedBytes);
 
-internal enum GpuTexturePreparationStep { Pipeline, Destination }
+internal enum GpuTexturePreparationStep { Pipeline, Destination, Close }
 
 internal sealed unsafe partial class GpuDevice
 {
@@ -174,24 +174,7 @@ internal sealed unsafe partial class GpuDevice
             descriptorWritten = true;
             var entry = new TextureEntry(candidate, destination, import, actual.TextureAllocationBytes);
 
-            Check(context.Allocator->Reset(), "Reset texture copy allocator");
-            Check(context.Commands->Reset(context.Allocator, null), "Reset texture copy command list");
-            var source = new D3D12_TEXTURE_COPY_LOCATION
-            {
-                pResource = staging,
-                Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT,
-            };
-            source.PlacedFootprint = footprint;
-            var target = new D3D12_TEXTURE_COPY_LOCATION
-            {
-                pResource = destination,
-                Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX,
-            };
-            context.Commands->CopyTextureRegion(&target, 0, 0, 0, &source, null);
-            Transition(context.Commands, destination, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-            Check(context.Commands->Close(), "Close texture copy command list");
-            if (authorize?.Invoke() == false)
+            if (!TryRecordTextureCopy(context, staging, destination, footprint) || authorize?.Invoke() == false)
                 return false;
 
             var retire = BeginQueueWork();
@@ -216,6 +199,41 @@ internal sealed unsafe partial class GpuDevice
                 WriteTextureSrv(null, description.Format, (uint)slot + FirstTextureDescriptor);
             Release(destination);
             Release(staging);
+        }
+    }
+
+    private bool TryRecordTextureCopy(Frame context, ID3D12Resource* staging, ID3D12Resource* destination,
+        D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint)
+    {
+        try
+        {
+            Check(context.Allocator->Reset(), "Reset texture copy allocator");
+            Check(context.Commands->Reset(context.Allocator, null), "Reset texture copy command list");
+            var source = new D3D12_TEXTURE_COPY_LOCATION
+            {
+                pResource = staging,
+                Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_PLACED_FOOTPRINT
+            };
+            source.PlacedFootprint = footprint;
+            var target = new D3D12_TEXTURE_COPY_LOCATION
+            {
+                pResource = destination,
+                Type = D3D12_TEXTURE_COPY_TYPE.D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX
+            };
+            context.Commands->CopyTextureRegion(&target, 0, 0, 0, &source, null);
+            Transition(context.Commands, destination, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST,
+                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
+            var failure = TexturePreparationFailureForTests?.Invoke(GpuTexturePreparationStep.Close);
+            Check(failure is { } injected ? new(injected) : context.Commands->Close(), "Close texture copy command list");
+            return true;
+        }
+        catch (GpuNativeException error) when (error.HResult == TextureOutOfMemory && !IsRemoved && IsIdle)
+        {
+            // D3D12 cannot reset a command list after Close fails. The whole
+            // dedicated copy context is private and has never submitted this list.
+            _textureCopyContext = null;
+            context.Dispose();
+            return false;
         }
     }
 
