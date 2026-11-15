@@ -79,6 +79,25 @@ public sealed class PlanetTriplanarMappingTests
     }
 
     [TestMethod]
+    public void TriangleAnchorFitsExactWindowAndRejectsOversizedOrbitPrimitives()
+    {
+        var first = Map(new(-1024, 0, 0));
+        var second = Map(new(1024, 0, 0));
+        var third = Map(new(0, 2, -2));
+        Assert.IsTrue(PlanetTriplanarMapping.TryGetTriangleAnchor(first, second, third, out var anchor));
+        Assert.IsTrue(PlanetTriplanarMapping.TryGetTriangleAnchor(third, second, first, out var reordered));
+        Assert.AreEqual(anchor, reordered);
+        Assert.AreEqual(-(float)PlanetTriplanarMapping.MaximumLocalTexels, PlanetTriplanarMapping.ToLocalTexels(first, anchor).X);
+        Assert.AreEqual((float)PlanetTriplanarMapping.MaximumLocalTexels, PlanetTriplanarMapping.ToLocalTexels(second, anchor).X);
+        Assert.IsFalse(PlanetTriplanarMapping.TryGetTriangleAnchor(first, Map(new(1024.015625, 0, 0)), third, out _));
+
+        var patch = BuildPatch(new(PlanetFace.PositiveZ, 0, 0, 0), PlanetDescriptor.MaximumRadiusMeters);
+        PlanetTriplanarPoint Control(int u, int v) => Map(Find(patch, PlanetCoordinates.Sample(patch.Patch, u, v)));
+        Assert.IsFalse(PlanetTriplanarMapping.TryGetTriangleAnchor(Control(8, 8), Control(9, 8), Control(8, 9), out _),
+            "The coarse orbit primitive requires the documented untextured fallback.");
+    }
+
+    [TestMethod]
     public void VolumeDecompositionKeepsFractionalCellsWhenGlobalCellMagnitudeExceedsDoubleIntegerPrecision()
     {
         var size = Math.ScaleB(1, -29);

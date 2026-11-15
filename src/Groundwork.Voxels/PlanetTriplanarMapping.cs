@@ -45,6 +45,7 @@ public static class PlanetTriplanarMapping
     public const double PositionToleranceTexels = 1.0 / 128;
 
     private const int MetersPerRepeat = TexelsPerRepeat / TexelsPerMeter;
+    private const int LocalRepeatWindow = MaximumLocalTexels / TexelsPerRepeat;
 
     /// <summary>Splits an authoritative double position, such as an orbit patch sample.</summary>
     public static PlanetTriplanarPoint FromCanonical(PlanetVector position) =>
@@ -75,6 +76,24 @@ public static class PlanetTriplanarMapping
     /// </summary>
     public static Vector3 ToLocalTexels(PlanetTriplanarPoint point, PlanetTriplanarPoint anchor) =>
         new(Relative(point.X, anchor.X), Relative(point.Y, anchor.Y), Relative(point.Z, anchor.Z));
+
+    /// <summary>
+    /// Chooses a common whole-repeat anchor whose local interpolation window contains all
+    /// three points. If a coarse orbit triangle exceeds the window, use its untextured
+    /// material fallback. The canonical positions and palette inputs remain usable.
+    /// </summary>
+    public static bool TryGetTriangleAnchor(PlanetTriplanarPoint first, PlanetTriplanarPoint second,
+        PlanetTriplanarPoint third, out PlanetTriplanarPoint anchor)
+    {
+        anchor = default;
+        if (!TryAxisAnchor(first.X, second.X, third.X, out var x) ||
+            !TryAxisAnchor(first.Y, second.Y, third.Y, out var y) ||
+            !TryAxisAnchor(first.Z, second.Z, third.Z, out var z))
+            return false;
+
+        anchor = new(x, y, z);
+        return true;
+    }
 
     /// <summary>Projects a single sample directly from its split axes and whole-repeat anchor.</summary>
     public static PlanetTriplanarProjection Project(PlanetTriplanarPoint point, PlanetTriplanarPoint anchor,
@@ -108,6 +127,36 @@ public static class PlanetTriplanarMapping
     private static bool InNeighborhood(float value) => value is >= 0 and <= 2 * PlanetDescriptor.BrickEdge;
 
     private static bool InLocalWindow(float value) => value is >= -MaximumLocalTexels and <= MaximumLocalTexels;
+
+    private static bool TryAxisAnchor(PlanetTexelAxis first, PlanetTexelAxis second,
+        PlanetTexelAxis third, out PlanetTexelAxis anchor)
+    {
+        var firstIsEarlier = Earlier(first, second);
+        var minimum = firstIsEarlier ? first : second;
+        var maximum = firstIsEarlier ? second : first;
+        if (Earlier(third, minimum))
+            minimum = third;
+        if (Earlier(maximum, third))
+            maximum = third;
+
+        // Intersect the admissible whole-repeat anchors for the two extremes.
+        var lower = (Int128)maximum.Repeat - LocalRepeatWindow + (maximum.PhaseTexels > 0 ? 1 : 0);
+        var upper = (Int128)minimum.Repeat + LocalRepeatWindow;
+        if (lower < long.MinValue)
+            lower = long.MinValue;
+        if (upper > long.MaxValue)
+            upper = long.MaxValue;
+
+        anchor = default;
+        if (lower > upper)
+            return false;
+
+        anchor = new((long)((lower + upper) / 2), 0);
+        return true;
+    }
+
+    private static bool Earlier(PlanetTexelAxis left, PlanetTexelAxis right) =>
+        left.Repeat < right.Repeat || (left.Repeat == right.Repeat && left.PhaseTexels < right.PhaseTexels);
 
     private static PlanetTexelAxis FromLattice(long origin, float local, double cellSize)
     {
