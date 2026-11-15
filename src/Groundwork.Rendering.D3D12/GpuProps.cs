@@ -134,6 +134,10 @@ internal sealed unsafe partial class GpuDevice
             var draws = 0;
             if (count != 0)
             {
+                ObserveUse(target.Buffer);
+                ObserveUse(_depth);
+                ObserveUse(_propData);
+                ObserveUse(_propGeometry);
                 var fogDepth = scene.Fog is { MaxOpacity: > 0 } fog ? GetFogDepthConstants(fog) : Vector4.Zero;
                 var fogColor = scene.Fog is { } f ? new Vector4(f.Color, f.MaxOpacity) : Vector4.Zero;
                 var constants = new DrawConstants(projection, scene.Tint, fogColor, fogDepth, default, default, default);
@@ -200,8 +204,10 @@ internal sealed unsafe partial class GpuDevice
             throw new GpuNativeException("Prop native allocation exceeds 64 MiB", unchecked((int)0x8007000E));
 
         _propData = CreateResource(_device, _meshUploadHeap, data, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        ObserveResource(_propData, D3D12ResourceOwner.Props, dataBytes);
         PropInitializationForTests?.Invoke();
         _propGeometry = CreateResource(_device, _meshUploadHeap, geometry, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        ObserveResource(_propGeometry, D3D12ResourceOwner.Props, geometryBytes);
         _propMapped = MapProp(_propData);
         _propGeometryMapped = MapProp(_propGeometry);
         _propNativeBytes = (long)(dataBytes + geometryBytes);
@@ -462,8 +468,8 @@ internal sealed unsafe partial class GpuDevice
             _propData->Unmap(0, null);
         if (_propGeometryMapped != null)
             _propGeometry->Unmap(0, null);
-        Release(_propData);
-        Release(_propGeometry);
+        ReleaseObservedResource(_propData);
+        ReleaseObservedResource(_propGeometry);
         Release(_propPipeline);
         Release(_propRoot);
         _propMapped = null;

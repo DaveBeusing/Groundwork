@@ -160,6 +160,12 @@
       "groundwork.core": {
         "type": "Project"
       },
+      "groundwork.diagnostics": {
+        "type": "Project",
+        "dependencies": {
+          "Groundwork.Core": "[0.1.0, )"
+        }
+      },
       "groundwork.jobs": {
         "type": "Project",
         "dependencies": {

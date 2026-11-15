@@ -114,6 +114,7 @@ internal sealed unsafe partial class GpuDevice
                 throw new InvalidOperationException("The native copy footprints do not cover the declared color and depth rows.");
             _buffer = CreateResource(device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_READBACK,
                 Buffer(_bytes), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
+            owner.ObserveResource(_buffer, D3D12ResourceOwner.Readback);
         }
 
         internal bool Matches(GpuDevice owner, GpuTarget target) =>
@@ -131,15 +132,18 @@ internal sealed unsafe partial class GpuDevice
 
         internal void Record(ID3D12GraphicsCommandList* commands, ID3D12Resource* color, ID3D12Resource* depth)
         {
-            Transition(commands, color, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET,
+            _owner.ObserveUse(color);
+            _owner.ObserveUse(depth);
+            _owner.ObserveUse(_buffer);
+            _owner.RecordTransition(commands, color, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE);
-            Transition(commands, depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
+            _owner.RecordTransition(commands, depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE);
             Copy(commands, color, _color);
             Copy(commands, depth, _depth);
-            Transition(commands, color, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE,
+            _owner.RecordTransition(commands, color, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT);
-            Transition(commands, depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE,
+            _owner.RecordTransition(commands, depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_SOURCE,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
         }
 
@@ -188,7 +192,7 @@ internal sealed unsafe partial class GpuDevice
 
         public void Dispose()
         {
-            Release(_buffer);
+            _owner.ReleaseObservedResource(_buffer);
             _buffer = null;
         }
     }

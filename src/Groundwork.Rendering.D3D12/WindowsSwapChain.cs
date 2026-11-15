@@ -98,10 +98,16 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         // DXGI queues presentation on the same command queue after the draw fence.
         // Buffer release and resize must also wait for that queue work to retire.
         var retirement = _gpu.BeginQueueWork();
+        if (_gpu.HasResourceDiagnostics)
+            _gpu.ObservePresentStart(retirement, CurrentBuffer);
         var result = _gpu.InjectedPresentFailure() is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
         var signal = _gpu.SignalQueueWork(retirement);
+        if (signal.Value >= 0)
+            _gpu.ObservePresentSignal(retirement);
         var outcome = ClassifyPresent(result);
         GpuNative.Check(signal, "Signal presentation queue");
+        if (outcome == PresentResult.Presented)
+            _gpu.ObservePresented(retirement);
         return outcome;
     }
 

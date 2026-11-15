@@ -165,6 +165,7 @@ internal sealed unsafe partial class GpuDevice
     {
         _cubeGeometry = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD,
             Buffer(VertexCount * VertexStride), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        ObserveResource(_cubeGeometry, D3D12ResourceOwner.Terrain);
         var unread = new D3D12_RANGE();
         void* mapped = null;
         Check(_cubeGeometry->Map(0, &unread, &mapped), "Map cube vertices");
@@ -210,11 +211,15 @@ internal sealed unsafe partial class GpuDevice
     {
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
+        _resourceDiagnostics?.BeginRecording();
         foreach (var pass in plan.Passes.AsSpan())
         {
+            _resourceDiagnostics?.BeginPass(pass.Id);
             if (pass.Id == GpuPassPlan.Clear)
             {
-                Transition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT,
+                ObserveUse(target.Buffer);
+                ObserveUse(_depth);
+                RecordTransition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT,
                     D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET);
                 var clear = frame.ClearColor;
                 commands->ClearRenderTargetView(rtv, (float*)&clear, 0, null);
@@ -224,6 +229,7 @@ internal sealed unsafe partial class GpuDevice
                 RecordShadowCascade(commands, shadows, pass.Id == GpuPassPlan.NearShadow ? 0U : 1U);
             else if (pass.Id == GpuPassPlan.Sky)
             {
+                ObserveUse(target.Buffer);
                 BindFrameTargets(commands, target, rtv, dsv);
                 DrawSky(commands, target, frame.Sky!.Value);
             }
@@ -241,8 +247,9 @@ internal sealed unsafe partial class GpuDevice
                 readback!.Record(commands, target.Buffer, _depth);
             else if (pass.Id == GpuPassPlan.Present)
             {
+                ObserveUse(target.Buffer);
                 if (readback is null)
-                    Transition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET,
+                    RecordTransition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET,
                         D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT);
             }
             else if (pass.Id != GpuPassPlan.Readback)
@@ -282,6 +289,16 @@ internal sealed unsafe partial class GpuDevice
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ShadowConstants shadows = default)
     {
+        if (_resourceDiagnostics is not null)
+        {
+            ObserveUse(target.Buffer);
+            ObserveUse(_depth);
+            ObserveUse(ActiveMeshGeometry is { } mesh ? mesh.Resource : _cubeGeometry);
+            if (shadows.Near.W != 0)
+                ObserveUse(_nearShadow);
+            if (shadows.Far.W != 0)
+                ObserveUse(_farShadow);
+        }
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
         var fogColorOpacity = Vector4.Zero;

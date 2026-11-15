@@ -50,6 +50,7 @@ internal sealed unsafe partial class GpuDevice
                 Texture(ShadowSize, ShadowSize, DXGI_FORMAT.DXGI_FORMAT_R32_TYPELESS,
                     D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE, &clear);
+            ObserveResource(texture, D3D12ResourceOwner.Shadow);
             var dsv = new D3D12_DEPTH_STENCIL_VIEW_DESC
             {
                 Format = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT,
@@ -123,7 +124,9 @@ internal sealed unsafe partial class GpuDevice
             return;
         var map = index == 0 ? _nearShadow : _farShadow;
         var (basis, cascade, min, inverseDepth) = index == 0 ? work.Near : work.Far;
-        Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        ObserveUse(map);
+        ObserveUse(work.Mesh!.Resource);
+        RecordTransition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
         var handle = ShadowDsv(index);
         commands->ClearDepthStencilView(handle, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
@@ -142,7 +145,7 @@ internal sealed unsafe partial class GpuDevice
             -cascade.Area.X * cascade.Area.Z, -cascade.Area.Y * cascade.Area.Z, -min * inverseDepth, 1);
         commands->SetGraphicsRoot32BitConstants(0, 16, &transform, 0);
         work.Mesh!.DrawShadow(commands, basis, cascade);
-        Transition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
+        RecordTransition(commands, map, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
 
@@ -182,8 +185,8 @@ internal sealed unsafe partial class GpuDevice
         Release(_shadowDepthPipeline);
         Release(_shadowColorRoot);
         Release(_shadowDepthRoot);
-        Release(_nearShadow);
-        Release(_farShadow);
+        ReleaseObservedResource(_nearShadow);
+        ReleaseObservedResource(_farShadow);
         Release(_shadowSrv);
         Release(_shadowDsv);
         _shadowNormalPipeline = _shadowColorPipeline = _shadowDepthPipeline = null;

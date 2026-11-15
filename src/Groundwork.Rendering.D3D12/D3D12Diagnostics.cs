@@ -3,7 +3,11 @@ namespace Groundwork.Rendering.D3D12;
 /// <summary>Optional native diagnostics applied before creating the Direct3D 12 device.</summary>
 /// <remarks>Windows Graphics Tools provides the debug layer. These native settings apply to the process.
 /// Request them before creating any Direct3D 12 device, including devices outside this provider.</remarks>
-public readonly record struct D3D12DiagnosticsOptions(bool EnableDebugLayer = false, bool EnableDred = false);
+public readonly record struct D3D12DiagnosticsOptions(bool EnableDebugLayer = false, bool EnableDred = false)
+{
+    /// <summary>Publish a bounded per-pass GPU backing and fence snapshot for host observation.</summary>
+    public bool EnableResourceSnapshots { get; init; }
+}
 
 /// <summary>The DXGI adapter selected by the renderer. Driver version is optional.</summary>
 public sealed record D3D12AdapterInfo(string Description, uint VendorId, uint DeviceId, bool IsSoftware, string? DriverVersion);

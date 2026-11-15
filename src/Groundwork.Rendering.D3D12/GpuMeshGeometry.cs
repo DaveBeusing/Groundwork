@@ -41,6 +41,7 @@ internal sealed unsafe partial class GpuDevice
         var allocationBytes = (long)allocation.SizeInBytes;
         var resource = CreateResource(_device, _meshUploadHeap,
             description, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        ObserveResource(resource, D3D12ResourceOwner.Terrain, allocation.SizeInBytes);
         Interlocked.Add(ref _liveMeshBytes, allocationBytes);
         Interlocked.Increment(ref _liveMeshBuffers);
         try
@@ -56,7 +57,7 @@ internal sealed unsafe partial class GpuDevice
 
     private void ReleaseMeshBuffer(ID3D12Resource* resource, long allocationBytes)
     {
-        Release(resource);
+        ReleaseObservedResource(resource);
         Interlocked.Add(ref _liveMeshBytes, -allocationBytes);
         Interlocked.Decrement(ref _liveMeshBuffers);
     }
@@ -133,6 +134,7 @@ internal sealed unsafe partial class GpuDevice
         private readonly PackedMesh[] _packed;
         private readonly long _allocationBytes;
         private ID3D12Resource* _resource;
+        internal ID3D12Resource* Resource => _resource;
         internal int PackedBytes { get; }
 
         internal bool HasLiveBinding(GpuDevice owner) =>

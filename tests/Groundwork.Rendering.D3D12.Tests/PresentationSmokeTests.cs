@@ -276,14 +276,14 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(0, messages.LiveChildObjects);
     }
 
-    private static RuntimeSafetyAuthority CreateRuntime(RuntimeTimingLimits timing)
+    private static RuntimeSafetyAuthority CreateRuntime(RuntimeTimingLimits timing, int runtimeDiagnosticRecords = 0)
     {
         var quota = new ResourceQuota(1, 8, new JobQuota(2, 1, 2, 2, 2, 2, 2, 4096, 4096, 4096),
             new DiagnosticQuota(4, 8192, 12, 32768, 4, 4, 64, 1024));
         var budget = new ProcessResourceBudget(new ProcessResourceLimits(1, quota));
         using var reservation = budget.TryReserveRuntime(quota);
         Assert.IsNotNull(reservation);
-        return RuntimeSafetyAuthority.Create(TimeProvider.System, timing, reservation);
+        return RuntimeSafetyAuthority.Create(TimeProvider.System, timing, reservation, runtimeDiagnosticRecords);
     }
 
     private sealed class TrackingReporter(IFaultReporter inner, bool reject) : IFaultReporter
