@@ -138,7 +138,7 @@ public sealed partial class D3D12Renderer
     internal Lock? RecordedTextureGate => _textureFrameTicket.HasValue ? _textures!.Gate : null;
 
     internal bool RecordedTextureIsCurrent() => _textureFrameTicket is not { } ticket ||
-        _textures!.IsCurrent(ticket, _textureFrameView);
+        _textures!.TryGetDrawableResident(_textureFrameView, out var selected) && selected == ticket;
 
     internal void ClearFrameTexture(GpuDevice gpu)
     {

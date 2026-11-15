@@ -36,6 +36,7 @@ public sealed partial class PresentationSmokeTests
         var lateDrawSignals = 0;
         var latePublications = 0;
         var activeCut = default(D3D12TextureView);
+        var highTarget = default(D3D12TextureTarget);
         var lateTarget = default(D3D12TextureTarget);
         var rejectedHead = 0;
         var takes = 0;
@@ -68,7 +69,7 @@ public sealed partial class PresentationSmokeTests
             RejectRecordedPlan: sequence =>
             {
                 if (sequence == 4 && Interlocked.Increment(ref latePublications) == 1)
-                    Assert.IsTrue(stream.Publish(activeCut, 3, [lateTarget]));
+                    Assert.IsTrue(stream.Publish(activeCut, 3, [highTarget, lateTarget]));
                 return false;
             });
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
@@ -123,10 +124,11 @@ public sealed partial class PresentationSmokeTests
 
             var firstTexture = MakeStaticColor(255, 0);
             var replacement = MakeStaticColor(0, 255);
-            var slot = new D3D12TextureSlot(1, MaterialTextureSemantic.BaseColor);
-            var staleSlot = new D3D12TextureSlot(2, MaterialTextureSemantic.Emissive);
+            var slot = new D3D12TextureSlot(2, MaterialTextureSemantic.BaseColor);
+            var staleSlot = new D3D12TextureSlot(3, MaterialTextureSemantic.Emissive);
             var firstTarget = new D3D12TextureTarget(slot, 1, new(slot.Semantic, firstTexture.AssetId));
             var nextTarget = new D3D12TextureTarget(slot, 2, new(slot.Semantic, replacement.AssetId));
+            highTarget = nextTarget;
             var staleTarget = new D3D12TextureTarget(staleSlot, 1, new(staleSlot.Semantic, firstTexture.AssetId));
             var reserve = new D3D12TextureReservation(256, 256, 256, 128 * 1024, 128 * 1024);
             Assert.IsTrue(stream.Publish(cut, 1, [staleTarget, firstTarget]));
@@ -175,9 +177,10 @@ public sealed partial class PresentationSmokeTests
             await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
             Assert.AreEqual(copied, renderer.ReadTextureDiagnostics());
 
-            // Supersede the binding after the list closes and hold the separate
-            // post-Present fence for the resulting terrain-only submission.
-            lateTarget = new(slot, 3, new(slot.Semantic, firstTexture.AssetId));
+            // Declaring a lower-priority-number BaseColor after Close changes the
+            // draw selection even though the captured higher slot is still resident.
+            var lowerSlot = new D3D12TextureSlot(1, MaterialTextureSemantic.BaseColor);
+            lateTarget = new(lowerSlot, 1, new(lowerSlot.Semantic, firstTexture.AssetId));
             assigned = new(TaskCreationOptions.RunContinuationsAsynchronously);
             Volatile.Write(ref heldFence, 0);
             Volatile.Write(ref hold, 1);
@@ -188,6 +191,8 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(1, Volatile.Read(ref latePublications));
             Assert.AreEqual(2, Volatile.Read(ref lateDrawSignals));
             Assert.AreEqual(1, stream.ReadUsage().Descriptors);
+            Assert.IsTrue(stream.TryGetResident(cut, slot, out var retained));
+            Assert.AreEqual(current, retained);
             Assert.IsFalse(lateFallback.Task.IsCompleted);
             Volatile.Write(ref holdLatePresent, 0);
             Volatile.Write(ref hold, 0);
