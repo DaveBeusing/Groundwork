@@ -16,6 +16,8 @@ internal readonly record struct GpuFrameTextureImport(RenderResourceFormat Forma
 internal readonly record struct GpuTextureStatistics(long NativeBytes, long StagingBytes, long NativePeakBytes,
     ulong UploadedBytes);
 
+internal enum GpuTexturePreparationStep { Pipeline, Destination }
+
 internal sealed unsafe partial class GpuDevice
 {
     internal const int MaxTextureSlots = 32;
@@ -23,6 +25,8 @@ internal sealed unsafe partial class GpuDevice
     private const uint ShadowDescriptors = 2;
     // Slot two is permanently reserved for the untextured fallback.
     private const uint FirstTextureDescriptor = ShadowDescriptors + 1;
+    private const int TextureOutOfMemory = unchecked((int)0x8007000E);
+    private const int TextureUnsupported = unchecked((int)0x887A0004);
     private static long _nextTextureDeviceId;
     private long _textureDeviceId;
     private ulong _textureGeneration;
@@ -40,6 +44,7 @@ internal sealed unsafe partial class GpuDevice
 
     internal GpuTextureStatistics TextureStatistics { get; private set; }
     internal bool HasTextureCopy => _pendingTextureSlot >= 0;
+    internal Func<GpuTexturePreparationStep, int?>? TexturePreparationFailureForTests;
 
     internal bool TryGetTextureRequirements(CookedTexture texture, out GpuTextureRequirements requirements) =>
         TryDescribeTexture(texture, out requirements, out _, out _, out _, out _);
@@ -139,21 +144,34 @@ internal sealed unsafe partial class GpuDevice
         if (_textureDeviceId == 0)
             _textureDeviceId = Interlocked.Increment(ref _nextTextureDeviceId);
         var candidate = new GpuTextureIdentity(_textureDeviceId, rendererEpoch, slot, checked(++_textureGeneration));
-        EnsureTexturePipeline();
-        var context = _textureCopyContext ??= new Frame();
-        if (context.Commands == null)
-            context.Initialize(_device);
-
         ID3D12Resource* staging = null;
         ID3D12Resource* destination = null;
+        var descriptorWritten = false;
         try
         {
-            staging = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD, Buffer((ulong)actual.StagingBytes),
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
-            destination = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, description,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
-            FillTextureUpload(staging, texture, footprint.Footprint.RowPitch, rows);
+            Frame context;
+            try
+            {
+                EnsureTexturePipeline();
+                context = EnsureTextureCopyContext();
+                staging = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD, Buffer((ulong)actual.StagingBytes),
+                    D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+                ObserveTextureAllocationPeak(actual.StagingAllocationBytes);
+                Check(TexturePreparationFailureForTests?.Invoke(GpuTexturePreparationStep.Destination) ?? 0,
+                    "Prepare texture destination");
+                destination = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, description,
+                    D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
+                ObserveTextureAllocationPeak(actual.StagingAllocationBytes + actual.TextureAllocationBytes);
+                FillTextureUpload(staging, texture, footprint.Footprint.RowPitch, rows);
+            }
+            catch (GpuNativeException error) when (error.HResult is (TextureOutOfMemory or TextureUnsupported) &&
+                !IsRemoved && IsIdle)
+            {
+                // Allocation and feature exhaustion here affect only the optional ticket.
+                return false;
+            }
             WriteTextureSrv(destination, description.Format, (uint)slot + FirstTextureDescriptor);
+            descriptorWritten = true;
             var entry = new TextureEntry(candidate, destination, import, actual.TextureAllocationBytes);
 
             Check(context.Allocator->Reset(), "Reset texture copy allocator");
@@ -183,7 +201,7 @@ internal sealed unsafe partial class GpuDevice
             destination = staging = null;
             var nativeBytes = TextureStatistics.NativeBytes + actual.TextureAllocationBytes;
             TextureStatistics = new(nativeBytes, actual.StagingAllocationBytes,
-                Math.Max(TextureStatistics.NativePeakBytes, nativeBytes + actual.StagingAllocationBytes),
+                TextureStatistics.NativePeakBytes,
                 TextureStatistics.UploadedBytes + (ulong)actual.PayloadBytes);
             var commands = (ID3D12CommandList*)context.Commands;
             _queue->ExecuteCommandLists(1, &commands);
@@ -194,10 +212,37 @@ internal sealed unsafe partial class GpuDevice
         }
         finally
         {
-            if (destination != null)
+            if (descriptorWritten && destination != null)
                 WriteTextureSrv(null, description.Format, (uint)slot + FirstTextureDescriptor);
             Release(destination);
             Release(staging);
+        }
+    }
+
+    private void ObserveTextureAllocationPeak(long candidateBytes)
+    {
+        TextureStatistics = TextureStatistics with
+        {
+            NativePeakBytes = Math.Max(TextureStatistics.NativePeakBytes, TextureStatistics.NativeBytes + candidateBytes)
+        };
+    }
+
+    private Frame EnsureTextureCopyContext()
+    {
+        if (_textureCopyContext is { } context)
+            return context;
+
+        var created = new Frame();
+        try
+        {
+            created.Initialize(_device);
+            _textureCopyContext = created;
+            return created;
+        }
+        catch
+        {
+            created.Dispose();
+            throw;
         }
     }
 
@@ -275,11 +320,21 @@ internal sealed unsafe partial class GpuDevice
         if (_textureRoot != null)
             return;
         EnsureFrameSrv();
-        _textureRoot = CreateFrameRoot(60, texture: true);
-        _texturePipeline = CreateFramePipeline(_textureRoot, sky: false, texture: true);
-        _textureNormalPipeline = CreateFramePipeline(_textureRoot, sky: false, normals: true, texture: true);
-        _textureShadowPipeline = CreateFramePipeline(_textureRoot, sky: false, shadow: true, texture: true);
-        _textureShadowNormalPipeline = CreateFramePipeline(_textureRoot, sky: false, normals: true, shadow: true, texture: true);
+        try
+        {
+            _textureRoot = CreateFrameRoot(60, texture: true);
+            _texturePipeline = CreateFramePipeline(_textureRoot, sky: false, texture: true);
+            Check(TexturePreparationFailureForTests?.Invoke(GpuTexturePreparationStep.Pipeline) ?? 0,
+                "Prepare texture pipeline");
+            _textureNormalPipeline = CreateFramePipeline(_textureRoot, sky: false, normals: true, texture: true);
+            _textureShadowPipeline = CreateFramePipeline(_textureRoot, sky: false, shadow: true, texture: true);
+            _textureShadowNormalPipeline = CreateFramePipeline(_textureRoot, sky: false, normals: true, shadow: true, texture: true);
+        }
+        catch
+        {
+            ReleaseTexturePipelines();
+            throw;
+        }
     }
 
     private void EnsureFrameSrv()
@@ -292,8 +347,9 @@ internal sealed unsafe partial class GpuDevice
             NumDescriptors = FirstTextureDescriptor + MaxTextureSlots,
             Flags = D3D12_DESCRIPTOR_HEAP_FLAGS.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
         };
-        fixed (ID3D12DescriptorHeap** heap = &_shadowSrv)
-            Check(_device->CreateDescriptorHeap(&description, __uuidof<ID3D12DescriptorHeap>(), (void**)heap), "Create frame SRV heap");
+        ID3D12DescriptorHeap* heap = null;
+        Check(_device->CreateDescriptorHeap(&description, __uuidof<ID3D12DescriptorHeap>(), (void**)&heap), "Create frame SRV heap");
+        _shadowSrv = heap;
         for (uint i = 0; i < ShadowDescriptors; i++)
             WriteTextureSrv(null, DXGI_FORMAT.DXGI_FORMAT_R32_FLOAT, i);
         WriteTextureSrv(null, DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM, ShadowDescriptors);
@@ -335,6 +391,12 @@ internal sealed unsafe partial class GpuDevice
         _pendingTextureSlot = -1;
         _textureCopyFence = 0;
         _frameTexture = default;
+        ReleaseTexturePipelines();
+        TextureStatistics = TextureStatistics with { NativeBytes = 0, StagingBytes = 0 };
+    }
+
+    private void ReleaseTexturePipelines()
+    {
         Release(_textureShadowNormalPipeline);
         Release(_textureShadowPipeline);
         Release(_textureNormalPipeline);
@@ -342,7 +404,6 @@ internal sealed unsafe partial class GpuDevice
         Release(_textureRoot);
         _textureShadowNormalPipeline = _textureShadowPipeline = _textureNormalPipeline = _texturePipeline = null;
         _textureRoot = null;
-        TextureStatistics = TextureStatistics with { NativeBytes = 0, StagingBytes = 0 };
     }
 
     private sealed class TextureEntry(GpuTextureIdentity identity, ID3D12Resource* resource,

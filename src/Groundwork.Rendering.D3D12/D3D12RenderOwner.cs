@@ -108,6 +108,7 @@ public sealed partial class D3D12Renderer
             _initialGeometry = null;
             _props?.Close();
             CloseAdmission();
+            _textures?.Close();
             _ready.TrySetResult();
             SettleOwner(gpu, chain, target, lifetime, watchdog);
         }

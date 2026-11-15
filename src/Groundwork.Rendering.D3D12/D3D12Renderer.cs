@@ -278,8 +278,8 @@ public sealed partial class D3D12Renderer : IRenderer
 
     private void CloseAdmission()
     {
+        _textures?.Revoke();
         CloseVolumeAdmission();
-        _textures?.Close();
         lock (_lifecycle)
         {
             _admission.BeginStop();
@@ -295,6 +295,7 @@ public sealed partial class D3D12Renderer : IRenderer
 
     private void Finish()
     {
+        _textures?.Close();
         lock (_lifecycle)
         {
             _admission.BeginStop();
@@ -315,8 +316,8 @@ public sealed partial class D3D12Renderer : IRenderer
         if (Interlocked.CompareExchange(ref _primary, ExceptionDispatchInfo.Capture(error), null) is not null)
             return;
 
+        _textures?.Revoke();
         CloseVolumeAdmission();
-        _textures?.Close();
         lock (_lifecycle)
         {
             _admission.RecordTerminalFault(new RenderFaultSummary((uint)stage, error.HResult, removedReason, sequence));

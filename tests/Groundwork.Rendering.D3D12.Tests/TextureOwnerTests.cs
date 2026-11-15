@@ -27,16 +27,24 @@ public sealed partial class PresentationSmokeTests
         var red = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         var green = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
         var assigned = new TaskCompletionSource<ulong>(TaskCreationOptions.RunContinuationsAsynchronously);
+        using var readyBurst = new ManualResetEventSlim();
+        using var releaseSignal = new ManualResetEventSlim();
+        var staleTicket = default(D3D12TextureTicket);
+        var stoppedSignal = 0;
+        var rejectedHead = 0;
+        var takes = 0;
         var expectCopy = 0;
         var hold = 0;
         ulong heldFence = 0;
         var hooks = new GpuRetirementTestHooks(
-            SignalFailure: (_, fence) =>
+            SignalFailure: (device, fence) =>
             {
-                if (Interlocked.Exchange(ref expectCopy, 0) != 0)
+                if (device.HasTextureCopy && Interlocked.Exchange(ref expectCopy, 0) != 0)
                 {
                     Volatile.Write(ref heldFence, fence);
                     assigned.TrySetResult(fence);
+                    if (Volatile.Read(ref stoppedSignal) != 0)
+                        releaseSignal.Wait(token);
                 }
                 return null;
             },
@@ -48,6 +56,16 @@ public sealed partial class PresentationSmokeTests
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
             QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), null, hooks)
         {
+            BeforeTextureUploadForTests = (ticket, wake) =>
+            {
+                Interlocked.Increment(ref takes);
+                if (ticket != staleTicket)
+                    return;
+                readyBurst.Wait(token);
+                wake.WaitOne(0);
+                Assert.IsTrue(stream.Cancel(ticket));
+                Interlocked.Increment(ref rejectedHead);
+            },
             VolumePresentReadbackForTests = (sequence, _, pixels) =>
             {
                 if (sequence != 2)
@@ -85,16 +103,31 @@ public sealed partial class PresentationSmokeTests
             var firstTexture = MakeStaticColor(255, 0);
             var replacement = MakeStaticColor(0, 255);
             var slot = new D3D12TextureSlot(1, MaterialTextureSemantic.BaseColor);
+            var staleSlot = new D3D12TextureSlot(2, MaterialTextureSemantic.Emissive);
             var firstTarget = new D3D12TextureTarget(slot, 1, new(slot.Semantic, firstTexture.AssetId));
             var nextTarget = new D3D12TextureTarget(slot, 2, new(slot.Semantic, replacement.AssetId));
-            Assert.IsTrue(stream.Publish(cut, 1, [firstTarget]));
+            var staleTarget = new D3D12TextureTarget(staleSlot, 1, new(staleSlot.Semantic, firstTexture.AssetId));
+            var reserve = new D3D12TextureReservation(256, 256, 256, 128 * 1024, 128 * 1024);
+            Assert.IsTrue(stream.Publish(cut, 1, [staleTarget, firstTarget]));
             Volatile.Write(ref hold, 1);
             Volatile.Write(ref expectCopy, 1);
+            Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryRequest(cut, staleTarget, reserve, out staleTicket));
+            Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(staleTicket, firstTexture));
             Stage(firstTarget, firstTexture);
+            readyBurst.Set();
             await assigned.Task.WaitAsync(token);
+            Assert.AreEqual(1, Volatile.Read(ref rejectedHead));
             Assert.IsFalse(stream.TryGetResident(cut, slot, out _));
             Assert.IsFalse(red.Task.IsCompleted);
             Assert.IsGreaterThan(0L, stream.ReadUsage().StagingBytes);
+            // A precharged successor can wait behind a held copy without consuming
+            // another owner upload turn. Cancel it before releasing that fence.
+            Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryRequest(cut, staleTarget, reserve, out var blocked));
+            Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(blocked, firstTexture));
+            var beforePoll = Volatile.Read(ref takes);
+            await Task.Delay(40, token);
+            Assert.AreEqual(beforePoll, Volatile.Read(ref takes));
+            Assert.IsTrue(stream.Cancel(blocked));
 
             // No camera, producer, frame, or explicit owner wake follows this release.
             Volatile.Write(ref hold, 0);
@@ -120,6 +153,23 @@ public sealed partial class PresentationSmokeTests
             await AwaitStatus(renderer, state => state.LastPresentedSequence == 3, token);
             Assert.AreEqual(copied, renderer.ReadTextureDiagnostics());
 
+            assigned = new(TaskCreationOptions.RunContinuationsAsynchronously);
+            Volatile.Write(ref stoppedSignal, 1);
+            Volatile.Write(ref expectCopy, 1);
+            var stopTarget = new D3D12TextureTarget(slot, 3, new(slot.Semantic, firstTexture.AssetId));
+            Assert.IsTrue(stream.Publish(cut, 3, [stopTarget]));
+            Stage(stopTarget, firstTexture);
+            await assigned.Task.WaitAsync(token);
+            using var stopWait = new CancellationTokenSource();
+            var stop = Task.Run(() => renderer.StopAsync(stopWait.Token).AsTask(), token);
+            using (var stopTransition = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
+                await AwaitStatus(renderer, state => state.Lifecycle == RendererLifecycle.Stopping, stopTransition.Token);
+            stopWait.Cancel();
+            await Assert.ThrowsAsync<OperationCanceledException>(() => stop.WaitAsync(TimeSpan.FromSeconds(3), token));
+            Assert.IsGreaterThan(0L, stream.ReadUsage().StagingBytes);
+            Assert.AreEqual(D3D12TextureResult.Closed, stream.TryRequest(cut, stopTarget, reserve, out _));
+            releaseSignal.Set();
+            await AwaitStatus(renderer, state => state.Lifecycle == RendererLifecycle.Stopped, token);
             await renderer.StopAsync(token);
             Assert.AreEqual(default(D3D12TextureUsage), stream.ReadUsage());
             Assert.AreEqual(0L, renderer.ReadTextureDiagnostics().ResidentAndPendingBytes);
@@ -129,13 +179,14 @@ public sealed partial class PresentationSmokeTests
 
             void Stage(D3D12TextureTarget target, CookedTexture texture)
             {
-                var reserve = new D3D12TextureReservation(256, 256, 256, 128 * 1024, 128 * 1024);
                 Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryRequest(cut, target, reserve, out var ticket));
                 Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(ticket, texture));
             }
         }
         finally
         {
+            readyBurst.Set();
+            releaseSignal.Set();
             Volatile.Write(ref hold, 0);
             runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
         }

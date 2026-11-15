@@ -240,6 +240,10 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             return GpuFrameSubmitResult.Rejected;
                         if (RecordedPropsAreCurrent() && (owner is null || owner.RecordedTextureIsCurrent()))
                         {
+                            // The texture view is sealed for this submission. Only
+                            // this owner can release its exact native binding.
+                            textureGate?.Exit();
+                            textureGate = null;
                             var commands = (ID3D12CommandList*)context.Commands;
                             var next = BeginQueueWork();
                             _queue->ExecuteCommandLists(1, &commands);

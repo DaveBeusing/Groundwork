@@ -64,7 +64,8 @@ public sealed unsafe class GpuTextureTests
         Assert.IsFalse(gpu.TrySubmitTexture(texture, 2, requirements with { StagingAllocationBytes = 0 }, out _));
         Assert.IsFalse(gpu.TrySubmitTexture(texture, 2, requirements, out _, authorize: static () => false));
         Assert.AreEqual(0, signals);
-        Assert.AreEqual(default, gpu.TextureStatistics);
+        Assert.AreEqual(new GpuTextureStatistics(0, 0,
+            requirements.StagingAllocationBytes + requirements.TextureAllocationBytes, 0), gpu.TextureStatistics);
 
         Assert.IsTrue(gpu.TrySubmitTexture(texture, 2, requirements, out var submitted));
         Assert.AreEqual(1, signals);
@@ -89,11 +90,67 @@ public sealed unsafe class GpuTextureTests
     }
 
     [TestMethod]
+    public void WarpHealthyTexturePreparationFailuresKeepTerrainAndPredecessorDrawable()
+    {
+        const int unsupported = unchecked((int)0x887A0004);
+        const int outOfMemory = unchecked((int)0x8007000E);
+        var signals = 0;
+        var hooks = new GpuRetirementTestHooks(SignalFailure: (_, _) => { signals++; return null; });
+        var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true, retirementHooks: hooks);
+        using (gpu)
+        {
+            var red = Rgba(4, 4, TextureColorSpace.Linear, 255, 0, 0);
+            Assert.IsTrue(gpu.TryGetTextureRequirements(red, out var requirements));
+            gpu.TexturePreparationFailureForTests = step =>
+                step == GpuTexturePreparationStep.Pipeline ? unsupported : null;
+            Assert.IsFalse(gpu.TrySubmitTexture(red, 1, requirements, out var unsubmitted));
+            Assert.AreEqual(default, unsubmitted);
+            Assert.IsFalse(gpu.HasTextureCopy);
+            Assert.IsTrue(gpu.IsIdle);
+            Assert.AreEqual(0, signals);
+            Assert.AreEqual(default, gpu.TextureStatistics);
+            AssertCenter(gpu, 1, 255, 255, 255);
+
+            gpu.TexturePreparationFailureForTests = null;
+            var predecessor = Upload(gpu, red);
+            Assert.IsTrue(gpu.SetFrameTexture(predecessor, 1));
+            AssertCenter(gpu, 2, 255, 0, 0);
+
+            var before = gpu.TextureStatistics;
+            var beforeSignals = signals;
+            var green = Rgba(4, 4, TextureColorSpace.Linear, 0, 255, 0);
+            gpu.TexturePreparationFailureForTests = step =>
+                step == GpuTexturePreparationStep.Destination ? outOfMemory : null;
+            Assert.IsFalse(gpu.TrySubmitTexture(green, 1, requirements, out unsubmitted));
+            Assert.AreEqual(default, unsubmitted);
+            Assert.IsFalse(gpu.HasTextureCopy);
+            Assert.IsTrue(gpu.IsIdle);
+            Assert.AreEqual(beforeSignals, signals);
+            Assert.AreEqual(before, gpu.TextureStatistics);
+            AssertCenter(gpu, 3, 255, 0, 0);
+
+            gpu.TexturePreparationFailureForTests = null;
+            var replacement = Upload(gpu, green);
+            Assert.IsTrue(gpu.SetFrameTexture(replacement, 1));
+            AssertCenter(gpu, 4, 0, 255, 0);
+            VerifyCombinedShadowAndTexture(gpu);
+            Assert.IsTrue(gpu.TryReleaseTexture(predecessor));
+            Assert.IsTrue(gpu.TryReleaseTexture(replacement));
+        }
+        if (gpu.DebugLayerEnabled)
+        {
+            Assert.IsNotNull(gpu.FinalDebugSummary);
+            Assert.AreEqual(0UL, gpu.FinalDebugSummary.Errors);
+            Assert.AreEqual(0, gpu.FinalDebugSummary.LiveChildObjects);
+        }
+    }
+
+    [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
     [TestCategory("D3D12WarpDred")]
     public void WarpTextureUnassignedSignalRetainsUploadAndDestinationUntilConfirmedRemoval()
     {
-        const int signalFailure = unchecked((int)0x80004005);
+        const int signalFailure = unchecked((int)0x8007000E);
         var hooks = new GpuRetirementTestHooks(SignalFailure: (_, _) => signalFailure);
         using var gpu = new GpuDevice(warp: true, enableDred: true, retirementHooks: hooks);
         var texture = Rgba(4, 4, TextureColorSpace.Linear, 128, 64, 0);

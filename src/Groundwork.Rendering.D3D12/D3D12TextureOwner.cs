@@ -16,6 +16,7 @@ public sealed partial class D3D12Renderer
     private TextureOwner? _textureOwner;
     private D3D12TextureView _textureFrameView;
     private D3D12TextureTicket? _textureFrameTicket;
+    internal Action<D3D12TextureTicket, WaitHandle>? BeforeTextureUploadForTests { private get; init; }
 
     /// <summary>Attach a static cooked texture stream before starting a volume renderer.</summary>
     public void AttachTextureHandoff(D3D12TextureHandoff stream)
@@ -90,6 +91,15 @@ public sealed partial class D3D12Renderer
             {
                 owner.ReleaseUnsubmitted(transfer.Ticket);
                 return false;
+            }
+            if (BeforeTextureUploadForTests is { } before)
+            {
+                try { before(transfer.Ticket, _wake!); }
+                catch
+                {
+                    owner.ReleaseUnsubmitted(transfer.Ticket);
+                    throw;
+                }
             }
             try
             {
@@ -191,32 +201,23 @@ public sealed partial class D3D12Renderer
             var ticket = transfer.Ticket;
             _copy = ticket;
             var couldRetry = false;
-            var locked = false;
-            try
-            {
-                if (stream.IsCurrent(ticket, view) &&
-                    gpu.TrySubmitTexture(transfer.Texture, view.View.RendererEpoch, in requirements, out _, () =>
+            if (stream.IsCurrent(ticket, view) &&
+                gpu.TrySubmitTexture(transfer.Texture, view.View.RendererEpoch, in requirements, out _, () =>
+                {
+                    // Seal the transfer's authority and retained ticket. Later
+                    // invalidation can prevent installation while the queue owns
+                    // that transfer. The driver does not run under the producer lock.
+                    lock (stream.Gate)
                     {
-                        stream.Gate.Enter();
-                        locked = true;
                         var current = stream.IsCurrent(ticket, view);
                         couldRetry = current && !authorize();
-                        if (current && !couldRetry)
-                            return true;
-                        stream.Gate.Exit();
-                        locked = false;
-                        return false;
-                    }))
-                {
-                    if (!stream.MarkCopySubmitted(ticket))
-                        throw new InvalidOperationException("A submitted texture copy lost its custody ticket.");
-                    return true;
-                }
-            }
-            finally
+                        return current && !couldRetry;
+                    }
+                }))
             {
-                if (locked)
-                    stream.Gate.Exit();
+                if (!stream.MarkCopySubmitted(ticket))
+                    throw new InvalidOperationException("A submitted texture copy lost its custody ticket.");
+                return true;
             }
             if (!couldRetry || !stream.TryReturnToReady(ticket, view))
                 stream.Release(ticket);

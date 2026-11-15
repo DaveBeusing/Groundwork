@@ -92,7 +92,9 @@ public sealed class D3D12TextureHandoff
     private ulong _generation;
     private D3D12TextureUsage _peak;
     private Action? _wake;
-    private bool _closed;
+    private int _revoked;
+    private bool _drained;
+    private bool Closed => Volatile.Read(ref _revoked) != 0;
 
     internal readonly Lock Gate = new();
 
@@ -110,10 +112,12 @@ public sealed class D3D12TextureHandoff
     /// <remarks>Target order is immaterial. A changed slot in the same cut needs a strictly higher sequence.</remarks>
     public bool Publish(D3D12TextureView view, ulong paletteRevision, ReadOnlySpan<D3D12TextureTarget> targets)
     {
+        if (Closed)
+            return false;
         Action? wake;
         lock (Gate)
         {
-            if (_closed || !view.IsValid || paletteRevision == 0 || targets.Length > _targets.Length ||
+            if (Closed || !view.IsValid || paletteRevision == 0 || targets.Length > _targets.Length ||
                 (_ownerWorld != Guid.Empty && _ownerWorld != view.World) || (_view.IsValid && !CanAdvanceView(view)))
                 return false;
 
@@ -187,11 +191,13 @@ public sealed class D3D12TextureHandoff
         D3D12TextureReservation reservation, out D3D12TextureTicket ticket)
     {
         ticket = default;
+        if (Closed)
+            return D3D12TextureResult.Closed;
         if (!reservation.IsValid)
             return D3D12TextureResult.Invalid;
         lock (Gate)
         {
-            if (_closed)
+            if (Closed)
                 return D3D12TextureResult.Closed;
             if (!view.IsValid || view != _view || FindTarget(target.Slot) != target)
                 return D3D12TextureResult.Stale;
@@ -244,12 +250,12 @@ public sealed class D3D12TextureHandoff
         lock (Gate)
         {
             if (!FindEntry(ticket) || _entries[ticket.Index].State != State.Worker)
-                return _closed ? D3D12TextureResult.Closed : D3D12TextureResult.Stale;
+                return Closed ? D3D12TextureResult.Closed : D3D12TextureResult.Stale;
             ref var entry = ref _entries[ticket.Index];
             if (!MatchesCurrent(in entry, _view))
             {
                 entry = default;
-                return _closed ? D3D12TextureResult.Closed : D3D12TextureResult.Stale;
+                return Closed ? D3D12TextureResult.Closed : D3D12TextureResult.Stale;
             }
 
             if (texture.CanonicalBytes.Length > entry.Reservation.PayloadBytes ||
@@ -314,20 +320,25 @@ public sealed class D3D12TextureHandoff
         ArgumentNullException.ThrowIfNull(wake);
         lock (Gate)
         {
-            if (_closed || _wake is not null || (_view.IsValid && _view.World != world))
+            if (Closed || _wake is not null || (_view.IsValid && _view.World != world))
                 throw new InvalidOperationException("The texture stream is closed, attached, or belongs to another world.");
             _ownerWorld = world;
             _wake = wake;
         }
     }
 
+    // Stop and watchdog threads revoke admission without taking the lock the
+    // renderer may hold around a stalled native call.
+    internal void Revoke() => Volatile.Write(ref _revoked, 1);
+
     internal void Close()
     {
+        Revoke();
         lock (Gate)
         {
-            if (_closed)
+            if (_drained)
                 return;
-            _closed = true;
+            _drained = true;
             _wake = null;
             foreach (ref var entry in _entries.AsSpan())
                 if (entry.State != State.Free)
@@ -496,7 +507,7 @@ public sealed class D3D12TextureHandoff
     }
 
     private bool MatchesCurrent(in Entry entry, D3D12TextureView view) =>
-        !_closed && !entry.Invalidated && view == _view && entry.View == view;
+        !Closed && !entry.Invalidated && view == _view && entry.View == view;
 
     private bool FindEntry(D3D12TextureTicket ticket) =>
         ticket.Stream == _identity && (uint)ticket.Index < (uint)_entries.Length && ticket.Generation != 0 &&
