@@ -28,6 +28,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     private VolumeGeneration? _firstEdit;
     private VolumeViewIdentity _view;
     private VolumeFrameRegistration? _accepted;
+    private (VolumeFrameRegistration Frame, ulong RequestedTick)? _frameRecovery;
     private ulong _generation;
     private ulong _sequence;
     private ulong _lastFrame;
@@ -111,6 +112,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             _movementOpen = false;
             _maskReady = false;
             _accepted = null;
+            _frameRecovery = null;
             foreach (var entry in _entries)
                 if (entry is not null && entry != _active)
                     Cancel(entry);
@@ -687,6 +689,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             Refresh();
             if (_stopped || !PresentationEpochOpen || registration.Owner != this || registration.Disposed || registration.Acknowledged ||
+                ReferenceEquals(_frameRecovery?.Frame, registration) ||
                 registration.Generation != _active || registration.Info.View != _view || !IsCurrentRoot(registration.Generation) ||
                 registration.Frame != _lastFrame || !Record(VolumeEventKind.Accepted, registration.Info.Generation))
                 return false;
@@ -697,14 +700,43 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
+    /// <summary>Requests same-root recovery for an exact unacknowledged first frame, after the provider has settled native use.</summary>
+    /// <remarks>The provider may release its retained reader after requesting recovery. A later Core BeginTick owns the view change.</remarks>
+    public bool TryRequestFrameRecovery(VolumeRendererAuthority renderer, VolumeFrameRegistration registration)
+    {
+        ArgumentNullException.ThrowIfNull(renderer);
+        ArgumentNullException.ThrowIfNull(registration);
+        lock (_gate)
+        {
+            if (_frameRecovery is not null || !OwnsPresentation(renderer) || !IsCurrentFrame(registration) ||
+                registration.Acknowledged || _movementOpen || registration.Frame != _lastFrame)
+                return false;
+
+            _frameRecovery = (registration, _world.Publication.Committed.Read().Stamp.Tick);
+            return true;
+        }
+    }
+
     /// <summary>Revalidates matching evidence at a finalized Core BeginTick. No pending movement is replayed.</summary>
     public bool BeginTick(BarrierStamp stamp)
     {
         lock (_gate)
         {
             Refresh();
-            if (_stopped || stamp.Kind != BarrierKind.BeginTick || stamp != _world.Publication.Committed.Read().Stamp ||
-                _accepted is not { } accepted || stamp.Tick <= accepted.AcknowledgedTick || accepted.Generation != _active || accepted.Info.View != _view || !IsCurrentRoot(accepted.Generation) ||
+            if (_stopped || stamp.Kind != BarrierKind.BeginTick || stamp != _world.Publication.Committed.Read().Stamp)
+                return false;
+            if (_frameRecovery is { } recovery && stamp.Tick > recovery.RequestedTick)
+            {
+                _frameRecovery = null;
+                var frame = recovery.Frame;
+                if (PresentationEpochOpen && !_movementOpen && !frame.Acknowledged && frame.Frame == _lastFrame &&
+                    frame.Generation == _active && frame.Info.View == _view && IsCurrentRoot(frame.Generation))
+                {
+                    ChangeView(_view.Frame, _view.RendererEpoch);
+                    return false;
+                }
+            }
+            if (_accepted is not { } accepted || stamp.Tick <= accepted.AcknowledgedTick || accepted.Generation != _active || accepted.Info.View != _view || !IsCurrentRoot(accepted.Generation) ||
                 !Record(VolumeEventKind.Opened, accepted.Info.Generation))
                 return false;
             _movementOpen = true;
@@ -916,6 +948,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         _stopped = true;
         _movementOpen = false;
         _accepted = null;
+        _frameRecovery = null;
 
         foreach (var entry in _entries)
         {

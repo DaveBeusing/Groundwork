@@ -133,12 +133,17 @@ internal sealed unsafe partial class GpuDevice
         private readonly PackedMesh[] _packed;
         private readonly long _allocationBytes;
         private ID3D12Resource* _resource;
+        internal int PackedBytes { get; }
+
+        internal bool HasLiveBinding(GpuDevice owner) =>
+            ReferenceEquals(_owner, owner) && (PackedBytes == 0 || _resource != null);
 
         internal MeshGeometry(GpuDevice owner, ID3D12Resource* resource, long allocationBytes, ReadOnlySpan<RenderMeshInstance> meshes)
         {
             _owner = owner;
             _resource = resource;
             _allocationBytes = allocationBytes;
+            PackedBytes = resource == null ? 0 : checked((int)resource->GetDesc().Width);
             if (resource == null)
             {
                 _packed = [];

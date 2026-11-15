@@ -190,6 +190,302 @@ public sealed partial class PresentationSmokeTests
     [TestCategory("WindowsDesktopSmoke")]
     [DataRow(true)]
     [DataRow(false)]
+    public void RejectedPropFramePreservesBothResidentsAndCommitsBothReplacementsOnRetry(bool warp)
+    {
+        const uint red = 0xff0000ff;
+        const uint green = 0xff00ff00;
+        const uint blue = 0xffff0000;
+        const uint yellow = 0xff00ffff;
+        var mesh = RenderMesh.Create([new(-0.5f, -0.5f, 0), new(0.5f, -0.5f, 0), new(0, 0.5f, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(2, 2, 2, 2, 2), 1, 42, 1,
+            [new(new(1, 1, 1, 40, 6, 8), mesh, mesh)]);
+        var left = new PropCellKey(-1, 0, 0);
+        var right = new PropCellKey(1, 0, 0);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [left, right]);
+        Stage(left, red);
+        Stage(right, green);
+
+        var reject = true;
+        var signals = 0;
+        var hooks = new GpuRetirementTestHooks(
+            SignalFailure: (_, _) => { signals++; return null; },
+            RejectRecordedPlan: sequence => sequence == 2 && reject);
+        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true,
+            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]), retirementHooks: hooks);
+        using (gpu)
+        {
+            AssertPlanetAdapter(gpu.Adapter, warp);
+            Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
+            gpu.PropStream = props;
+            var initial = DrawPropFrame(gpu, 1);
+            Assert.AreEqual((byte)255, initial.ColorAt(17, 32)[0]);
+            Assert.AreEqual((byte)255, initial.ColorAt(47, 32)[1]);
+            var stats = props.ReadStatistics();
+            var priorSignals = signals;
+
+            var first = Stage(left, blue);
+            var second = Stage(right, yellow);
+            var usage = props.Admission.Usage;
+            Assert.AreEqual(new PropCellUsage(2, 2, 2, 2), usage);
+
+            // Selection at this eye would take both candidates past the near LOD exit threshold.
+            var distantEye = new PlanetVector(0, 0, 4);
+            Assert.ThrowsExactly<InvalidOperationException>(() => DrawPropFrame(gpu, 2, distantEye));
+            Assert.AreEqual(priorSignals, signals);
+            Assert.IsTrue(gpu.IsIdle);
+            Assert.AreEqual(stats, props.ReadStatistics());
+            Assert.AreEqual(usage, props.Admission.Usage);
+            Assert.AreEqual(PropCellResult.Pending, props.TryRequest(left, 1, out _));
+            Assert.AreEqual(PropCellResult.Pending, props.TryRequest(right, 1, out _));
+
+            Span<VisibleProp> visible = stackalloc VisibleProp[2];
+            ReadOnlySpan<PropFrustumPlane> planes =
+            [
+                new(Vector3.UnitX, 100), new(-Vector3.UnitX, 100),
+                new(Vector3.UnitY, 100), new(-Vector3.UnitY, 100),
+                new(Vector3.UnitZ, 100), new(-Vector3.UnitZ, 100),
+            ];
+            // At this distance the near LOD survives only through hysteresis from the prior submitted frame.
+            Assert.AreEqual(2, props.Admission.Select(new(0, 0, 2), planes, visible));
+            Assert.AreEqual((byte)0, visible[0].Lod);
+            Assert.AreEqual((byte)0, visible[1].Lod);
+            Assert.IsTrue(props.Admission.TryRead(visible[0], out var leftResident, out _));
+            Assert.IsTrue(props.Admission.TryRead(visible[1], out var rightResident, out _));
+            Assert.AreEqual(red, leftResident.Tint);
+            Assert.AreEqual(green, rightResident.Tint);
+            Span<PropInstanceData> staged = stackalloc PropInstanceData[1];
+            Assert.AreEqual(PropCellResult.Accepted, props.Admission.CopyStaged(first, staged, out _, out _));
+            Assert.AreEqual(blue, staged[0].Tint);
+            Assert.AreEqual(PropCellResult.Accepted, props.Admission.CopyStaged(second, staged, out _, out _));
+            Assert.AreEqual(yellow, staged[0].Tint);
+
+            reject = false;
+            var retried = DrawPropFrame(gpu, 2, distantEye);
+            Assert.AreEqual(priorSignals + 1, signals);
+            Assert.AreEqual(new PropCellUsage(2, 0, 0, 2), props.Admission.Usage);
+            Assert.AreEqual(PropCellResult.Stale, props.Admission.CopyStaged(first, staged, out _, out _));
+            Assert.AreEqual(PropCellResult.Stale, props.Admission.CopyStaged(second, staged, out _, out _));
+            var committed = props.ReadStatistics();
+            Assert.AreEqual(2, committed.Instances);
+            Assert.AreEqual(0, committed.DeferredCells);
+            Assert.AreEqual(2 * PropInstanceData.ByteSize, committed.PayloadBytes);
+            Assert.AreEqual(32, committed.MetadataBytes);
+            Assert.AreEqual(committed.PayloadBytes + committed.MetadataBytes, committed.UploadBytes);
+            Assert.IsTrue(retried.ColorAt(23, 32).SequenceEqual(new byte[] { 0, 0, 255, 255 }));
+            Assert.IsTrue(retried.ColorAt(41, 32).SequenceEqual(new byte[] { 255, 255, 0, 255 }));
+            Assert.IsLessThan(1f, retried.DepthAt(23, 32));
+            Assert.IsLessThan(1f, retried.DepthAt(41, 32));
+            Assert.IsNull(gpu.CaptureDred());
+        }
+        AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
+
+        PropCellRequest Stage(PropCellKey key, uint tint)
+        {
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var request));
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(request, new(key.X, 0, -5),
+                [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, tint)]));
+            return request;
+        }
+    }
+
+    [TestMethod]
+    public void WarpPropCancellationAfterRecordingSubmitsTerrainWithoutTheStaleBinding()
+    {
+        var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        var key = default(PropCellKey);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [key]);
+        Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var first));
+        Assert.AreEqual(PropCellResult.Accepted, props.TryStage(first, new(0, 0, -5),
+            [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, 0xff0000ff)]));
+
+        var replacement = default(PropCellRequest);
+        var cancelAfterRecord = true;
+        var signals = 0;
+        var hooks = new GpuRetirementTestHooks(
+            SignalFailure: (_, _) => { signals++; return null; },
+            RejectRecordedPlan: sequence =>
+            {
+                if (sequence == 2 && cancelAfterRecord)
+                {
+                    cancelAfterRecord = false;
+                    Assert.IsTrue(props.TryCancel(replacement));
+                }
+                return false;
+            });
+        using var gpu = new GpuDevice(warp: true, region: BlueTerrainBehindProps(), retirementHooks: hooks);
+        gpu.PropStream = props;
+        var original = DrawPropFrame(gpu, 1);
+        Assert.AreEqual((byte)255, original.ColorAt(32, 32)[0]);
+        var stats = props.ReadStatistics();
+        var priorSignals = signals;
+        Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out replacement));
+        Assert.AreEqual(PropCellResult.Accepted, props.TryStage(replacement, new(0, 0, -5),
+            [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, 0xff00ff00)]));
+
+        var terrain = DrawPropFrame(gpu, 2);
+        Assert.IsFalse(cancelAfterRecord);
+        Assert.AreEqual(priorSignals + 1, signals);
+        Assert.IsTrue(terrain.ColorAt(32, 32).SequenceEqual(new byte[] { 0, 0, 255, 255 }));
+        Assert.IsLessThan(1f, terrain.DepthAt(32, 32));
+        Assert.IsGreaterThan(original.DepthAt(32, 32), terrain.DepthAt(32, 32));
+        var fallback = props.ReadStatistics();
+        Assert.AreEqual(0, fallback.Draws);
+        Assert.AreEqual(0, fallback.Instances);
+        Assert.AreEqual(stats.NativeBytes, fallback.NativeBytes);
+        Assert.AreEqual(new PropCellUsage(1, 0, 0, 1), props.Admission.Usage);
+
+        var next = DrawPropFrame(gpu, 3);
+        Assert.AreEqual(priorSignals + 2, signals);
+        Assert.IsTrue(original.ColorAt(32, 32).SequenceEqual(next.ColorAt(32, 32)));
+        Assert.AreEqual(original.DepthAt(32, 32), next.DepthAt(32, 32));
+    }
+
+    [TestMethod]
+    public void WarpPropRetryWithSpentUploadBudgetStillSubmitsTerrain()
+    {
+        const int cellSize = 32_768;
+        const int residents = 2 * cellSize;
+        const int sequence = 4;
+        var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(2, 2, cellSize + 1, residents, 2), cellSize, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        var replacedCell = default(PropCellKey);
+        var retainedCell = new PropCellKey(1, 0, 0);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [replacedCell, retainedCell]);
+
+        var replacement = default(PropCellRequest);
+        var rejectOnce = true;
+        var signals = 0;
+        var hooks = new GpuRetirementTestHooks(
+            SignalFailure: (_, _) => { signals++; return null; },
+            RejectRecordedPlan: recorded =>
+            {
+                if (recorded != sequence || !rejectOnce)
+                    return false;
+
+                rejectOnce = false;
+                Assert.IsTrue(props.TryCancel(replacement));
+                return true;
+            });
+        using var gpu = new GpuDevice(warp: true, region: BlueTerrainBehindProps(), retirementHooks: hooks);
+        gpu.PropStream = props;
+        var cleanTerrain = DrawPropFrame(gpu, 1);
+        var placements = new PropPlacement[cellSize];
+        for (var i = 0; i < placements.Length; i++)
+            placements[i] = new((uint)i, 0, Vector3.Zero, Quaternion.Identity, 0.001f, 0xff0000ff);
+        placements[0] = placements[0] with { Scale = 1 };
+        Stage(replacedCell, new(0, 0, -5));
+        DrawPropFrame(gpu, 2);
+        placements[0] = placements[0] with { Scale = 0.001f };
+        Stage(retainedCell, new(1, 0, -5));
+        var original = DrawPropFrame(gpu, 3);
+        Assert.AreEqual((byte)255, original.ColorAt(32, 32)[0]);
+        var stats = props.ReadStatistics();
+        Assert.AreEqual(residents, stats.Instances);
+        var priorSignals = signals;
+
+        placements[0] = placements[0] with { Scale = 1, Tint = 0xff00ff00 };
+        replacement = Stage(replacedCell, new(0, 0, -5));
+        Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(retainedCell, 1, out var held));
+        Assert.ThrowsExactly<InvalidOperationException>(() => DrawPropFrame(gpu, sequence));
+        Assert.IsFalse(rejectOnce);
+        Assert.AreEqual(priorSignals, signals);
+        Assert.AreEqual(stats, props.ReadStatistics());
+        var retained = new PropCellUsage(2, 1, 1, residents);
+        Assert.AreEqual(retained, props.Admission.Usage);
+
+        var retry = DrawPropFrame(gpu, sequence);
+        Assert.AreEqual(priorSignals + 1, signals);
+        Assert.IsTrue(cleanTerrain.ColorAt(32, 32).SequenceEqual(retry.ColorAt(32, 32)));
+        Assert.AreEqual(cleanTerrain.DepthAt(32, 32), retry.DepthAt(32, 32));
+        Assert.AreEqual(retained, props.Admission.Usage);
+        var fallback = props.ReadStatistics();
+        Assert.AreEqual(0, fallback.Draws);
+        Assert.AreEqual(0, fallback.Instances);
+        Assert.AreEqual(cellSize * PropInstanceData.ByteSize, fallback.PayloadBytes);
+        Assert.AreEqual(16 * residents, fallback.MetadataBytes);
+        Assert.AreEqual(D3D12PropCells.MaximumUploadBytes, fallback.UploadBytes);
+
+        var next = DrawPropFrame(gpu, sequence + 1);
+        Assert.AreEqual(priorSignals + 2, signals);
+        Assert.IsTrue(original.ColorAt(32, 32).SequenceEqual(next.ColorAt(32, 32)));
+        Assert.AreEqual(original.DepthAt(32, 32), next.DepthAt(32, 32));
+        Assert.AreEqual(residents, props.ReadStatistics().Instances);
+        Assert.AreEqual(retained, props.Admission.Usage);
+        Assert.IsTrue(props.CompleteWorker(held));
+
+        PropCellRequest Stage(PropCellKey cell, PropPoint origin)
+        {
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(cell, cellSize, out var request));
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(request, origin, placements));
+            return request;
+        }
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [TestCategory("D3D12WarpDred")]
+    public void WarpPropReplacementSignalFailureKeepsPredecessorUntilConfirmedRemoval()
+    {
+        const uint oldTint = 0xff0000ff;
+        const uint candidateTint = 0xff00ff00;
+        var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        var key = default(PropCellKey);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [key]);
+        Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var first));
+        Assert.AreEqual(PropCellResult.Accepted, props.TryStage(first, new(0, 0, -5),
+            [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, oldTint)]));
+
+        var failSignal = false;
+        var unretiredAtSignal = false;
+        var removalReason = 0;
+        var hooks = new GpuRetirementTestHooks(SignalFailure: (device, _) =>
+        {
+            if (!failSignal)
+                return null;
+
+            unretiredAtSignal = !device.IsIdle;
+            // Confirm actual removal so the offscreen helper can safely release the
+            // submitted color/depth readback despite the missing retirement signal.
+            removalReason = RemoveWarpRetirementDevice(device);
+            return removalReason;
+        });
+        var gpu = new GpuDevice(warp: true, enableDred: true,
+            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]), retirementHooks: hooks);
+        using (gpu)
+        {
+            gpu.PropStream = props;
+            Assert.AreEqual((byte)255, DrawPropFrame(gpu, 1).ColorAt(32, 32)[0]);
+            var stats = props.ReadStatistics();
+            Assert.IsGreaterThan(0L, stats.NativeBytes);
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var replacement));
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(replacement, new(0, 0, -5),
+                [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, candidateTint)]));
+
+            failSignal = true;
+            var error = Assert.ThrowsExactly<GpuNativeException>(() => DrawPropFrame(gpu, 2));
+            Assert.AreEqual(removalReason, error.HResult);
+            Assert.IsTrue(unretiredAtSignal);
+            Assert.IsTrue(gpu.IsRemoved);
+            Assert.AreEqual(stats, props.ReadStatistics());
+            Assert.AreEqual(new PropCellUsage(1, 1, 1, 1), props.Admission.Usage);
+            Assert.IsTrue(props.Admission.TryRead(new(new(42, 1, key, 0), 1, 1, 0, 0, 0), out var resident, out _));
+            Assert.AreEqual(oldTint, resident.Tint);
+            Span<PropInstanceData> staged = stackalloc PropInstanceData[1];
+            Assert.AreEqual(PropCellResult.Accepted, props.Admission.CopyStaged(replacement, staged, out _, out _));
+            Assert.AreEqual(candidateTint, staged[0].Tint);
+        }
+        Assert.AreEqual(0L, props.ReadStatistics().NativeBytes);
+    }
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
     public void OversizedPropReplacementSwitchesAtomically(bool warp)
     {
         const int cellSize = 44_000;
@@ -201,8 +497,10 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var first));
         Assert.AreEqual(PropCellResult.Accepted, props.TryStage(first, new(0, 0, -5),
             [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, 0xff0000ff)]));
+        var rejectedAttempts = 0;
+        var hooks = new GpuRetirementTestHooks(RejectRecordedPlan: sequence => sequence == 2 && rejectedAttempts++ < 2);
         var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true,
-            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]));
+            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]), retirementHooks: hooks);
         using (gpu)
         {
             AssertPlanetAdapter(gpu.Adapter, warp);
@@ -215,6 +513,14 @@ public sealed partial class PresentationSmokeTests
                 placements[i] = new((uint)i, 0, i == 0 ? Vector3.Zero : new(100, 0, 0),
                     Quaternion.Identity, 1, 0xff00ff00);
             Assert.AreEqual(PropCellResult.Accepted, props.TryStage(replacement, new(0, 0, -5), placements));
+
+            var initial = props.ReadStatistics();
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                Assert.ThrowsExactly<InvalidOperationException>(() => DrawPropFrame(gpu, 2));
+                Assert.AreEqual(initial, props.ReadStatistics());
+                Assert.AreEqual(new PropCellUsage(1, 1, cellSize, 1), props.Admission.Usage);
+            }
 
             var partial = DrawPropFrame(gpu, 2);
             var partialStats = props.ReadStatistics();
@@ -273,11 +579,15 @@ public sealed partial class PresentationSmokeTests
         AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
     }
 
-    private static OffscreenFrame DrawPropFrame(GpuDevice gpu, ulong sequence)
+    private static RenderMeshRegion BlueTerrainBehindProps() =>
+        new([new(RenderMesh.Create([new(-2, -2, -8), new(2, -2, -8), new(0, 2, -8)], [0, 1, 2],
+            [0xffff0000, 0xffff0000, 0xffff0000]), Vector3.Zero)]);
+
+    private static OffscreenFrame DrawPropFrame(GpuDevice gpu, ulong sequence, PlanetVector eye = default)
     {
         var view = new VolumeViewIdentity(1, sequence, PlanetLocalFrame.Create(default));
         gpu.PropTerrain = new(1, 1, view, default, 1, "props");
-        var camera = new VolumeCamera(view, default, -Vector3.UnitZ, Vector3.UnitY,
+        var camera = new VolumeCamera(view, eye, -Vector3.UnitZ, Vector3.UnitY,
             MathF.PI / 4, 0.1f, 100, Vector4.One, Vector4.Zero);
         Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, sequence, out var frame));
         return GpuDevice.RenderOffscreen(gpu, 64, 64, frame);

@@ -27,6 +27,25 @@ frames and camera updates.
    `TrySubmitVolumeCamera` updates the camera for that generation in its existing
    origin. Each camera sequence is registered at draw admission. A new origin uses the full held-view sequence.
 
+The owner admits a portable plan for the selected fixed pass sequence. Cached
+topologies use symbolic resource slots. The owner rechecks live pointers and
+depth generation for the current target and checks the exact registered view
+immediately before executing the closed command list. Shadow cache keys become
+eligible for import after the draw receives a fence. A padded readback buffer
+represents the logical packed color and depth rows. Extraction never consumes
+row or plane padding. The existing prop stream gate validates the occupied
+cells and metadata in its mapped arena before a prop draw.
+
+A rejected first-content recording that has never executed retains one exact
+registration. The owner retries on an eligible wake, up to three rejections
+and within the operation timeout. Idle and suspended waits honor the same
+monotonic deadline. Settlement releases the idle native mesh before the
+retained reader and sends Core one recovery request. At a later finalized BeginTick, Core checks that the
+registration still identifies the current root and view before advancing the
+view within the same renderer epoch. The host uses the new view to request a
+mask and prepare the same terrain revision through the existing recovery lane.
+Only the replacement's normal Present and retirement can reopen movement.
+
 The geometry resource is an upload heap mapped and filled by the CPU. There
 is no separate GPU upload command or staging resource. The provider bounds
 the triangle count and checks the aligned buffer charge against all three C01

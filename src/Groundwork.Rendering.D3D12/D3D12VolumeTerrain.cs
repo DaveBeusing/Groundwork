@@ -247,7 +247,7 @@ public sealed partial class D3D12Renderer
             if (!VolumeAdmissionOpen)
                 return RenderSubmissionResult.Closed;
             if (_volume is null || _volumeInstalled is not { } installed || installed.Info.Generation != generation ||
-                installed.Info.View != camera.View || !_volume.IsCurrentFrame(installed) ||
+                installed.Info.View != camera.View || Read().LastPresentedSequence < installed.Frame || !_volume.IsCurrentFrame(installed) ||
                 !TryCreateVolumeFrame(camera, sequence, out var frame))
                 return RenderSubmissionResult.InvalidFrame;
             result = _admission.MeshRegionReplacement!.TrySubmitPairedCamera(generation, frame);
@@ -503,14 +503,51 @@ public sealed partial class D3D12Renderer
         DisposeVolumeStage(released);
     }
 
-    private bool AuthorizeVolumeDraw(in RenderFrame frame)
+    internal bool AuthorizeRecordedFrame(in RenderFrame frame)
     {
         if (_volume is null)
             return true;
         lock (_volumeGate)
         {
             return CanDrawVolume(frame) && (!frame.Scene.HasValue ||
-                frame.Sequence == _volumeInstalled!.Frame || _volume.AuthorizeCameraFrame(_volumeInstalled, frame.Sequence));
+                frame.Sequence == _volumeInstalled!.Frame || _volume.AuthorizeCameraFrame(_volumeInstalled, frame.Sequence)) &&
+                (_submittingFirstContentRetry is not { } retry || ReferenceEquals(_volumeInstalled, retry.Frame) &&
+                    !retry.IsExpired(FirstContentTimestamp(), _operationTimeout));
+        }
+    }
+
+    private VolumeFrameRegistration? GetUnpresentedRegistration(in RenderFrame frame)
+    {
+        lock (_volumeGate)
+            return frame.Scene.HasValue && _volumeInstalled is { } installed && installed.Frame == frame.Sequence &&
+                Read().LastPresentedSequence < frame.Sequence ? installed : null;
+    }
+
+    private bool CanRetryFirstContent(VolumeFrameRegistration registration)
+    {
+        lock (_volumeGate)
+            return VolumeAdmissionOpen && ReferenceEquals(_volumeInstalled, registration) && _volume!.IsCurrentFrame(registration);
+    }
+
+    private void SettleRejectedRegistration(GpuDevice gpu, VolumeFrameRegistration registration)
+    {
+        lock (_volumeGate)
+        {
+            if (!ReferenceEquals(_volumeInstalled, registration))
+                return;
+
+            if (!gpu.IsIdle)
+                throw new InvalidOperationException("The rejected frame's native custody has not settled.");
+
+            // Release the matched native allocation before its Core reader and credit.
+            // Its geometry never executes on the retry path and cannot be drawn again.
+            gpu.ActiveMeshGeometry?.Dispose();
+            gpu.ActiveMeshGeometry = null;
+            // Core compares the exact current registration under its own gate. A newer
+            // view never loses authority because a previously rejected frame settled.
+            _volume!.TryRequestFrameRecovery(_volumeAuthority!, registration);
+            _volumeInstalled = null;
+            registration.Dispose();
         }
     }
 

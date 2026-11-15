@@ -1,4 +1,5 @@
 using System.Numerics;
+using Groundwork.Rendering.Passes;
 using TerraFX.Interop.DirectX;
 using static Groundwork.Rendering.D3D12.GpuNative;
 using static TerraFX.Interop.Windows.Windows;
@@ -205,52 +206,78 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
-        RenderScene? subsequent, Readback? readback)
+        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan)
     {
-        Transition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT,
-            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET);
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
-        var clear = frame.ClearColor;
-        commands->ClearRenderTargetView(rtv, (float*)&clear, 0, null);
-        commands->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
-        var shadows = frame.Scene is { } receiver ? RecordShadows(commands, target, receiver) : default;
-        if (frame.Scene.HasValue || frame.Sky.HasValue)
+        foreach (var pass in plan.Passes.AsSpan())
         {
-            var viewport = new D3D12_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
-            var scissor = new TerraFX.Interop.Windows.RECT { right = target.Width, bottom = target.Height };
-            commands->RSSetViewports(1, &viewport);
-            commands->RSSetScissorRects(1, &scissor);
-            commands->OMSetRenderTargets(1, &rtv, false, &dsv);
-            commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-            if (frame.Sky is { } sky)
-                DrawSky(commands, target, sky);
-        }
-        if (frame.Scene is { } scene)
-        {
-            commands->SetPipelineState(_pipeline);
-            commands->SetGraphicsRootSignature(_root);
-            if (ActiveMeshGeometry is null)
+            if (pass.Id == GpuPassPlan.Clear)
             {
-                var vertices = new D3D12_VERTEX_BUFFER_VIEW
-                {
-                    BufferLocation = _cubeGeometry->GetGPUVirtualAddress(),
-                    SizeInBytes = VertexCount * VertexStride,
-                    StrideInBytes = VertexStride,
-                };
-                commands->IASetVertexBuffers(0, 1, &vertices);
+                Transition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT,
+                    D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET);
+                var clear = frame.ClearColor;
+                commands->ClearRenderTargetView(rtv, (float*)&clear, 0, null);
+                commands->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
             }
-            Draw(commands, target, scene, shadows);
-            DrawProps(commands, target, scene);
-            if (subsequent is { } next)
-                Draw(commands, target, next);
+            else if (pass.Id == GpuPassPlan.NearShadow || pass.Id == GpuPassPlan.FarShadow)
+                RecordShadowCascade(commands, shadows, pass.Id == GpuPassPlan.NearShadow ? 0U : 1U);
+            else if (pass.Id == GpuPassPlan.Sky)
+            {
+                BindFrameTargets(commands, target, rtv, dsv);
+                DrawSky(commands, target, frame.Sky!.Value);
+            }
+            else if (pass.Id == GpuPassPlan.Terrain)
+            {
+                if (!frame.Sky.HasValue)
+                    BindFrameTargets(commands, target, rtv, dsv);
+                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants);
+            }
+            else if (pass.Id == GpuPassPlan.Props)
+                DrawProps(commands, target, frame.Scene!.Value, frame.Sequence);
+            else if (pass.Id == GpuPassPlan.FollowOn)
+                Draw(commands, target, subsequent!.Value);
+            else if (pass.Id == GpuPassPlan.Copy)
+                readback!.Record(commands, target.Buffer, _depth);
+            else if (pass.Id == GpuPassPlan.Present)
+            {
+                if (readback is null)
+                    Transition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET,
+                        D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT);
+            }
+            else if (pass.Id != GpuPassPlan.Readback)
+                throw new InvalidOperationException("The validated pass has no fixed-route recorder.");
+            // DXGI Present is issued by the owner. CPU readback consumes only retired work.
         }
+    }
 
-        if (readback is not null)
-            readback.Record(commands, target.Buffer, _depth);
-        else
-            Transition(commands, target.Buffer, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_RENDER_TARGET,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PRESENT);
+    private static void BindFrameTargets(ID3D12GraphicsCommandList* commands, GpuTarget target,
+        D3D12_CPU_DESCRIPTOR_HANDLE rtv, D3D12_CPU_DESCRIPTOR_HANDLE dsv)
+    {
+        var viewport = new D3D12_VIEWPORT { Width = target.Width, Height = target.Height, MaxDepth = 1 };
+        var scissor = new TerraFX.Interop.Windows.RECT { right = target.Width, bottom = target.Height };
+        commands->RSSetViewports(1, &viewport);
+        commands->RSSetScissorRects(1, &scissor);
+        commands->OMSetRenderTargets(1, &rtv, false, &dsv);
+        commands->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY.D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    }
+
+    private void RecordTerrain(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
+        in ShadowConstants shadows)
+    {
+        commands->SetPipelineState(_pipeline);
+        commands->SetGraphicsRootSignature(_root);
+        if (ActiveMeshGeometry is null)
+        {
+            var vertices = new D3D12_VERTEX_BUFFER_VIEW
+            {
+                BufferLocation = _cubeGeometry->GetGPUVirtualAddress(),
+                SizeInBytes = VertexCount * VertexStride,
+                StrideInBytes = VertexStride,
+            };
+            commands->IASetVertexBuffers(0, 1, &vertices);
+        }
+        Draw(commands, target, scene, shadows);
     }
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ShadowConstants shadows = default)

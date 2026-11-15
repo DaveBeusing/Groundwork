@@ -1,9 +1,12 @@
+using Groundwork.Rendering.Passes;
 using TerraFX.Interop.DirectX;
 using TerraFX.Interop.Windows;
 using static Groundwork.Rendering.D3D12.GpuNative;
 using static TerraFX.Interop.Windows.Windows;
 
 namespace Groundwork.Rendering.D3D12;
+
+internal enum GpuFrameSubmitResult { Busy, Rejected, Submitted }
 
 internal sealed unsafe partial class GpuDevice : IDisposable
 {
@@ -20,6 +23,9 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private ID3D12DescriptorHeap* _depthHeap;
     private int _depthWidth;
     private int _depthHeight;
+    private ulong _depthGeneration;
+    private readonly (GpuPassShape Shape, ValidatedRenderPlan? Plan)[] _passPlans = new (GpuPassShape, ValidatedRenderPlan?)[8];
+    private int _nextPassPlan;
     private int _nextFrame;
     private readonly D3D12_HEAP_TYPE _meshUploadHeap;
     private GpuRetirement _retirement;
@@ -127,6 +133,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal GpuTarget Attach(ID3D12Resource* backBuffer, int width, int height)
     {
+        RequireColorTarget(backBuffer, width, height);
         if (_depthWidth != width || _depthHeight != height)
         {
             if (!IsIdle)
@@ -144,40 +151,143 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             _device->CreateDepthStencilView(_depth, null, _depthHeap->GetCPUDescriptorHandleForHeapStart());
             _depthWidth = width;
             _depthHeight = height;
+            _depthGeneration = checked(_depthGeneration + 1);
         }
 
-        return new GpuTarget(_device, backBuffer, width, height);
+        return new GpuTarget(this, backBuffer, width, height, _depthGeneration);
     }
 
-    internal bool TryRender(GpuTarget target, in RenderFrame frame) => TryRender(target, frame, null, null);
+    private void RequireColorTarget(ID3D12Resource* target, int width, int height)
+    {
+        if (target == null || width is < 1 or > RenderPlanLimits.TextureDimension ||
+            height is < 1 or > RenderPlanLimits.TextureDimension)
+            throw new ArgumentException("A bounded native color target is required.", nameof(target));
+        var description = target->GetDesc();
+        if (description.Dimension != D3D12_RESOURCE_DIMENSION.D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+            description.Width != (ulong)width || description.Height != (uint)height ||
+            description.Format != DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM || description.MipLevels != 1 ||
+            description.DepthOrArraySize != 1 || description.SampleDesc.Count != 1 ||
+            (description.Flags & D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET) == 0)
+            throw new ArgumentException("The native target does not match the fixed color attachment.", nameof(target));
 
-    private bool TryRender(GpuTarget target, in RenderFrame frame, RenderScene? subsequent, Readback? readback)
+        ID3D12Device* device = null;
+        try
+        {
+            Check(target->GetDevice(__uuidof<ID3D12Device>(), (void**)&device), "Resolve color target device");
+            if (device != _device)
+                throw new ArgumentException("The color target belongs to another device.", nameof(target));
+        }
+        finally
+        {
+            Release(device);
+        }
+    }
+
+    internal GpuFrameSubmitResult TryRender(GpuTarget target, in RenderFrame frame, D3D12Renderer owner) =>
+        TryRender(target, frame, null, null, owner);
+
+    private GpuFrameSubmitResult TryRender(GpuTarget target, in RenderFrame frame, RenderScene? subsequent,
+        Readback? readback, D3D12Renderer? owner)
     {
         var completed = ReadCompletedValue();
         if (completed == ulong.MaxValue)
             throw new GpuNativeException("Read GPU retirement fence after device removal", RemovedReason);
         var context = _frames[_nextFrame];
         if (!_retirement.CanReuse(completed, context.Retirement))
-            return false;
-        Check(context.Allocator->Reset(), "Reset allocator");
-        Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
+            return GpuFrameSubmitResult.Busy;
+
+        if (_device == null || _queue == null || _depth == null || !target.IsCurrent(this, _depthGeneration)
+            || target.Width != _depthWidth || target.Height != _depthHeight
+            || readback is not null && !readback.Matches(this, target)
+            || frame.Scene.HasValue && (ActiveMeshGeometry is { } mesh ? !mesh.HasLiveBinding(this) : _cubeGeometry == null)
+            || _retirementHooks?.RejectPreparedPlan?.Invoke(frame.Sequence) == true)
+            return GpuFrameSubmitResult.Rejected;
+
+        var shadows = frame.Scene is { } scene ? PrepareShadows(target, scene) : default;
+        var shape = new GpuPassShape(target.Width, target.Height,
+            frame.Scene.HasValue ? ActiveMeshGeometry?.PackedBytes ?? checked((int)(VertexCount * VertexStride)) : 0,
+            frame.Scene.HasValue, frame.Sky.HasValue,
+            frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null,
+            frame.Scene.HasValue && subsequent.HasValue, shadows.NearKind, shadows.FarKind,
+            readback is not null, owner is not null);
+        if (GetPassPlan(shape) is not { } plan)
+            return GpuFrameSubmitResult.Rejected;
+
+        var submitted = false;
+        D3D12PropCells? deferredProps = null;
         try
         {
-            Record(context.Commands, target, frame, subsequent, readback);
-            Check(context.Commands->Close(), "Close command list");
+            for (var attempt = 0; attempt < 2; attempt++)
+            {
+                Check(context.Allocator->Reset(), "Reset allocator");
+                Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
+                Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
+                Check(context.Commands->Close(), "Close command list");
+                if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
+                    return GpuFrameSubmitResult.Rejected;
+
+                // Hold the recorded prop cut through Execute and Signal. Check the
+                // volume authority immediately before the native submission.
+                var propGate = _propFrameStream?.Gate;
+                propGate?.Enter();
+                try
+                {
+                    if (RecordedPropsAreCurrent())
+                    {
+                        if (owner is not null && !owner.AuthorizeRecordedFrame(frame))
+                            return GpuFrameSubmitResult.Rejected;
+                        if (RecordedPropsAreCurrent())
+                        {
+                            var commands = (ID3D12CommandList*)context.Commands;
+                            var next = BeginQueueWork();
+                            _queue->ExecuteCommandLists(1, &commands);
+                            Check(SignalQueueWork(next), "Signal queue");
+                            context.Retirement = next;
+                            _nextFrame = (_nextFrame + 1) % _frames.Length;
+                            PublishRecordedProps(deferredProps);
+                            PublishShadows(shadows);
+                            submitted = true;
+                            return GpuFrameSubmitResult.Submitted;
+                        }
+                    }
+                }
+                finally
+                {
+                    propGate?.Exit();
+                }
+
+                // Prop churn alone must not spend a protected terrain retry or wait for
+                // another wake. Re-record once with the validated route omitting props.
+                deferredProps = _propFrameStream;
+                AbortRecordedProps();
+                if (attempt != 0 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
+                    return GpuFrameSubmitResult.Rejected;
+                plan = terrainPlan;
+            }
+            return GpuFrameSubmitResult.Rejected;
         }
-        catch
+        finally
         {
-            InvalidateShadowCache();
-            throw;
+            AbortRecordedProps();
+            if (!submitted)
+                InvalidateShadowCache();
         }
-        var commands = (ID3D12CommandList*)context.Commands;
-        var next = BeginQueueWork();
-        _queue->ExecuteCommandLists(1, &commands);
-        Check(SignalQueueWork(next), "Signal queue");
-        context.Retirement = next;
-        _nextFrame = (_nextFrame + 1) % _frames.Length;
-        return true;
+    }
+
+    private ValidatedRenderPlan? GetPassPlan(in GpuPassShape shape)
+    {
+        foreach (var entry in _passPlans.AsSpan())
+            if (entry.Plan is not null && entry.Shape == shape)
+                return entry.Plan;
+
+        if (!GpuPassPlan.TryCreate(shape, out var plan))
+            return null;
+
+        // Descriptions have only symbolic slots. The actual bindings are checked separately
+        // on every use, including after resize or a new target reusing the same extent.
+        _passPlans[_nextPassPlan] = (shape, plan);
+        _nextPassPlan = (_nextPassPlan + 1) % _passPlans.Length;
+        return plan;
     }
 
     internal ulong BeginQueueWork() => _retirement.BeginSubmission();
@@ -354,6 +464,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
 internal sealed unsafe class GpuTarget : IDisposable
 {
+    private readonly GpuDevice _owner;
+    private readonly ulong _depthGeneration;
     private ID3D12DescriptorHeap* _heap;
     private ID3D12Resource* _buffer;
     internal int Width { get; }
@@ -361,14 +473,19 @@ internal sealed unsafe class GpuTarget : IDisposable
     internal ID3D12Resource* Buffer => _buffer;
     internal D3D12_CPU_DESCRIPTOR_HANDLE Rtv => _heap->GetCPUDescriptorHandleForHeapStart();
 
-    internal GpuTarget(ID3D12Device* device, ID3D12Resource* buffer, int width, int height)
+    internal GpuTarget(GpuDevice owner, ID3D12Resource* buffer, int width, int height, ulong depthGeneration)
     {
-        _heap = CreateHeap(device, D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-        device->CreateRenderTargetView(buffer, null, Rtv);
+        _owner = owner;
+        _depthGeneration = depthGeneration;
+        _heap = CreateHeap(owner.Device, D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+        owner.Device->CreateRenderTargetView(buffer, null, Rtv);
         _buffer = buffer;
         Width = width;
         Height = height;
     }
+
+    internal bool IsCurrent(GpuDevice owner, ulong depthGeneration) =>
+        _buffer != null && _heap != null && ReferenceEquals(owner, _owner) && depthGeneration == _depthGeneration;
 
     public void Dispose()
     {

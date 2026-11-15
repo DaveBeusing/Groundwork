@@ -14,15 +14,18 @@ public sealed class D3D12PropCells
     internal readonly Lock Gate = new();
     internal readonly PropCellAdmission Admission;
     internal readonly D3D12PropAsset[] Assets;
-    internal readonly PropCellRequest[] Ready;
+    internal readonly StagedCell[] Ready;
     internal readonly PropCellLimits Limits;
     internal readonly int InstancesPerCell;
     internal readonly int GeometryBytes;
     internal PropPublication Publication;
+    internal ulong ViewVersion;
     private Guid _world;
     internal bool Attached;
     internal bool Closed;
     internal D3D12PropStatistics Statistics;
+
+    internal readonly record struct StagedCell(PropCellRequest Request, int[] PayloadIndices);
 
     public D3D12PropCells(PropCellLimits limits, int instancesPerCell, ulong seed, uint recipe,
         ReadOnlySpan<D3D12PropAsset> assets)
@@ -60,8 +63,9 @@ public sealed class D3D12PropCells
             }
         }
 
-        // Include CPU assets, native packing, selection scratch and conservative per-record/container overhead.
-        if (meshBytes + 128L * (limits.PendingInstances + limits.ResidentInstances) + 256L * limits.Cells > MaximumGpuBytes)
+        // Include the resident payload and visibility records, both reference tables,
+        // provisional indices and LOD scratch. Pending records have no visibility tables.
+        if (meshBytes + 128L * limits.PendingInstances + 224L * limits.ResidentInstances + 768L * limits.Cells > MaximumGpuBytes)
             throw new ArgumentOutOfRangeException(nameof(limits));
         var payloadBytes = (limits.Cells + 1L) * instancesPerCell * PropInstanceData.ByteSize;
         if (meshBytes + payloadBytes + 16L * limits.ResidentInstances + 128 * 1024 > MaximumGpuBytes)
@@ -71,7 +75,7 @@ public sealed class D3D12PropCells
         Limits = limits;
         InstancesPerCell = instancesPerCell;
         Assets = assets.ToArray();
-        Ready = new PropCellRequest[limits.PendingCells];
+        Ready = new StagedCell[limits.PendingCells];
     }
 
     public void Publish(PropPublication publication, ReadOnlySpan<PropCellKey> coverage, IReadOnlySet<PropCellKey>? invalidated = null)
@@ -97,6 +101,7 @@ public sealed class D3D12PropCells
             Admission.Publish(publication, covered, excluded);
             Publication = publication;
             Array.Clear(Ready);
+            ViewVersion++;
         }
     }
 
@@ -119,7 +124,17 @@ public sealed class D3D12PropCells
                 return PropCellResult.Stale;
             var result = Admission.TryStage(request, origin, instances);
             if (result == PropCellResult.Accepted)
-                Ready[Array.IndexOf(Ready, default)] = request;
+            {
+                try
+                {
+                    Ready[Array.IndexOf(Ready, default)] = new(request, new int[instances.Length]);
+                }
+                catch
+                {
+                    Admission.TryCancel(request);
+                    throw;
+                }
+            }
             return result;
         }
     }
@@ -136,9 +151,14 @@ public sealed class D3D12PropCells
         {
             if (Closed || !Admission.TryCancel(request))
                 return false;
-            var index = Array.IndexOf(Ready, request);
-            if (index >= 0)
-                Ready[index] = default;
+            for (var i = 0; i < Ready.Length; i++)
+            {
+                if (Ready[i].Request != request)
+                    continue;
+                Ready[i] = default;
+                ViewVersion++;
+                break;
+            }
             return true;
         }
     }
@@ -150,8 +170,9 @@ public sealed class D3D12PropCells
             if (Closed || !Admission.TryEvict(cell))
                 return false;
             for (var i = 0; i < Ready.Length; i++)
-                if (Ready[i].Cell == cell)
+                if (Ready[i].Request.Cell == cell)
                     Ready[i] = default;
+            ViewVersion++;
             return true;
         }
     }
@@ -176,6 +197,7 @@ public sealed class D3D12PropCells
             Closed = true;
             Admission.Close();
             Array.Clear(Ready);
+            ViewVersion++;
         }
     }
 }

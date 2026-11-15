@@ -6,4 +6,6 @@ internal sealed record GpuRetirementTestHooks(
     Func<GpuDevice, ulong, int?>? SignalFailure = null,
     Func<GpuDevice, ulong, ulong>? CompletedValue = null,
     Func<GpuDevice, int?>? PresentFailure = null,
-    Action<GpuDevice>? BeforeVolumeUpload = null);
+    Action<GpuDevice>? BeforeVolumeUpload = null,
+    Func<ulong, bool>? RejectPreparedPlan = null,
+    Func<ulong, bool>? RejectRecordedPlan = null);
