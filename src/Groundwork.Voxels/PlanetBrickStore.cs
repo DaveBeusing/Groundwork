@@ -1,3 +1,7 @@
+using System.Diagnostics;
+using System.Runtime.InteropServices;
+using System.Security.Cryptography;
+
 namespace Groundwork.Voxels;
 
 /// <summary>A versioned, immutable baseline sampler. Calls may run concurrently and must return stable values.</summary>
@@ -72,8 +76,18 @@ public sealed class PlanetBrickStore
     /// Generates a brick outside the store lock. Returns false under quota pressure or while the key
     /// is generating or retiring. Source failures and cancellation release the reservation.
     /// </summary>
-    public bool TryGenerate(LatticeBrick key, CancellationToken cancellationToken = default)
+    public bool TryGenerate(LatticeBrick key, CancellationToken cancellationToken = default) =>
+        TryGenerateCore(key, false, out _, cancellationToken);
+
+    internal bool TryGenerateProfiled(LatticeBrick key, out VolumeBrickGenerationTiming timing,
+        CancellationToken cancellationToken = default) =>
+        TryGenerateCore(key, true, out timing, cancellationToken);
+
+    private bool TryGenerateCore(LatticeBrick key, bool measure, out VolumeBrickGenerationTiming timing,
+        CancellationToken cancellationToken)
     {
+        timing = default;
+        var started = measure ? Stopwatch.GetTimestamp() : 0;
         cancellationToken.ThrowIfCancellationRequested();
         var origin = key.Vertex(0, 0, 0);
         var upper = key.Vertex(CellEdge, CellEdge, CellEdge);
@@ -98,38 +112,56 @@ public sealed class PlanetBrickStore
         var published = false;
         try
         {
+            var reserved = measure ? Stopwatch.GetTimestamp() : 0;
             cancellationToken.ThrowIfCancellationRequested();
             var density = new long[VertexCount];
             var materials = new ushort[CellCount];
-            for (var z = 0; z < VertexEdge; z++)
+            var allocated = measure ? Stopwatch.GetTimestamp() : 0;
+            long densityTicks = 0, materialTicks = 0;
+            if (measure)
             {
-                cancellationToken.ThrowIfCancellationRequested();
-                for (var y = 0; y < VertexEdge; y++)
-                for (var x = 0; x < VertexEdge; x++)
+                (densityTicks, materialTicks) = SampleProfiled(origin, density, materials, cancellationToken);
+            }
+            else
+            {
+                for (var z = 0; z < VertexEdge; z++)
                 {
-                    var coordinate = new LatticeCoordinate(origin.X + x, origin.Y + y, origin.Z + z);
-                    density[Index(x, y, z, VertexEdge)] = _source.SampleDensity(coordinate);
-                    if (x < CellEdge && y < CellEdge && z < CellEdge)
+                    cancellationToken.ThrowIfCancellationRequested();
+                    for (var y = 0; y < VertexEdge; y++)
+                    for (var x = 0; x < VertexEdge; x++)
                     {
-                        var material = _source.SampleMaterial(coordinate);
-                        if (material == 0)
-                            throw new InvalidOperationException("A generated cell must have a nonzero material identifier.");
-                        materials[Index(x, y, z, CellEdge)] = material;
+                        var coordinate = new LatticeCoordinate(origin.X + x, origin.Y + y, origin.Z + z);
+                        density[Index(x, y, z, VertexEdge)] = _source.SampleDensity(coordinate);
+                        if (x < CellEdge && y < CellEdge && z < CellEdge)
+                        {
+                            var material = _source.SampleMaterial(coordinate);
+                            if (material == 0)
+                                throw new InvalidOperationException("A generated cell must have a nonzero material identifier.");
+                            materials[Index(x, y, z, CellEdge)] = material;
+                        }
                     }
                 }
             }
 
+            var sampled = measure ? Stopwatch.GetTimestamp() : 0;
             lock (_gate)
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 if (entry.Availability != BrickAvailability.Generating)
                     return false;
 
+                var seamStart = measure ? Stopwatch.GetTimestamp() : 0;
                 ValidateSharedVertices(key, density);
+                var seams = measure ? Stopwatch.GetTimestamp() - seamStart : 0;
                 entry.Density = density;
                 entry.Materials = materials;
                 entry.Availability = BrickAvailability.Known;
                 published = true;
+                if (measure)
+                {
+                    var publish = Stopwatch.GetTimestamp() - sampled - seams;
+                    timing = new(reserved - started, allocated - reserved, densityTicks, materialTicks, seams, publish);
+                }
                 return true;
             }
         }
@@ -141,6 +173,59 @@ public sealed class PlanetBrickStore
                     ReleaseEntry(entry);
             }
         }
+    }
+
+    private (long DensityTicks, long MaterialTicks) SampleProfiled(LatticeCoordinate origin, long[] density,
+        ushort[] materials, CancellationToken cancellationToken)
+    {
+        long densityTicks = 0, materialTicks = 0;
+        for (var z = 0; z < VertexEdge; z++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            for (var y = 0; y < VertexEdge; y++)
+            {
+                // The source is immutable. Group each row by sample type to avoid a timer read for each value.
+                var rowStart = Stopwatch.GetTimestamp();
+                for (var x = 0; x < VertexEdge; x++)
+                {
+                    var vertex = new LatticeCoordinate(origin.X + x, origin.Y + y, origin.Z + z);
+                    density[Index(x, y, z, VertexEdge)] = _source.SampleDensity(vertex);
+                }
+                var densityEnd = Stopwatch.GetTimestamp();
+                densityTicks += densityEnd - rowStart;
+                if (y == CellEdge || z == CellEdge)
+                    continue;
+
+                for (var x = 0; x < CellEdge; x++)
+                {
+                    var cell = new LatticeCoordinate(origin.X + x, origin.Y + y, origin.Z + z);
+                    var material = _source.SampleMaterial(cell);
+                    if (material == 0)
+                        throw new InvalidOperationException("A generated cell must have a nonzero material identifier.");
+                    materials[Index(x, y, z, CellEdge)] = material;
+                }
+                materialTicks += Stopwatch.GetTimestamp() - densityEnd;
+            }
+        }
+        return (densityTicks, materialTicks);
+    }
+
+    /// <summary>Hashes each immutable payload separately in native numeric byte order, little-endian on Windows x64.</summary>
+    internal (string DensitySha256, string MaterialSha256) Fingerprint(LatticeBrick key)
+    {
+        long[] density;
+        ushort[] materials;
+        lock (_gate)
+        {
+            if (!_entries.TryGetValue(key, out var entry) || entry.Availability != BrickAvailability.Known ||
+                entry.Density is not { } knownDensity || entry.Materials is not { } knownMaterials)
+                throw new InvalidOperationException("Brick fingerprints require a published payload.");
+            density = knownDensity;
+            materials = knownMaterials;
+        }
+
+        return (Convert.ToHexStringLower(SHA256.HashData(MemoryMarshal.AsBytes(density.AsSpan()))),
+            Convert.ToHexStringLower(SHA256.HashData(MemoryMarshal.AsBytes(materials.AsSpan()))));
     }
 
     /// <summary>Acquires a reader of a published brick if a lease slot is available.</summary>
