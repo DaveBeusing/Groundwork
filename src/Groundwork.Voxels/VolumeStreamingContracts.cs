@@ -13,6 +13,9 @@ public readonly record struct VolumeStreamingEvent(ulong Sequence, VolumeEventKi
     VolumeViewIdentity View = default, ulong TerrainRevision = 0, ulong Frame = 0, VolumeMovementEvidence? Movement = null, VolumeBrushIntent? Edit = null, VolumeEditStatus? EditStatus = null)
 {
     public VolumeOreInventoryConflict? OreInventoryConflict { get; init; }
+
+    /// <summary>Optional Stopwatch timestamp in this process. Zero means no timing was recorded.</summary>
+    public long MonotonicTimestamp { get; init; }
 }
 public readonly record struct VolumeOreInventoryConflict(BatchId Batch, ComponentTarget Inventory, ResourceKey? Scope);
 public readonly record struct VolumePublicationInfo(ulong Generation, ulong TerrainRevision,

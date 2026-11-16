@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Collections.Immutable;
 using System.Runtime.CompilerServices;
 using Groundwork.Core;
@@ -40,6 +41,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     private int _readers;
     private bool _stopped;
     private bool _movementOpen;
+    private bool _measureEvents;
     private bool _maskReady;
     private ulong _maskReadyTick;
 
@@ -690,10 +692,14 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             Refresh();
             if (_stopped || !PresentationEpochOpen || registration.Owner != this || registration.Disposed || registration.Acknowledged ||
                 ReferenceEquals(_frameRecovery?.Frame, registration) ||
-                registration.Generation != _active || registration.Info.View != _view || !IsCurrentRoot(registration.Generation) ||
-                registration.Frame != _lastFrame || !Record(VolumeEventKind.Accepted, registration.Info.Generation))
+                registration.Generation != _active || registration.Info.View != _view || registration.Frame != _lastFrame)
                 return false;
-            registration.AcknowledgedTick = _world.Publication.Committed.Read().Stamp.Tick;
+
+            var committed = _world.Publication.Committed.Read();
+            if (committed.Root is not VolumeWorldRoot root || root.Owner != this || root.Generation != registration.Generation ||
+                !Record(VolumeEventKind.Accepted, registration.Info.Generation, frame: registration.Frame, stamp: committed.Stamp))
+                return false;
+            registration.AcknowledgedTick = committed.Stamp.Tick;
             registration.Acknowledged = true;
             _accepted = registration;
             return true;
@@ -737,7 +743,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 }
             }
             if (_accepted is not { } accepted || stamp.Tick <= accepted.AcknowledgedTick || accepted.Generation != _active || accepted.Info.View != _view || !IsCurrentRoot(accepted.Generation) ||
-                !Record(VolumeEventKind.Opened, accepted.Info.Generation))
+                !Record(VolumeEventKind.Opened, accepted.Info.Generation, frame: accepted.Frame, stamp: stamp))
                 return false;
             _movementOpen = true;
             _accepted = null;
@@ -764,6 +770,18 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         {
             Refresh();
             StopInternal();
+        }
+    }
+
+    /// <summary>Enables Stopwatch timestamps on work readiness and presentation evidence in the bounded journal.</summary>
+    /// <remarks>Configure before the first event. Timestamps are observations in this process and are independent of world state.</remarks>
+    public void EnableEventTiming()
+    {
+        lock (_gate)
+        {
+            if (_sequence != 0 || _stopped)
+                throw new InvalidOperationException("Enable volume event timing before starting the route.");
+            _measureEvents = true;
         }
     }
 
@@ -920,7 +938,12 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             return false;
         var index = (_journalHead + _journalCount++) % _journal.Length;
         _journal[index] = new VolumeStreamingEvent(++_sequence, kind, generation, stamp ?? _world.Publication.Committed.Read().Stamp,
-            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus) { OreInventoryConflict = oreConflict };
+            view ?? _view, terrainRevision == 0 ? CurrentRevision() : terrainRevision, frame ?? _lastFrame, movement, edit, editStatus)
+        {
+            OreInventoryConflict = oreConflict,
+            MonotonicTimestamp = _measureEvents && kind is (VolumeEventKind.WorkReady or VolumeEventKind.NativeReady or
+                VolumeEventKind.Accepted or VolumeEventKind.Opened) ? Stopwatch.GetTimestamp() : 0,
+        };
         _journalPermits[index] = permit;
         return true;
     }

@@ -648,7 +648,7 @@ public sealed partial class PresentationSmokeTests
         internal VolumeRun(int readers = 8, bool editable = false,
             PlanetVector? camera = null, PlanetVector? forward = null,
             PlanetGeologyField? geology = null, PlanetVector displacement = default, bool openFloor = false,
-            Func<LatticeCoordinate, ushort>? material = null, SavedOverlay? savedOverlay = null)
+            Func<LatticeCoordinate, ushort>? material = null, SavedOverlay? savedOverlay = null, int floorHeight = 0)
         {
             _tick = savedOverlay?.CompletedTick ?? 0;
             World = Fixture.OpenWorld(completedTick: _tick);
@@ -660,7 +660,7 @@ public sealed partial class PresentationSmokeTests
             _selection = geology is null ? VolumeStreamingSelection.Select(descriptor, _camera, _forward) :
                 SelectCave(descriptor);
             var overlayRows = geology is null ? 1024 : 4096;
-            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false, openFloor, material) : null);
+            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false, openFloor, material, floorHeight) : null);
             _meshBytes = geology is null ? 8 * 1024 * 1024 : 32 * 1024 * 1024;
             var native = geology is null ? NativeBytes : CaveNativeBytes;
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, _meshBytes) + (_editSource is not null ? 64L * overlayRows + 4096 : 0),
@@ -681,9 +681,10 @@ public sealed partial class PresentationSmokeTests
 
         internal PlanetDescriptor Descriptor => _selection.Descriptor;
 
-        internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut, IPlanetBrickSource? source = null)
+        internal VolumeStreamingWork Stage(VolumeWorkClass kind, ulong sourceRevision, ulong targetRevision, bool cut,
+            IPlanetBrickSource? source = null, VolumeStreamingSelection? selection = null)
         {
-            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(kind, _selection, sourceRevision,
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(kind, selection ?? _selection, sourceRevision,
                 targetRevision, _meshBytes, _unit, source ?? _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             return work;
@@ -717,6 +718,14 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
                 CoreRuntimeFixture.PublishObserver(World, outcome.Stamp!.Value, (int)_tick);
             }
+        }
+
+        internal VolumeStreamingWork StageReferenceEdit(VolumeBrushIntent edit, VolumeStreamingSelection selection)
+        {
+            Assert.AreEqual(VolumeAdmission.Accepted,
+                Terrain.TryStageEdit(edit.Tick, edit.Id, selection, _meshBytes, _unit, out var work));
+            Assert.IsNotNull(work);
+            return work;
         }
 
         internal enum EditAdmission { Mask, TerrainWork, RendererStage }
@@ -853,10 +862,10 @@ public sealed partial class PresentationSmokeTests
     }
 
     private sealed class VolumeFixtureSource(PlanetDescriptor descriptor, bool cut, bool openFloor = false,
-        Func<LatticeCoordinate, ushort>? material = null) : IPlanetBrickSource
+        Func<LatticeCoordinate, ushort>? material = null, int floorHeight = 0) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => descriptor;
-        public long SampleDensity(LatticeCoordinate p) => openFloor ? p.Z : Math.Min(cut ? p.Z + 1 : p.Z, 8 - p.Z);
+        public long SampleDensity(LatticeCoordinate p) => openFloor ? p.Z - floorHeight : Math.Min(cut ? p.Z + 1 : p.Z, 8 - p.Z);
         public ushort SampleMaterial(LatticeCoordinate p) => material?.Invoke(p) ?? 1;
     }
 }
