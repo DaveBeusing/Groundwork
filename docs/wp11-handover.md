@@ -70,6 +70,8 @@ The SHA-256 digests of the matched semantic checkpoints below use UTF-8 with LF 
 | R08 Presentation and game | The WARP readbacks, native desktop passes and installed WYU route exercise the complete consumer path. |
 | R09 Diagnostics and validation | The CI and workstation evidence below the production gate is available. Reference-class measurements, accepted limits and owner sign-off remain open. |
 
+The [Q02 workstation matrix](architecture/wp11-q02-workstation-qualification.md) maps the current renderer, terrain and persistence failure fixtures to R01–R09 and records the remaining qualification.
+
 ## Work packages and open decisions
 
 - Contract and C00 are merged. Groundwork A01–A03, B01, C01–C03 and D01–D02 are implemented in [PRs #91–#99](https://github.com/DaveBeusing/Groundwork/pulls?q=is%3Apr+is%3Amerged+WP11). Q01 instrumentation and Q02 regression work landed in [PRs #100–#106](https://github.com/DaveBeusing/Groundwork/pulls?q=is%3Apr+is%3Amerged+WP11).
