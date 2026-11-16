@@ -36,6 +36,9 @@ public sealed class PlanetVolumeMesh
     public byte LodMask { get; }
     public string PlanIdentity { get; }
     public ReadOnlySpan<VolumeTriangle> Triangles => _triangles;
+
+    internal PlanetVolumeMesh ForPlan(VolumeMeshPlan plan) =>
+        new(plan.Descriptor, Origin, plan.TerrainRevision, LodMask, plan.Identity, _triangles);
 }
 
 /// <summary>

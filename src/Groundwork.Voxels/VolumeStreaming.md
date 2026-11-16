@@ -20,3 +20,9 @@ CPU credits include brick arrays, plan/request metadata, mesh references and the
 A bounded event FIFO stores view identities, generation, terrain revision and frame identity. Its reserved commit cell resolves from Core's atomic permit outcome. A full FIFO closes the journal epoch and retains terminal evidence. Consume events to return journal capacity. This is independent of diagnostic logging.
 
 Late or canceled workers cannot publish and return credits only after disposing prepared artifacts. A committed root remains the authoritative save cut even while its view is held. Retained mesh and density readers stay valid until disposal.
+
+## Reuse from a private build
+
+When the host already needs a private build, it can admit it with `TryStagePrivate` and explicitly pass the completed work to the publishing job's `ExecuteReusing`. Dispose private work after its last use, including successful execution. The donor stays under its own reservation and cannot enter publication or native preparation. The recipient keeps its complete reservation and falls back to sampling and meshing if no compatible donor can be borrowed.
+
+Reuse requires the same coordinator, view, source instance and base overlay. A staged edit invalidates any brick whose density vertices or material cells intersect its writes. Mesh reuse also checks the final LODs of the region and its face neighbors, the plan window used for clamping, and the gradient halo. Each recipient prepares its own plan and binds reused triangles to that plan and revision. The detailed execution profile reports adoption separately from output equality.

@@ -192,6 +192,32 @@ public sealed class VolumeMeshPlan : IDisposable
 
     internal int Stride(int index) => _inputs[index].Stride;
 
+    // Same window preserves gradient and material clamping. Compare final LODs, including
+    // the face neighbors that control transition cells and fine vertex positions.
+    internal bool HasSameMeshLayout(VolumeMeshPlan donor, LatticeBrick minimum)
+    {
+        if (Minimum != donor.Minimum || Width != donor.Width || Height != donor.Height || Depth != donor.Depth)
+            return false;
+
+        var region = RegionIndex(minimum);
+        for (var z = 0; z < 2; z++)
+        for (var y = 0; y < 2; y++)
+        for (var x = 0; x < 2; x++)
+        {
+            var index = region + (z * Height + y) * Width + x;
+            if (Stride(index) != donor.Stride(index))
+                return false;
+            for (var axis = 0; axis < 3; axis++)
+            for (var direction = -1; direction <= 1; direction += 2)
+            {
+                var neighbor = Neighbor(index, axis, direction);
+                if (neighbor >= 0 && Stride(neighbor) != donor.Stride(neighbor))
+                    return false;
+            }
+        }
+        return true;
+    }
+
     internal int Neighbor(int index, int axis, int direction)
     {
         var p = BrickPosition(index) / 32;

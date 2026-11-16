@@ -9,17 +9,25 @@ namespace Groundwork.Voxels;
 /// <see cref="EvidenceFinished"/>. Fingerprints compare observed outputs and do not authorize reuse.</remarks>
 public readonly record struct VolumeStreamingWorkDetailedProfile(VolumeStreamingWorkProfile Timing,
     VolumeBrickGenerationTiming BrickTiming, long EvidenceFinished, ReadOnlyMemory<VolumeBrickWorkFingerprint> Bricks,
-    ReadOnlyMemory<VolumeMeshWorkFingerprint> Meshes);
+    ReadOnlyMemory<VolumeMeshWorkFingerprint> Meshes)
+{
+    /// <summary>The private generation borrowed by this job, or zero if no donor was available.</summary>
+    public ulong ReuseSourceGeneration { get; init; }
+}
 
-/// <summary>Sampled brick payload, requested mesh-plan stride and elapsed Stopwatch ticks to generate the brick.</summary>
+/// <summary>Sampled brick payload, requested stride and elapsed Stopwatch ticks to generate or import the brick.</summary>
 public readonly record struct VolumeBrickWorkFingerprint(LatticeBrick Key, int RequestedStride,
-    string DensitySha256, string MaterialSha256, long ElapsedTicks);
+    string DensitySha256, string MaterialSha256, long ElapsedTicks)
+{
+    public bool Reused { get; init; }
+}
 
 /// <summary>Output fingerprint for one mesh region. Geometry includes ordered triangles and their transition flags.</summary>
-/// <remarks>Elapsed ticks cover the mesh build without shared plan creation or fingerprinting.</remarks>
+/// <remarks>Elapsed ticks cover building or adopting the mesh, excluding plan creation and fingerprinting.</remarks>
 public readonly record struct VolumeMeshWorkFingerprint(LatticeCoordinate Origin, byte LodMask, int TriangleCount,
     string GeometrySha256, long ElapsedTicks)
 {
+    public bool Reused { get; init; }
     private const int VertexBytes = 6 * sizeof(float) + sizeof(ushort);
     private const int TriangleBytes = 3 * VertexBytes + 1;
 

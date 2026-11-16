@@ -53,6 +53,7 @@ public sealed class VolumeWorldRoot : IWorldStateRoot
 
 internal sealed class VolumeArtifacts(PlanetBrickStore store, VolumeMeshPlan plan, PlanetVolumeMesh[] meshes) : IDisposable
 {
+    internal PlanetBrickStore Store { get; } = store;
     public VolumeMeshPlan Plan { get; } = plan;
     public PlanetVolumeMesh[] Meshes { get; } = meshes;
     public void Dispose()
@@ -61,7 +62,7 @@ internal sealed class VolumeArtifacts(PlanetBrickStore store, VolumeMeshPlan pla
         for (var z = 0; z < Plan.Depth; z++)
             for (var y = 0; y < Plan.Height; y++)
                 for (var x = 0; x < Plan.Width; x++)
-                    store.Evict(new LatticeBrick(Plan.Minimum.X + x, Plan.Minimum.Y + y, Plan.Minimum.Z + z));
+                    Store.Evict(new LatticeBrick(Plan.Minimum.X + x, Plan.Minimum.Y + y, Plan.Minimum.Z + z));
         Plan.Dispose();
     }
 }
@@ -86,6 +87,7 @@ internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStr
     public ulong? NativeReadyTick { get; set; }
     public RootChangePermit? Permit { get; set; }
     public bool Outstanding { get; set; } = true;
+    public bool IsPrivate { get; init; }
     public volatile bool Cancelled;
     public bool Released { get; set; }
     public bool Retired { get; set; }
@@ -112,14 +114,22 @@ public sealed class VolumeStreamingWork : IDisposable
     public bool IsCancellationRequested => _owner.IsCancelled(_generation);
 
     public bool Execute(CancellationToken cancellationToken = default) =>
-        ExecuteCore(false, false, out _, cancellationToken);
+        ExecuteCore(false, false, null, out _, cancellationToken);
+
+    /// <summary>Executes with compatible immutable data from completed private work when available.</summary>
+    /// <remarks>Keep the private work alive until this call completes. Unavailable or incompatible data is rebuilt.</remarks>
+    public bool ExecuteReusing(VolumeStreamingWork privateWork, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(privateWork);
+        return ExecuteCore(false, false, privateWork, out _, cancellationToken);
+    }
 
     /// <summary>Executes the job and captures phase timings if the coordinator accepts the result.</summary>
     /// <remarks>The profile is default when execution returns <see langword="false"/> or throws.</remarks>
     public bool ExecuteProfiled(out VolumeStreamingWorkProfile profile, CancellationToken cancellationToken = default)
     {
         profile = default;
-        var accepted = ExecuteCore(true, false, out var result, cancellationToken);
+        var accepted = ExecuteCore(true, false, null, out var result, cancellationToken);
         profile = result.Timing;
         return accepted;
     }
@@ -127,9 +137,18 @@ public sealed class VolumeStreamingWork : IDisposable
     /// <summary>Executes the job and captures detailed brick timings and detached output fingerprints on success.</summary>
     /// <remarks>The profile is default when execution returns <see langword="false"/> or throws.</remarks>
     public bool ExecuteDetailedProfiled(out VolumeStreamingWorkDetailedProfile profile,
-        CancellationToken cancellationToken = default) => ExecuteCore(true, true, out profile, cancellationToken);
+        CancellationToken cancellationToken = default) => ExecuteCore(true, true, null, out profile, cancellationToken);
 
-    private bool ExecuteCore(bool measure, bool captureDetails, out VolumeStreamingWorkDetailedProfile profile,
+    /// <summary>Executes with optional private reuse and reports the work reused by an accepted job.</summary>
+    public bool ExecuteDetailedProfiled(VolumeStreamingWork privateWork, out VolumeStreamingWorkDetailedProfile profile,
+        CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(privateWork);
+        return ExecuteCore(true, true, privateWork, out profile, cancellationToken);
+    }
+
+    private bool ExecuteCore(bool measure, bool captureDetails, VolumeStreamingWork? privateWork,
+        out VolumeStreamingWorkDetailedProfile profile,
         CancellationToken cancellationToken)
     {
         profile = default;
@@ -140,6 +159,11 @@ public sealed class VolumeStreamingWork : IDisposable
         {
             var started = measure ? Stopwatch.GetTimestamp() : 0;
             Check(cancellationToken);
+            VolumeArtifacts? donor = null;
+            using var borrow = privateWork is not null && ReferenceEquals(_owner, privateWork._owner) &&
+                ReferenceEquals(_source, privateWork._source)
+                ? _owner.TryBorrowPrivate(_generation, privateWork._generation, out donor)
+                : null;
             var overlay = _generation.Overlay;
             VolumeOreDepletion depletion = default;
             void CheckEditCancellation()
@@ -166,15 +190,28 @@ public sealed class VolumeStreamingWork : IDisposable
             ReadOnlyMemory<VolumeMeshWorkFingerprint> meshFingerprints = default;
             var brickElapsed = captureDetails ? new long[requests.Length] : null;
             var meshElapsed = captureDetails ? new long[_generation.Selection.MeshCount] : null;
+            var brickHits = captureDetails && donor is not null ? new bool[requests.Length] : null;
+            var meshHits = captureDetails && donor is not null ? new bool[_generation.Selection.MeshCount] : null;
             try
             {
                 for (var requestIndex = 0; requestIndex < requests.Length; requestIndex++)
                 {
                     Check(cancellationToken);
                     var request = requests[requestIndex];
+                    var brickStart = brickElapsed is not null ? Stopwatch.GetTimestamp() : 0;
+                    if (donor is not null && !AffectedByEdit(_generation.Edit, request.Brick.Vertex(0, 0, 0), mesh: false) &&
+                        store.TryImport(request.Brick, donor.Store))
+                    {
+                        if (brickHits is not null)
+                        {
+                            brickHits[requestIndex] = true;
+                            brickElapsed![requestIndex] = Stopwatch.GetTimestamp() - brickStart;
+                        }
+                        continue;
+                    }
+
                     if (brickElapsed is not null)
                     {
-                        var brickStart = Stopwatch.GetTimestamp();
                         if (!store.TryGenerateProfiled(request.Brick, out var timing, cancellationToken))
                             throw new InvalidOperationException("Reserved brick quota is insufficient.");
                         brickElapsed[requestIndex] = Stopwatch.GetTimestamp() - brickStart;
@@ -197,8 +234,22 @@ public sealed class VolumeStreamingWork : IDisposable
                             Check(cancellationToken);
                             var minimum = new LatticeBrick(plan.Minimum.X + x, plan.Minimum.Y + y, plan.Minimum.Z + z);
                             var meshStart = meshElapsed is not null ? Stopwatch.GetTimestamp() : 0;
-                            var mesh = PlanetVolumeMesher.Build(plan, minimum, remaining)
-                                ?? throw new InvalidOperationException("Mesh exceeds the reserved payload.");
+                            PlanetVolumeMesh mesh;
+                            if (donor is not null && !AffectedByEdit(_generation.Edit, minimum.Vertex(0, 0, 0), mesh: true) &&
+                                plan.HasSameMeshLayout(donor.Plan, minimum))
+                            {
+                                var reused = donor.Meshes[index];
+                                if ((long)reused.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes > remaining)
+                                    throw new InvalidOperationException("Mesh exceeds the reserved payload.");
+                                mesh = reused.ForPlan(plan);
+                                if (meshHits is not null)
+                                    meshHits[index] = true;
+                            }
+                            else
+                            {
+                                mesh = PlanetVolumeMesher.Build(plan, minimum, remaining)
+                                    ?? throw new InvalidOperationException("Mesh exceeds the reserved payload.");
+                            }
                             if (meshElapsed is not null)
                                 meshElapsed[index] = Stopwatch.GetTimestamp() - meshStart;
                             remaining -= (long)mesh.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes;
@@ -209,7 +260,7 @@ public sealed class VolumeStreamingWork : IDisposable
                 meshBuilt = measure ? Stopwatch.GetTimestamp() : 0;
                 if (brickElapsed is not null && meshElapsed is not null)
                     (brickFingerprints, meshFingerprints) = CaptureFingerprints(store, requests, brickElapsed,
-                        meshes, meshElapsed, cancellationToken);
+                        meshes, meshElapsed, brickHits, meshHits, cancellationToken);
             }
             finally
             {
@@ -228,7 +279,10 @@ public sealed class VolumeStreamingWork : IDisposable
             {
                 var timing = new VolumeStreamingWorkProfile(started, overlayPrepared, bricksGenerated,
                     planCreated, meshBuilt, Stopwatch.GetTimestamp());
-                profile = new(timing, brickTiming, evidenceFinished, brickFingerprints, meshFingerprints);
+                profile = new(timing, brickTiming, evidenceFinished, brickFingerprints, meshFingerprints)
+                {
+                    ReuseSourceGeneration = borrow is null ? 0 : privateWork!.Generation
+                };
             }
             return accepted;
         }
@@ -255,7 +309,8 @@ public sealed class VolumeStreamingWork : IDisposable
 
     private (VolumeBrickWorkFingerprint[] Bricks, VolumeMeshWorkFingerprint[] Meshes) CaptureFingerprints(
         PlanetBrickStore store, ReadOnlySpan<VolumeMeshRequest> requests, long[] brickElapsed,
-        PlanetVolumeMesh[] meshes, long[] meshElapsed, CancellationToken cancellationToken)
+        PlanetVolumeMesh[] meshes, long[] meshElapsed, bool[]? brickHits, bool[]? meshHits,
+        CancellationToken cancellationToken)
     {
         var bricks = new VolumeBrickWorkFingerprint[requests.Length];
         for (var index = 0; index < requests.Length; index++)
@@ -263,15 +318,44 @@ public sealed class VolumeStreamingWork : IDisposable
             Check(cancellationToken);
             var request = requests[index];
             var (density, material) = store.Fingerprint(request.Brick);
-            bricks[index] = new(request.Brick, request.Stride, density, material, brickElapsed[index]);
+            bricks[index] = new(request.Brick, request.Stride, density, material, brickElapsed[index])
+            {
+                Reused = brickHits?[index] == true
+            };
         }
         var geometry = new VolumeMeshWorkFingerprint[meshes.Length];
         for (var index = 0; index < meshes.Length; index++)
         {
             Check(cancellationToken);
-            geometry[index] = VolumeMeshWorkFingerprint.Capture(meshes[index], meshElapsed[index], cancellationToken);
+            geometry[index] = VolumeMeshWorkFingerprint.Capture(meshes[index], meshElapsed[index], cancellationToken) with
+            {
+                Reused = meshHits?[index] == true
+            };
         }
         return (bricks, geometry);
+    }
+
+    private static bool AffectedByEdit(VolumeBrushIntent? edit, LatticeCoordinate origin, bool mesh)
+    {
+        if (edit is not { } brush)
+            return false;
+
+        // Bricks own the upper density face and half-open material cells. Meshing also samples
+        // boundary materials and reads a one-vertex halo for gradients. The donor has the pre-edit
+        // overlay, so only this brush and the cells incident to its vertices can differ.
+        var cells = mesh ? 2 * PlanetBrickStore.CellEdge : PlanetBrickStore.CellEdge;
+        var halo = mesh ? 1 : 0;
+        return Intersects(Offset(origin, -halo), Offset(origin, cells + halo), brush.Minimum, brush.Maximum) ||
+            Intersects(origin, Offset(origin, cells - 1 + halo), Offset(brush.Minimum, -1), brush.Maximum);
+
+        static LatticeCoordinate Offset(LatticeCoordinate point, int amount) =>
+            new(point.X + amount, point.Y + amount, point.Z + amount);
+
+        static bool Intersects(LatticeCoordinate low, LatticeCoordinate high,
+            LatticeCoordinate otherLow, LatticeCoordinate otherHigh) =>
+            low.X <= otherHigh.X && otherLow.X <= high.X &&
+            low.Y <= otherHigh.Y && otherLow.Y <= high.Y &&
+            low.Z <= otherHigh.Z && otherLow.Z <= high.Z;
     }
 
     private void Check(CancellationToken token)
@@ -284,6 +368,13 @@ public sealed class VolumeStreamingWork : IDisposable
     public void Dispose()
     {
         var state = Interlocked.CompareExchange(ref _state, 2, 0);
+        if (_generation.IsPrivate)
+        {
+            _owner.CancelPrivate(_generation);
+            if (state == 0)
+                _owner.Complete(_generation, null);
+            return;
+        }
         if (state == 2)
             return;
         _generation.Cancelled = true;

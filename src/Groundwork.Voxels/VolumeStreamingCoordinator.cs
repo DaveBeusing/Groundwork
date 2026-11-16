@@ -169,16 +169,24 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
     public VolumeAdmission TryStage(VolumeWorkClass kind, VolumeStreamingSelection selection,
         ulong sourceRevision, ulong targetRevision, long meshBytes, VolumeResources resources,
         IPlanetBrickSource source, out VolumeStreamingWork? work) =>
-        Stage(kind, selection, sourceRevision, targetRevision, meshBytes, resources, source, null, out work);
+        Stage(kind, selection, sourceRevision, targetRevision, meshBytes, resources, source, null, false, out work);
+
+    /// <summary>Stages a quota-bound work item whose completed geometry can seed another job but cannot publish.</summary>
+    /// <remarks>Dispose the private work after its final use to release its reservation, even after successful execution.</remarks>
+    public VolumeAdmission TryStagePrivate(VolumeWorkClass kind, VolumeStreamingSelection selection,
+        ulong sourceRevision, ulong targetRevision, long meshBytes, VolumeResources resources,
+        IPlanetBrickSource source, out VolumeStreamingWork? work) =>
+        Stage(kind, selection, sourceRevision, targetRevision, meshBytes, resources, source, null, true, out work);
 
     private VolumeAdmission Stage(VolumeWorkClass kind, VolumeStreamingSelection selection,
         ulong sourceRevision, ulong targetRevision, long meshBytes, VolumeResources resources,
-        IPlanetBrickSource source, VolumeBrushIntent? edit, out VolumeStreamingWork? work)
+        IPlanetBrickSource source, VolumeBrushIntent? edit, bool isPrivate, out VolumeStreamingWork? work)
     {
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentNullException.ThrowIfNull(source);
         work = null;
-        if (kind is VolumeWorkClass.Baseline || !Enum.IsDefined(kind) || selection.Descriptor != _descriptor ||
+        if (kind is VolumeWorkClass.Baseline || !Enum.IsDefined(kind) ||
+            (isPrivate && kind == VolumeWorkClass.FirstEdit) || selection.Descriptor != _descriptor ||
             source.Descriptor != _descriptor || PlanetGeologyField.UsesGeology(_descriptor.GeneratorVersion) && !selection.RequiresFineCoverage ||
             targetRevision == 0 || targetRevision < sourceRevision ||
             !resources.IsNonnegative || resources.CpuBytes < RequiredEditableCpuBytes(selection, meshBytes) ||
@@ -205,7 +213,10 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 return Deny();
             if (!Record(VolumeEventKind.Admitted, checked(_generation + 1), terrainRevision: targetRevision))
                 return VolumeAdmission.Closed;
-            var entry = new VolumeGeneration(++_generation, kind, selection, sourceRevision, targetRevision, _view, meshBytes, resources);
+            var entry = new VolumeGeneration(++_generation, kind, selection, sourceRevision, targetRevision, _view, meshBytes, resources)
+            {
+                IsPrivate = isPrivate,
+            };
             _used[(int)kind] += resources;
             UpdatePeak();
             _entries[slot] = entry;
@@ -215,6 +226,39 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             entry.Edit = edit;
             work = new VolumeStreamingWork(this, entry, source, _overlayLimit);
             return VolumeAdmission.Accepted;
+        }
+    }
+
+    internal VolumeStreamingLease? TryBorrowPrivate(VolumeGeneration target, VolumeGeneration donor, out VolumeArtifacts? artifacts)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            artifacts = null;
+            if (_stopped || !PresentationEpochOpen || target.IsPrivate || !target.Outstanding ||
+                target.Cancelled || target.Released || target.Retired || target.View != _view ||
+                target.SourceRevision != CurrentRevision() || Array.IndexOf(_entries, target) < 0 ||
+                !donor.IsPrivate || donor.Outstanding || donor.Cancelled || donor.Released || donor.Retired ||
+                donor.View != target.View || donor.SourceRevision != target.SourceRevision ||
+                donor.TargetRevision != (target.Edit is null ? target.TargetRevision : target.SourceRevision) ||
+                !ReferenceEquals(donor.Overlay, target.Overlay) || donor.Artifacts is not { } donorArtifacts ||
+                Array.IndexOf(_entries, donor) < 0)
+                return null;
+
+            // Keep the donor's artifacts and retained resource vector alive through the recipient's build.
+            var lease = Acquire(donor);
+            if (lease is not null)
+                artifacts = donorArtifacts;
+            return lease;
+        }
+    }
+
+    internal void CancelPrivate(VolumeGeneration donor)
+    {
+        lock (_gate)
+        {
+            if (donor.IsPrivate && !donor.Released && !donor.Retired && Array.IndexOf(_entries, donor) >= 0)
+                Cancel(donor);
         }
     }
 
@@ -311,7 +355,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         if (_stopped || !PresentationEpochOpen)
             return null;
         var entry = Array.Find(_entries, candidate => candidate?.Id == generation);
-        return entry is { Artifacts: not null, Outstanding: false, Cancelled: false, Retired: false } &&
+        return entry is { Artifacts: not null, Outstanding: false, Cancelled: false, Retired: false, IsPrivate: false } &&
             entry.Kind != VolumeWorkClass.Speculative && entry.View == _view &&
             (entry == _active ? IsCurrentRoot(entry) : entry.SourceRevision == CurrentRevision()) ? entry : null;
     }
@@ -330,7 +374,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             Refresh();
             var entry = Array.Find(_entries, e => e?.Id == generation);
             if (_stopped || !PresentationEpochOpen || !OwnsPresentation(renderer) || !_maskReady || _prepared is not null || entry is null || entry.Outstanding ||
-                entry.Artifacts is null || entry.Cancelled || entry.Kind == VolumeWorkClass.Speculative ||
+                entry.Artifacts is null || entry.Cancelled || entry.IsPrivate || entry.Kind == VolumeWorkClass.Speculative ||
                 entry.View != _view || entry.SourceRevision != CurrentRevision() ||
                 _active is not null && entry.View.View <= _active.View.View ||
                 candidates.Request.Kind != BarrierKind.CommitResults ||

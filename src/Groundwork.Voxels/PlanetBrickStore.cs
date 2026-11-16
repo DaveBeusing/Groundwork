@@ -83,6 +83,37 @@ public sealed class PlanetBrickStore
         CancellationToken cancellationToken = default) =>
         TryGenerateCore(key, true, out timing, cancellationToken);
 
+    // The caller proves equivalent sampling inputs and holds a charged reader on the donor generation.
+    // Each store retains its own entry, leases and full payload charge.
+    internal bool TryImport(LatticeBrick key, PlanetBrickStore donor)
+    {
+        long[] density;
+        ushort[] materials;
+        lock (donor._gate)
+        {
+            if (!donor._entries.TryGetValue(key, out var source) || source.Availability != BrickAvailability.Known ||
+                source.Density is not { } sourceDensity || source.Materials is not { } sourceMaterials)
+                return false;
+            density = sourceDensity;
+            materials = sourceMaterials;
+        }
+
+        lock (_gate)
+        {
+            if (_entries.ContainsKey(key) || _payloadLimit - _chargedBytes < BrickPayloadBytes)
+                return false;
+            ValidateSharedVertices(key, density);
+            _entries.Add(key, new Entry(key)
+            {
+                Density = density,
+                Materials = materials,
+                Availability = BrickAvailability.Known
+            });
+            _chargedBytes += BrickPayloadBytes;
+            return true;
+        }
+    }
+
     private bool TryGenerateCore(LatticeBrick key, bool measure, out VolumeBrickGenerationTiming timing,
         CancellationToken cancellationToken)
     {

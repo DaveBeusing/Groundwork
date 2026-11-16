@@ -216,7 +216,7 @@ public sealed partial class VolumeStreamingCoordinator
                 return VolumeAdmission.Invalid;
 
             var result = Stage(VolumeWorkClass.FirstEdit, selection, intent.ExpectedRevision, intent.ExpectedRevision + 1,
-                meshBytes, resources, _editBaseline!, intent, out work);
+                meshBytes, resources, _editBaseline!, intent, false, out work);
             if (result == VolumeAdmission.Accepted)
                 _edits[index] = slot with { Status = VolumeEditStatus.Building };
             return result;

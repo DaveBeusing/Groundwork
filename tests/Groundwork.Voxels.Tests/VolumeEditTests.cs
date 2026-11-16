@@ -4,7 +4,7 @@ using Groundwork.Core.Tests;
 namespace Groundwork.Voxels.Tests;
 
 [TestClass]
-public sealed class VolumeEditTests
+public sealed partial class VolumeEditTests
 {
     [TestMethod]
     public async Task SealedHeadCommitsCavityAtomicallyAndReloadPreservesOverlay()
@@ -708,6 +708,9 @@ public sealed class VolumeEditTests
 
         internal VolumeAdmission StageRecovery(out VolumeStreamingWork? work) =>
             Coordinator.TryStage(VolumeWorkClass.Recovery, Selection, 1, 1, _meshBytes, _resources, _baseline, out work);
+
+        internal VolumeAdmission StagePrivateRecovery(out VolumeStreamingWork? work) =>
+            Coordinator.TryStagePrivate(VolumeWorkClass.Recovery, Selection, 1, 1, _meshBytes, _resources, _baseline, out work);
 
         internal void FinishUnchanged(CandidateSet cut)
         {
