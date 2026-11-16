@@ -710,8 +710,11 @@ public sealed partial class PresentationSmokeTests
             }
         }
 
+        internal enum EditAdmission { Mask, TerrainWork, RendererStage }
+
         internal async Task<VolumeViewIdentity> CutFloor(D3D12Renderer? renderer, CancellationToken token,
-            VolumeBrushIntent? brush = null, PlanetVector? rebase = null, ulong maskSequence = 3)
+            VolumeBrushIntent? brush = null, PlanetVector? rebase = null, ulong maskSequence = 3,
+            Action<EditAdmission>? observeAdmission = null)
         {
             var begin = await BeginHeldTick();
             Assert.IsTrue(Terrain.BeginTick(begin));
@@ -728,7 +731,9 @@ public sealed partial class PresentationSmokeTests
                 Assert.IsTrue(Terrain.ConfirmMask(next));
             else
                 Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(next, maskSequence, Vector4.Zero));
+            observeAdmission?.Invoke(EditAdmission.Mask);
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStageEdit(begin.Tick, edit.Id, selection, _meshBytes, _unit, out var work));
+            observeAdmission?.Invoke(EditAdmission.TerrainWork);
             Assert.IsNotNull(work);
             using (work)
             {
@@ -736,6 +741,7 @@ public sealed partial class PresentationSmokeTests
                 if (renderer is not null)
                 {
                     Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TryStageVolumeTerrain(work.Generation));
+                    observeAdmission?.Invoke(EditAdmission.RendererStage);
                     await AwaitStatus(renderer, state => state.LastPresentedSequence == maskSequence && renderer.IsVolumeTerrainReady(work.Generation), token);
                     var nativeReady = false;
                     while (Terrain.TryReadEvent(out var evidence))
@@ -821,10 +827,11 @@ public sealed partial class PresentationSmokeTests
             CoreRuntimeFixture.PublishObserver(World, commit, (int)_tick);
         }
 
-        internal async Task OpenMovement()
+        internal async Task OpenMovement(Action? observeOpened = null)
         {
             var begin = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++_tick, BarrierKind.BeginTick);
             Assert.IsTrue(Terrain.BeginTick(begin));
+            observeOpened?.Invoke();
             var commit = await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, _tick, BarrierKind.CommitResults);
             CoreRuntimeFixture.PublishObserver(World, commit, (int)_tick);
         }

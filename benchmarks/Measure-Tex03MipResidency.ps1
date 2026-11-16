@@ -25,6 +25,33 @@ function Measure-Percentiles([double[]] $Values) {
     }
 }
 
+function Get-PairConfiguration($Observation) {
+    [ordered]@{
+        fixture = $Observation.fixture
+        adapter = $Observation.adapter
+        runtime = $Observation.runtime
+        processArchitecture = $Observation.processArchitecture
+        width = $Observation.width
+        height = $Observation.height
+        warmupFrames = $Observation.warmupFrames
+        measuredFrames = $Observation.measuredFrames
+        stopwatchFrequency = $Observation.stopwatchFrequency
+        debugLayerEnabled = $Observation.debugLayerEnabled
+        dredEnabled = $Observation.dredEnabled
+        shaderSha256 = $Observation.shaderSha256
+        texture = $Observation.texture
+        policy = $Observation.policy
+    }
+}
+
+function Assert-MatchingPairConfiguration($Baseline, $Current, [int] $Pair) {
+    foreach ($field in $Baseline.Keys) {
+        $expected = ConvertTo-Json -InputObject $Baseline[$field] -Depth 6 -Compress
+        $actual = ConvertTo-Json -InputObject $Current[$field] -Depth 6 -Compress
+        if ($expected -cne $actual) { throw "Configuration field '$field' changed in pair $Pair." }
+    }
+}
+
 Push-Location -LiteralPath $root
 try {
     $commit = git rev-parse HEAD
@@ -58,6 +85,7 @@ try {
     dotnet build $project -c Release --no-restore --nologo *> (Join-Path $target 'build.log')
     if ($LASTEXITCODE -ne 0) { throw "Release build failed. See $target/build.log." }
 
+    $configuration = $null
     $env:GROUNDWORK_TEX03_ADAPTER = $Adapter
     for ($pair = 1; $pair -le $Pairs; $pair++) {
         $env:GROUNDWORK_TEX03_PAIR = $pair.ToString([System.Globalization.CultureInfo]::InvariantCulture)
@@ -74,19 +102,28 @@ try {
         $rows = @($output -split '\r?\n' | Where-Object { $_ -match '^TEX03 \{' })
         if ($rows.Count -ne 1) { throw "Pair $pair did not record exactly one measurement." }
         $row = $rows[0].Substring('TEX03 '.Length) | ConvertFrom-Json
-        $first = if ($pair % 2) { 'fixed-mip0' } else { 'bounded-mip-tiers' }
-        if ($row.schema -ne 1 -or $row.pair -ne $pair -or $row.routes.Count -ne 2 -or
-            $row.routes[0].route -ne $first -or $row.routes[1].route -eq $first -or
+        $expectedRoutes = if ($pair % 2) { 'fixed-mip0', 'bounded-mip-tiers' } else { 'bounded-mip-tiers', 'fixed-mip0' }
+        if ($row.schema -ne 2 -or $row.pair -ne $pair -or $row.routes.Count -ne 2 -or
+            $row.routes[0].route -cne $expectedRoutes[0] -or $row.routes[1].route -cne $expectedRoutes[1] -or
+            $row.routes[0].order -ne 1 -or $row.routes[1].order -ne 2 -or
+            $row.measuredFrames -le 0 -or $row.stopwatchFrequency -le 0 -or
+            $row.adapter.isSoftware -ne ($Adapter -eq 'Warp') -or
             $row.routes[0].samples.Count -ne $row.measuredFrames -or $row.routes[1].samples.Count -ne $row.measuredFrames) {
             throw "Pair $pair did not contain the expected measurements."
         }
+        if ([string]::IsNullOrWhiteSpace($row.adapter.driverVersion)) {
+            throw "Pair $pair did not report an adapter driver version."
+        }
+        $currentConfiguration = Get-PairConfiguration $row
+        if ($null -eq $configuration) { $configuration = $currentConfiguration }
+        else { Assert-MatchingPairConfiguration $configuration $currentConfiguration $pair }
         $observations.Add($row)
         Write-Host "Collected pair $pair of $Pairs on $($row.adapter.description)."
     }
 
     ConvertTo-Json -InputObject $observations.ToArray() -Depth 16 |
         Set-Content -LiteralPath (Join-Path $target 'observations.json') -Encoding utf8
-    $frequency = $observations[0].stopwatchFrequency
+    $frequency = $configuration.stopwatchFrequency
     $routes = foreach ($routeName in 'fixed-mip0', 'bounded-mip-tiers') {
         $routesForMode = @($observations | ForEach-Object { $_.routes | Where-Object route -eq $routeName })
         $frames = @($routesForMode | ForEach-Object { $_.samples })
@@ -100,6 +137,7 @@ try {
             turnUs = Measure-Percentiles @($frames | ForEach-Object { $_.turnTicks * 1000000 / $frequency })
             copyWaitUs = Measure-Percentiles @($copyFrames | ForEach-Object { $_.copyWaitTicks * 1000000 / $frequency })
             residentBytes = Measure-Percentiles @($frames.residentBytes)
+            descriptorHighWater = ($routesForMode.descriptorHighWater | Measure-Object -Maximum).Maximum
             residentHighWaterBytes = ($routesForMode.residentHighWaterBytes | Measure-Object -Maximum).Maximum
             residentAndCandidateHighWaterBytes = ($routesForMode.residentAndCandidateHighWaterBytes | Measure-Object -Maximum).Maximum
             stagingHighWaterBytes = ($routesForMode.stagingHighWaterBytes | Measure-Object -Maximum).Maximum
@@ -119,7 +157,7 @@ try {
             finalResidentBytes = $tiered.samples[-1].residentBytes - $baseline.samples[-1].residentBytes
         }
     }
-    [ordered]@{ schema = 1; routes = @($routes); pairDeltasTieredMinusFixed = @($deltas) } |
+    [ordered]@{ schema = 2; configuration = $configuration; routes = @($routes); pairDeltasTieredMinusFixed = @($deltas) } |
         ConvertTo-Json -Depth 9 | Set-Content -LiteralPath (Join-Path $target 'summary.json') -Encoding utf8
     $routes | Format-Table route, frameCount, copyCount, residentHighWaterBytes, combinedBackingHighWaterBytes, meanUploadedBytesPerPair
 }

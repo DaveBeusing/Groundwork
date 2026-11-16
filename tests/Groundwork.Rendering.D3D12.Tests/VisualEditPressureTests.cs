@@ -1,4 +1,6 @@
+using System.Diagnostics;
 using System.Numerics;
+using System.Text.Json;
 using Groundwork.Core;
 using Groundwork.Platform.Windows;
 using Groundwork.Rendering.Materials;
@@ -13,19 +15,36 @@ public sealed partial class PresentationSmokeTests
     [TestCategory("WindowsDesktopSmoke")]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task ProtectedEditedGenerationPresentsBetweenOptionalVisualQuanta(bool warp)
+    public Task ProtectedEditedGenerationPresentsBetweenOptionalVisualQuanta(bool warp) =>
+        RunVisualEditPressure(warp);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    public async Task Tex03MixedHealthyQueueLatency()
+    {
+        if (!int.TryParse(Environment.GetEnvironmentVariable("GROUNDWORK_TEX03_MIXED_SAMPLE"), out var sample) || sample < 1)
+            Assert.Inconclusive("Run benchmarks/Measure-Tex03MixedLatency.ps1 to collect mixed-workload observations.");
+        var adapter = Environment.GetEnvironmentVariable("GROUNDWORK_TEX03_MIXED_ADAPTER");
+        var diagnostics = Environment.GetEnvironmentVariable("GROUNDWORK_TEX03_MIXED_DIAGNOSTICS");
+        Assert.IsTrue(adapter is "Warp" or "Hardware");
+        Assert.IsTrue(diagnostics is "Enabled" or "Disabled");
+        await RunVisualEditPressure(adapter == "Warp", sample, diagnostics == "Enabled");
+    }
+
+    private static async Task RunVisualEditPressure(bool warp, int sample = 0, bool diagnosticsRequested = true)
     {
         const int copyLimit = GpuDevice.MaxTextureCopyBytes;
         const int propCount = 32_768;
         const ulong maskSequence = 5;
         const ulong editSequence = 6;
+        var measure = sample != 0;
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(60));
         var token = timeout.Token;
         using var run = new VolumeRun(editable: true, openFloor: true);
         using var resumeFrame = new ManualResetEventSlim();
         using var resumeCopy = new ManualResetEventSlim();
         var frameHeld = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var copyHeld = new TaskCompletionSource<GpuTextureStatistics>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var copyIssued = new TaskCompletionSource<GpuTextureStatistics>(TaskCreationOptions.RunContinuationsAsynchronously);
         var firstEditPresent = new TaskCompletionSource<(ulong Generation, D3D12ResourceSnapshot Resources, D3D12PropStatistics Props)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var runtime = run.Fixture.Runtime;
@@ -53,9 +72,28 @@ public sealed partial class PresentationSmokeTests
         var largest = PressureTarget(2, maximumAsset);
         var next = PressureTarget(3, coarseAsset);
         var maximumTicket = default(D3D12TextureTicket);
-        var holdCopy = false;
+        var waitingProp = default(PropCellRequest);
+        var isMaximumCopy = false;
         var optionalAttempts = 0;
         var terrainUploads = 0;
+        long copyStartedAt = 0, copyExecutedAt = 0, copyCompletionObservedAt = 0;
+        long producerArmedAt = 0, protectedRequestAt = 0, maskPlanObservedAt = 0;
+        long nativeTerrainUploadAt = 0, publicationObservedAt = 0;
+        long maskAdmissionObservedAt = 0, terrainWorkAdmissionObservedAt = 0, rendererStageAdmissionObservedAt = 0;
+        long movementOpenedAt = 0;
+        var optionalAttemptsAtRequest = 0;
+        var optionalAttemptsAtMaskAdmission = 0;
+        var appliedWidth = 0;
+        var appliedHeight = 0;
+        HostWindowSnapshot windowAtSetup = default, windowAtRetirement = default;
+        var warmupDrawPrepared = false;
+        var textureFirstUseReady = false;
+        var textureRefinementReady = false;
+        PropCellResult waitingPropAtCopy = default;
+        ulong maximumCopyFence = 0;
+        D3D12TextureUsage textureUsageAtCopy = default;
+        PropCellUsage propsAtCopy = default;
+        VolumeStreamingStatistics terrainAtCopy = default;
         var view = run.Terrain.View;
         var camera = VolumeCameraAt(view, 32, 4);
         Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, 4, out var pressureFrame));
@@ -64,27 +102,76 @@ public sealed partial class PresentationSmokeTests
         VolumePublicationInfo initial = default;
         D3D12Renderer? active = null;
         var hooks = new GpuRetirementTestHooks(
-            SignalFailure: (gpu, _) =>
+            SignalFailure: (gpu, fence) =>
             {
-                if (!holdCopy || !gpu.HasTextureCopy)
+                if (!isMaximumCopy || !gpu.HasTextureCopy)
                     return null;
-                holdCopy = false;
-                Assert.IsTrue(gpu.HasReadyPropUploads(scene, initial));
-                copyHeld.TrySetResult(gpu.TextureStatistics);
-                resumeCopy.Wait(token);
+                isMaximumCopy = false;
+                if (measure)
+                {
+                    copyExecutedAt = Stopwatch.GetTimestamp();
+                    Volatile.Write(ref maximumCopyFence, fence);
+                }
+                else
+                    Assert.IsTrue(gpu.HasReadyPropUploads(scene, initial));
+                copyIssued.TrySetResult(gpu.TextureStatistics);
+                if (!measure)
+                    resumeCopy.Wait(token);
                 return null;
             },
-            BeforeVolumeUpload: _ => Interlocked.Increment(ref terrainUploads));
+            CompletedValue: measure ? (_, completed) =>
+            {
+                var pending = Volatile.Read(ref maximumCopyFence);
+                if (pending != 0 && completed != ulong.MaxValue && completed >= pending &&
+                    Volatile.Read(ref copyCompletionObservedAt) == 0)
+                    Interlocked.CompareExchange(ref copyCompletionObservedAt, Stopwatch.GetTimestamp(), 0);
+                return completed;
+            } : null,
+            PresentFailure: measure ? _ =>
+            {
+                // Park only the warm-up frame, after prop recording and before Present.
+                if (warmupDrawPrepared && frameHeld.TrySetResult())
+                    resumeFrame.Wait(token);
+                warmupDrawPrepared = false;
+                return null;
+            } : null,
+            BeforeVolumeUpload: _ =>
+            {
+                if (Interlocked.Increment(ref terrainUploads) == 2 && measure)
+                    nativeTerrainUploadAt = Stopwatch.GetTimestamp();
+            },
+            RejectPreparedPlan: measure ? sequence =>
+            {
+                if (sequence == 3)
+                    warmupDrawPrepared = true;
+                if (sequence == maskSequence)
+                    Interlocked.CompareExchange(ref maskPlanObservedAt, Stopwatch.GetTimestamp(), 0);
+                return false;
+            } : null);
+        var diagnosticsOptions = diagnosticsRequested ? QualificationDiagnostics : default;
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
-            QualificationDiagnostics with { EnableResourceSnapshots = true }, warp, TimeSpan.FromSeconds(20),
+            diagnosticsOptions with { EnableResourceSnapshots = true }, warp, TimeSpan.FromSeconds(20),
             TimeSpan.FromSeconds(15), hooks)
         {
-            BeforeTextureUploadForTests = (ticket, _) =>
+            BeforeTextureUploadForTests = (ticket, wake) =>
             {
                 Interlocked.Increment(ref optionalAttempts);
-                holdCopy = ticket == maximumTicket;
+                isMaximumCopy = ticket == maximumTicket;
+                if (isMaximumCopy && measure)
+                {
+                    textureFirstUseReady = textures.HasReady(Cut(initial), firstUse: true);
+                    textureRefinementReady = textures.HasReady(Cut(initial), firstUse: false);
+                    textureUsageAtCopy = textures.ReadUsage();
+                    lock (props.Gate)
+                    {
+                        waitingPropAtCopy = props.Admission.ReadStagedLength(waitingProp, out _, out _);
+                        propsAtCopy = props.Admission.Usage;
+                    }
+                    terrainAtCopy = run.Terrain.Statistics;
+                    copyStartedAt = Stopwatch.GetTimestamp();
+                }
             },
-            VolumePresentReadbackForTests = (sequence, generation, _) =>
+            VolumePresentReadbackForTests = measure ? null : (sequence, generation, _) =>
             {
                 if (sequence == 3 && frameHeld.TrySetResult())
                     resumeFrame.Wait(token);
@@ -135,7 +222,7 @@ public sealed partial class PresentationSmokeTests
             {
             }
 
-            var waitingProp = StageProp(cells[1]);
+            waitingProp = StageProp(cells[1]);
             Assert.AreEqual(PropCellResult.Quota, props.TryRequest(cells[0], propCount, out _));
             Assert.AreEqual(D3D12TextureResult.Accepted,
                 textures.TryRequestTier(cut, first, policy, 0, smallCredit, smallCredit, out var refine));
@@ -144,30 +231,48 @@ public sealed partial class PresentationSmokeTests
             StageTexture(cut, next, coarseAsset, smallCredit);
             Assert.AreEqual(textureLimits.Descriptors, textures.ReadUsage().Descriptors);
             Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeCamera(initial.Generation, 4, camera));
+            if (measure)
+            {
+                windowAtSetup = window.Read();
+                producerArmedAt = Stopwatch.GetTimestamp();
+                edit = StartHealthyEdit();
+            }
             resumeFrame.Set();
-            await AwaitStatus(renderer, _ => copyHeld.Task.IsCompleted, token);
-            var inFlight = await copyHeld.Task.WaitAsync(token);
+            await AwaitStatus(renderer, _ => copyIssued.Task.IsCompleted, token);
+            var inFlight = await copyIssued.Task.WaitAsync(token);
             Assert.AreEqual(copyLimit, inFlight.StagingBytes);
             Assert.AreEqual(uploadedBefore + copyLimit, inFlight.UploadedBytes);
-            Assert.IsTrue(textures.HasReady(cut, firstUse: true));
-            Assert.IsTrue(textures.HasReady(cut, firstUse: false));
-            lock (props.Gate)
-                Assert.AreEqual(PropCellResult.Accepted, props.Admission.ReadStagedLength(waitingProp, out _, out _));
-            Assert.AreEqual(2, Volatile.Read(ref optionalAttempts));
-            Assert.AreEqual(terrainBefore, run.Terrain.Statistics.Peak);
-            Assert.IsFalse(run.Terrain.TryReadEvent(out _));
+            if (measure)
+            {
+                Assert.IsTrue(textureFirstUseReady, "The maximum copy must compete with another staged first-use texture.");
+                Assert.IsTrue(textureRefinementReady, "The maximum copy must compete with a staged refinement.");
+                Assert.AreEqual(PropCellResult.Accepted, waitingPropAtCopy,
+                    "A WP16 prop upload must still be staged and eligible when the maximum copy is selected.");
+                Assert.AreEqual(propCount, propsAtCopy.ResidentInstances);
+                Assert.AreEqual(propCount, propsAtCopy.PendingInstances);
+                Assert.AreEqual(terrainBefore, terrainAtCopy.Peak);
+            }
+            else
+            {
+                Assert.IsTrue(textures.HasReady(cut, firstUse: true));
+                Assert.IsTrue(textures.HasReady(cut, firstUse: false));
+                lock (props.Gate)
+                    Assert.AreEqual(PropCellResult.Accepted, props.Admission.ReadStagedLength(waitingProp, out _, out _));
+                Assert.AreEqual(2, Volatile.Read(ref optionalAttempts));
+                Assert.AreEqual(terrainBefore, run.Terrain.Statistics.Peak);
+                Assert.IsFalse(run.Terrain.TryReadEvent(out _));
 
-            // Accept the edit mask while the largest texture copy has executed and
-            // its retirement signal is held. The protected CPU generation can
-            // take the first-edit envelope before the native queue is released.
-            edit = Task.Run(() => run.CutFloor(renderer, token, maskSequence: maskSequence), token);
-            await AwaitStatus(renderer, state => state.LastAcceptedSequence == maskSequence &&
-                run.Terrain.Statistics.Used.QueueSlots == 1, token);
-            Assert.AreEqual(3UL, renderer.Read().LastPresentedSequence);
-            Assert.AreEqual(1, Volatile.Read(ref terrainUploads));
-            Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
-            Assert.IsFalse(edit.IsCompleted);
-            resumeCopy.Set();
+                // Admit the edit while the largest copy awaits its deliberately held signal.
+                edit = Task.Run(() => run.CutFloor(renderer, token, maskSequence: maskSequence), token);
+                await AwaitStatus(renderer, state => state.LastAcceptedSequence == maskSequence &&
+                    run.Terrain.Statistics.Used.QueueSlots == 1, token);
+                Assert.AreEqual(3UL, renderer.Read().LastPresentedSequence);
+                Assert.AreEqual(1, Volatile.Read(ref terrainUploads));
+                Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
+                Assert.IsFalse(edit.IsCompleted);
+                resumeCopy.Set();
+            }
+            Assert.IsNotNull(edit);
             var editedView = await edit.WaitAsync(token);
             using var edited = run.Terrain.TryRead();
             Assert.IsNotNull(edited);
@@ -179,20 +284,39 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(initial.Minimum, edited.Info.Minimum);
             Assert.AreEqual(initial.Width, edited.Info.Width);
             Assert.AreEqual(2, Volatile.Read(ref terrainUploads));
-            Assert.AreEqual(2, Volatile.Read(ref optionalAttempts));
+            if (!measure)
+                Assert.AreEqual(2, Volatile.Read(ref optionalAttempts));
             var editedCut = Cut(edited.Info);
             Assert.IsTrue(textures.Publish(editedCut, 1, [first]));
             props.Publish(new(editedCut.World, editedCut.View.RendererEpoch, editedCut.TerrainRevision,
                 editedCut.CoverageGeneration), cells, new HashSet<PropCellKey>(cells));
             Assert.IsFalse(props.TryCancel(waitingProp));
             StageProp(cells[0]);
-            StageTexture(editedCut, first, coarseAsset, smallCredit);
+            if (!measure)
+                StageTexture(editedCut, first, coarseAsset, smallCredit);
             Assert.AreEqual(RenderSubmissionResult.InvalidFrame,
                 renderer.TrySubmitVolumeCamera(initial.Generation, editSequence, camera));
+            var firstContentRequestAt = measure ? Stopwatch.GetTimestamp() : 0;
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
                 renderer.TrySubmitVolumeTerrain(edited.Info.Generation, editSequence, VolumeCameraAt(editedView, 32, 4)));
 
-            await AwaitStatus(renderer, _ => firstEditPresent.Task.IsCompleted, token);
+            if (measure)
+            {
+                await AwaitStatus(renderer, state =>
+                {
+                    if (state.LastPresentedSequence != editSequence || !renderer.TryReadResourceDiagnostics(out var snapshot) ||
+                        snapshot.FrameSequence != editSequence || snapshot.PresentedSequence != editSequence ||
+                        snapshot.RetiredPresentSequence != editSequence)
+                        return false;
+                    appliedWidth = state.AppliedWidth;
+                    appliedHeight = state.AppliedHeight;
+                    windowAtRetirement = window.Read();
+                    firstEditPresent.TrySetResult((edited.Info.Generation, snapshot, props.ReadStatistics()));
+                    return true;
+                }, token);
+            }
+            else
+                await AwaitStatus(renderer, _ => firstEditPresent.Task.IsCompleted, token);
             var presented = await firstEditPresent.Task.WaitAsync(token);
             Assert.AreEqual(edited.Info.Generation, presented.Generation);
             Assert.AreEqual(editSequence, presented.Resources.PresentedSequence);
@@ -213,7 +337,9 @@ public sealed partial class PresentationSmokeTests
                 acceptedEditPresents++;
             }
             Assert.AreEqual(1, acceptedEditPresents);
-            await run.OpenMovement();
+            if (measure)
+                StageTexture(editedCut, first, coarseAsset, smallCredit);
+            await run.OpenMovement(measure ? () => movementOpenedAt = Stopwatch.GetTimestamp() : null);
             Assert.IsFalse(run.Terrain.Statistics.MovementHeld);
             await AwaitStatus(renderer,
                 _ => textures.TryReadResidency(editedCut, first, out var installed) && installed.ResidentMip == 0, token);
@@ -227,14 +353,90 @@ public sealed partial class PresentationSmokeTests
             Assert.IsLessThanOrEqualTo(textureLimits.Descriptors, texturePeak.Descriptors);
             Assert.IsLessThanOrEqualTo(textureLimits.StagingBytes, texturePeak.StagingBytes);
             Assert.IsLessThanOrEqualTo(textureLimits.NativeBytes, texturePeak.NativeBytes);
-
             await renderer.StopAsync(token);
             Assert.AreEqual(default, textures.ReadUsage());
             Assert.AreEqual(0L, renderer.ReadTextureDiagnostics().ResidentAndPendingBytes);
             Assert.AreEqual(0L, renderer.ReadTextureDiagnostics().StagingBytes);
             var diagnostics = renderer.ReadDiagnostics();
-            AssertPlanetAdapter(diagnostics.Adapter, warp);
-            AssertCleanDiagnostics(diagnostics, diagnosticsRequested: true);
+            if (measure)
+                AssertAdapter(diagnostics.Adapter, warp);
+            else
+                AssertPlanetAdapter(diagnostics.Adapter, warp);
+            AssertCleanDiagnostics(diagnostics, diagnosticsRequested);
+            if (measure)
+            {
+                var resources = presented.Resources;
+                Assert.IsFalse(resources.LedgerHasUnknownSizes);
+                Assert.AreEqual(D3D12CustodyStatus.None, resources.Custody);
+                Assert.IsGreaterThan(0L, producerArmedAt);
+                Assert.IsGreaterThanOrEqualTo(producerArmedAt, copyStartedAt);
+                Assert.IsGreaterThanOrEqualTo(copyStartedAt, copyExecutedAt);
+                Assert.IsGreaterThanOrEqualTo(copyExecutedAt, copyCompletionObservedAt);
+                Assert.IsGreaterThanOrEqualTo(copyExecutedAt, protectedRequestAt);
+                Assert.IsGreaterThanOrEqualTo(protectedRequestAt, maskAdmissionObservedAt);
+                Assert.IsGreaterThanOrEqualTo(maskAdmissionObservedAt, terrainWorkAdmissionObservedAt);
+                Assert.IsGreaterThanOrEqualTo(terrainWorkAdmissionObservedAt, rendererStageAdmissionObservedAt);
+                Assert.IsGreaterThanOrEqualTo(protectedRequestAt, maskPlanObservedAt);
+                Assert.IsGreaterThanOrEqualTo(protectedRequestAt, nativeTerrainUploadAt);
+                Assert.IsGreaterThanOrEqualTo(maskPlanObservedAt, publicationObservedAt);
+                Assert.IsGreaterThanOrEqualTo(nativeTerrainUploadAt, publicationObservedAt);
+                Assert.IsGreaterThanOrEqualTo(rendererStageAdmissionObservedAt, publicationObservedAt);
+                Assert.IsGreaterThanOrEqualTo(publicationObservedAt, firstContentRequestAt);
+                Assert.IsGreaterThanOrEqualTo(firstContentRequestAt, resources.DrawTimestamp);
+                Assert.IsGreaterThanOrEqualTo(resources.DrawTimestamp, resources.PresentTimestamp);
+                Assert.IsGreaterThanOrEqualTo(resources.PresentTimestamp, resources.RetiredPresentTimestamp);
+                Assert.IsGreaterThanOrEqualTo(resources.RetiredPresentTimestamp, movementOpenedAt);
+                Assert.IsGreaterThan(maximumCopyFence, resources.DrawFence);
+                Assert.IsGreaterThan(resources.DrawFence, resources.PresentFence);
+                Assert.AreEqual(resources.PresentFence, resources.RetiredPresentFence);
+                Assert.IsGreaterThanOrEqualTo(resources.RetiredPresentFence, resources.CompletedFence);
+                Assert.IsGreaterThan(0, appliedWidth);
+                Assert.IsGreaterThan(0, appliedHeight);
+                Assert.AreEqual(windowAtSetup.Revision, windowAtRetirement.Revision,
+                    "The window changed before the first edited frame retired.");
+                Assert.AreEqual(windowAtSetup.ClientWidth, appliedWidth);
+                Assert.AreEqual(windowAtSetup.ClientHeight, appliedHeight);
+                Console.WriteLine("TEX03-MIXED " + JsonSerializer.Serialize(new
+                {
+                    schema = 1,
+                    fixture = "tex03-wp11-edited-volume-wp16-props-v1",
+                    sample,
+                    adapter = diagnostics.Adapter,
+                    diag = new { requested = diagnosticsRequested, diagnostics.DebugLayerEnabled, diagnostics.DredEnabled,
+                        resourceSnapshots = true, presentReadback = false },
+                    qpcFrequency = Stopwatch.Frequency,
+                    width = appliedWidth,
+                    height = appliedHeight,
+                    windowRevision = windowAtRetirement.Revision,
+                    injectedHoldDuringMeasurement = false,
+                    world = cut.World,
+                    rendererEpoch = cut.View.RendererEpoch,
+                    initial.Generation,
+                    initial.TerrainRevision,
+                    editedGeneration = edited.Info.Generation,
+                    editedTerrainRevision = edited.Info.TerrainRevision,
+                    editedPlan = edited.Info.PlanIdentity,
+                    maskSequence,
+                    firstContentSequence = editSequence,
+                    acceptedEditPresents,
+                    maximumCopy = new { assetId = maximumAsset.AssetId, payloadBytes = inFlight.UploadedBytes - uploadedBefore,
+                        fence = maximumCopyFence, actual = inFlight, readyFirstUse = true, readyRefinement = true,
+                        textureUsageAtCopy, propsAtCopy, terrainAtCopy = new
+                        {
+                            used = ResourceVector(terrainAtCopy.Used), peak = ResourceVector(terrainAtCopy.Peak),
+                            terrainAtCopy.Generations, terrainAtCopy.Readers, terrainAtCopy.MovementHeld,
+                        },
+                        optionalAttemptsAtRequest, optionalAttemptsAtMaskAdmission },
+                    firstRetiredPresent = new { resources.FrameSequence, resources.DrawFence, resources.PresentedSequence,
+                        resources.PresentFence, resources.RetiredPresentSequence, resources.RetiredPresentFence,
+                        resources.CompletedFence, presented.Props, allocations = Balances(resources) },
+                    qpc = new { producerArmedAt, copyStartedAt, copyExecutedAt, copyCompletionObservedAt, protectedRequestAt,
+                        maskAdmissionObservedAt, terrainWorkAdmissionObservedAt, rendererStageAdmissionObservedAt,
+                        maskPlanObservedAt, nativeTerrainUploadAt, publicationObservedAt, firstContentRequestAt,
+                        resources.DrawTimestamp, resources.PresentTimestamp, resources.RetiredPresentTimestamp, movementOpenedAt },
+                    peaks = new { terrain = ResourceVector(peak), texture = texturePeak },
+                }, JsonSerializerOptions.Web));
+            }
         }
         finally
         {
@@ -251,6 +453,45 @@ public sealed partial class PresentationSmokeTests
 
         D3D12TextureView Cut(VolumePublicationInfo info) =>
             new(run.Terrain.WorldIdentity, info.View, info.TerrainRevision, info.Generation);
+
+        async Task<VolumeViewIdentity> StartHealthyEdit()
+        {
+            await copyIssued.Task.WaitAsync(token);
+            protectedRequestAt = Stopwatch.GetTimestamp();
+            optionalAttemptsAtRequest = Volatile.Read(ref optionalAttempts);
+            var editedView = await run.CutFloor(renderer, token, maskSequence: maskSequence,
+                observeAdmission: ObserveAdmission);
+            publicationObservedAt = Stopwatch.GetTimestamp();
+            return editedView;
+        }
+
+        void ObserveAdmission(VolumeRun.EditAdmission admission)
+        {
+            var observedAt = Stopwatch.GetTimestamp();
+            switch (admission)
+            {
+                case VolumeRun.EditAdmission.Mask:
+                    maskAdmissionObservedAt = observedAt;
+                    optionalAttemptsAtMaskAdmission = Volatile.Read(ref optionalAttempts);
+                    break;
+                case VolumeRun.EditAdmission.TerrainWork:
+                    terrainWorkAdmissionObservedAt = observedAt;
+                    break;
+                case VolumeRun.EditAdmission.RendererStage:
+                    rendererStageAdmissionObservedAt = observedAt;
+                    break;
+            }
+        }
+
+        static object[] Balances(D3D12ResourceSnapshot snapshot) =>
+            Enum.GetValues<D3D12ResourceOwner>().Select(owner =>
+                new { owner = owner.ToString(), balance = snapshot.GetBalance(owner) }).ToArray();
+
+        static object ResourceVector(VolumeResources resources) => new
+        {
+            resources.CpuBytes, resources.NativeBytes, resources.UploadBytes, resources.RetirementBytes,
+            resources.DensityJobs, resources.MeshJobs, resources.QueueSlots, resources.LeaseSlots, resources.RetirementSlots,
+        };
 
         D3D12TextureTicket StageTexture(D3D12TextureView cut, D3D12TextureTarget target, CookedTexture asset,
             D3D12TextureReservation credit)

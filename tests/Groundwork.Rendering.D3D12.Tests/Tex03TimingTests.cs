@@ -2,6 +2,7 @@ using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Numerics;
 using System.Runtime.InteropServices;
+using System.Security.Cryptography;
 using System.Text.Json;
 using Groundwork.Rendering.Materials;
 using Groundwork.Rendering.Textures;
@@ -40,6 +41,10 @@ public sealed partial class PresentationSmokeTests
         var fixedMip = routes.Single(route => route.Route == "fixed-mip0");
         var tieredMip = routes.Single(route => route.Route == "bounded-mip-tiers");
         Assert.AreEqual(fixedMip.Adapter, tieredMip.Adapter);
+        Assert.AreEqual(fixedMip.DebugLayerEnabled, tieredMip.DebugLayerEnabled);
+        Assert.AreEqual(fixedMip.DredEnabled, tieredMip.DredEnabled);
+        Assert.AreEqual(1, fixedMip.DescriptorHighWater);
+        Assert.AreEqual(2, tieredMip.DescriptorHighWater);
         Assert.AreEqual(1, fixedMip.Samples.Count(sample => sample.CopySubmitted));
         Assert.AreEqual(3, tieredMip.Samples.Count(sample => sample.CopySubmitted));
         Assert.IsLessThan(fixedMip.Samples[^1].ResidentBytes, tieredMip.Samples[^1].ResidentBytes);
@@ -51,7 +56,7 @@ public sealed partial class PresentationSmokeTests
 
         Console.WriteLine("TEX03 " + JsonSerializer.Serialize(new
         {
-            schema = 1,
+            schema = 2,
             fixture = "tex03-offscreen-terrain-camera-bands-v1",
             pair,
             adapter = fixedMip.Adapter,
@@ -62,6 +67,9 @@ public sealed partial class PresentationSmokeTests
             warmupFrames = Tex03WarmupFrames,
             measuredFrames = Tex03MeasuredFrames,
             stopwatchFrequency = Stopwatch.Frequency,
+            debugLayerEnabled = fixedMip.DebugLayerEnabled,
+            dredEnabled = fixedMip.DredEnabled,
+            shaderSha256 = HashTex03Shaders(),
             texture = new { texture.AssetId, texture.Width, texture.Height, mipCount = texture.Mips.Length },
             policy = Tex03Policy,
             routes
@@ -155,7 +163,8 @@ public sealed partial class PresentationSmokeTests
                 Percentiles(samples.Where(sample => sample.CopySubmitted).Select(sample => TicksToMicroseconds(sample.CopyWaitTicks))),
                 samples.Max(sample => sample.ResidentBytes), samples.Max(sample => sample.ResidentAndCandidateBytes),
                 samples.Max(sample => sample.StagingBytes), samples.Max(sample => sample.RetiringBytes),
-                combinedBacking, samples[^1].UploadedBytes, samples);
+                combinedBacking, stream.ReadPeakUsage().Descriptors, gpu.DebugLayerEnabled, gpu.DredEnabled,
+                samples[^1].UploadedBytes, samples);
             ReleaseResident();
             Assert.IsNull(gpu.CaptureDred());
 
@@ -261,6 +270,20 @@ public sealed partial class PresentationSmokeTests
         return texture;
     }
 
+    private static SortedDictionary<string, string> HashTex03Shaders()
+    {
+        var assembly = typeof(GpuDevice).Assembly;
+        var hashes = new SortedDictionary<string, string>(StringComparer.Ordinal);
+        foreach (var name in assembly.GetManifestResourceNames().Where(name => name.EndsWith(".dxil", StringComparison.Ordinal)))
+        {
+            using var shader = assembly.GetManifestResourceStream(name);
+            Assert.IsNotNull(shader);
+            hashes.Add(name, Convert.ToHexStringLower(SHA256.HashData(shader)));
+        }
+        Assert.IsNotEmpty(hashes);
+        return hashes;
+    }
+
     private static double TicksToMicroseconds(long ticks) => ticks * 1_000_000d / Stopwatch.Frequency;
 
     private static Tex03Percentiles Percentiles(IEnumerable<double> samples)
@@ -280,5 +303,6 @@ public sealed partial class PresentationSmokeTests
     private sealed record Tex03Route(string Route, int Order, D3D12AdapterInfo Adapter, Tex03Percentiles CpuRecordUs,
         Tex03Percentiles GpuTerrainUs, Tex03Percentiles TurnUs, Tex03Percentiles CopyWaitUs, long ResidentHighWaterBytes,
         long ResidentAndCandidateHighWaterBytes, long StagingHighWaterBytes, long RetiringHighWaterBytes,
-        long CombinedBackingHighWaterBytes, ulong UploadedBytes, Tex03Frame[] Samples);
+        long CombinedBackingHighWaterBytes, int DescriptorHighWater, bool DebugLayerEnabled, bool DredEnabled,
+        ulong UploadedBytes, Tex03Frame[] Samples);
 }
