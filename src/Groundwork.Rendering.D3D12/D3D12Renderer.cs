@@ -322,6 +322,7 @@ public sealed partial class D3D12Renderer : IRenderer
 
     private void CloseAdmission()
     {
+        _textures?.Revoke();
         CloseVolumeAdmission();
         lock (_lifecycle)
         {
@@ -338,6 +339,7 @@ public sealed partial class D3D12Renderer : IRenderer
 
     private void Finish()
     {
+        _textures?.Close();
         lock (_lifecycle)
         {
             _admission.BeginStop();
@@ -359,6 +361,7 @@ public sealed partial class D3D12Renderer : IRenderer
             return;
         LatchObservedGpuCustody();
 
+        _textures?.Revoke();
         CloseVolumeAdmission();
         lock (_lifecycle)
         {

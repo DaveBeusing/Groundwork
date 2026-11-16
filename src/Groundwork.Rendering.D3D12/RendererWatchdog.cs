@@ -2,7 +2,7 @@ using System.Diagnostics;
 
 namespace Groundwork.Rendering.D3D12;
 
-internal enum RendererStage : uint { Startup = 1, Resize, Submit, Present, Retire, Visibility, Cleanup, MeshReplacement }
+internal enum RendererStage : uint { Startup = 1, Resize, Submit, Present, Retire, Visibility, Cleanup, MeshReplacement, TextureUpload }
 
 internal sealed class RendererWatchdog(Action<RendererStage, ulong?> timeout) : IDisposable
 {

@@ -9,6 +9,60 @@ namespace Groundwork.Rendering.D3D12.Tests;
 public sealed class ResourceDiagnosticsTests
 {
     [TestMethod]
+    public void TextureCopyAndDrawTrackDistinctResourcesBeyondTheOriginalCapacity()
+    {
+        var diagnostics = new ResourceDiagnostics();
+        for (var i = 1; i <= 65; i++)
+            diagnostics.Track(i, i == 65 ? D3D12ResourceOwner.Texture : D3D12ResourceOwner.Terrain, 65536);
+        diagnostics.Track(66, D3D12ResourceOwner.TextureStaging, 131072);
+
+        diagnostics.BeginRecording();
+        diagnostics.BeginPass(GpuPassPlan.Terrain);
+        diagnostics.Use(1);
+        diagnostics.BeginDraw(7, 1);
+        diagnostics.Signal(1, draw: true);
+        diagnostics.Complete(1);
+        diagnostics.BeginTextureCopy(2, 66, 65);
+        Assert.IsTrue(diagnostics.TryRead(out var copying));
+        Assert.AreEqual(64, copying.GetBalance(D3D12ResourceOwner.Terrain).Live);
+        Assert.AreEqual(0, copying.GetBalance(D3D12ResourceOwner.Terrain).Retained);
+        Assert.AreEqual(1, copying.GetBalance(D3D12ResourceOwner.Texture).Retained);
+        Assert.AreEqual(1, copying.GetBalance(D3D12ResourceOwner.TextureStaging).Retained);
+        diagnostics.SignalTextureCopy(2);
+        diagnostics.Complete(2);
+        diagnostics.Release(66);
+        Assert.IsTrue(diagnostics.TryRead(out var copied));
+        Assert.AreEqual(7UL, copied.FrameSequence);
+        Assert.AreEqual(1UL, copied.DrawFence);
+        Assert.AreEqual(2UL, copied.TextureCopyFence);
+        Assert.AreEqual(copied.CompletedFence, copied.SubmittedFence);
+        Assert.IsTrue(copied.TryGetPass(GpuPassPlan.Terrain, out var previousDraw));
+        Assert.AreEqual(1, previousDraw.ResourceUses);
+
+        diagnostics.BeginRecording();
+        diagnostics.BeginPass(GpuPassPlan.Terrain);
+        diagnostics.Use(1);
+        diagnostics.Use(65);
+        diagnostics.Use(65);
+        diagnostics.BeginDraw(8, 3);
+        Assert.IsTrue(diagnostics.TryRead(out var drawing));
+        Assert.AreEqual(1, drawing.GetBalance(D3D12ResourceOwner.Terrain).Retained);
+        Assert.AreEqual(1, drawing.GetBalance(D3D12ResourceOwner.Texture).Retained);
+        diagnostics.Signal(3, draw: true);
+        diagnostics.BeginPresent(4, 0);
+        diagnostics.Signal(4, draw: false);
+        diagnostics.Complete(3);
+        Assert.IsTrue(diagnostics.TryRead(out var presented));
+        Assert.AreEqual(1, presented.GetBalance(D3D12ResourceOwner.Texture).Retained);
+        diagnostics.Complete(4);
+        Assert.IsTrue(diagnostics.TryRead(out var finished));
+        Assert.AreEqual(1, finished.GetBalance(D3D12ResourceOwner.Texture).Live);
+        Assert.IsTrue(finished.TryGetPass(GpuPassPlan.Terrain, out var texturedDraw));
+        Assert.AreEqual(2, texturedDraw.ResourceUses);
+        Assert.IsFalse(finished.LedgerOverflowed);
+    }
+
+    [TestMethod]
     public void LedgerCountsExactRetirementWithoutReusingAResourceAfterSentinel()
     {
         var diagnostics = new ResourceDiagnostics();

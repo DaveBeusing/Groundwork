@@ -169,7 +169,7 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows)
+        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows, bool textured)
         {
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
@@ -179,9 +179,7 @@ internal sealed unsafe partial class GpuDevice
                 if (stride != mesh.Vertices.StrideInBytes)
                 {
                     stride = mesh.Vertices.StrideInBytes;
-                                        commands->SetPipelineState(shadows
-                        ? stride == NormalVertexStride ? _owner._shadowNormalPipeline : _owner._shadowColorPipeline
-                        : stride == NormalVertexStride ? _owner._normalPipeline : _owner._pipeline);
+                    commands->SetPipelineState(_owner.TerrainPipeline(shadows, stride == NormalVertexStride, textured));
                 }
                 DrawMesh(commands, mesh);
             }

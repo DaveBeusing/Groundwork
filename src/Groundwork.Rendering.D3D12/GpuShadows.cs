@@ -27,8 +27,8 @@ internal sealed unsafe partial class GpuDevice
     {
         if (_shadowReady)
             return;
-        _shadowDsv = CreateShadowHeap(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV, false);
-        _shadowSrv = CreateShadowHeap(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, true);
+        _shadowDsv = CreateShadowHeap();
+        EnsureFrameSrv();
         var desc = Texture(ShadowSize, ShadowSize, DXGI_FORMAT.DXGI_FORMAT_R32_TYPELESS,
             D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
         if (_device->GetResourceAllocationInfo(1, 1, &desc).SizeInBytes > 8 * 1024 * 1024)
@@ -71,10 +71,13 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private ID3D12DescriptorHeap* CreateShadowHeap(D3D12_DESCRIPTOR_HEAP_TYPE type, bool visible)
+    private ID3D12DescriptorHeap* CreateShadowHeap()
     {
-        var desc = new D3D12_DESCRIPTOR_HEAP_DESC { Type = type, NumDescriptors = 2,
-            Flags = visible ? D3D12_DESCRIPTOR_HEAP_FLAGS.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE : 0 };
+        var desc = new D3D12_DESCRIPTOR_HEAP_DESC
+        {
+            Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
+            NumDescriptors = 2,
+        };
         ID3D12DescriptorHeap* heap = null;
         Check(_device->CreateDescriptorHeap(&desc, __uuidof<ID3D12DescriptorHeap>(), (void**)&heap), "Create shadow descriptor heap");
         return heap;

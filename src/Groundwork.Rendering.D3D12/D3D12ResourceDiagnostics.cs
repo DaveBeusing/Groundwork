@@ -1,5 +1,4 @@
 using System.Diagnostics;
-using System.Numerics;
 using System.Runtime.CompilerServices;
 using Groundwork.Rendering.Passes;
 
@@ -13,7 +12,9 @@ public enum D3D12ResourceOwner
     Terrain,
     Shadow,
     Props,
-    Readback
+    Readback,
+    Texture,
+    TextureStaging
 }
 
 /// <summary>Native resource counts and aligned backing bytes. Released totals are cumulative.</summary>
@@ -46,6 +47,8 @@ public struct D3D12ResourceSnapshot
     public ulong RetiredPresentFence { readonly get; internal set; }
     public long RetiredPresentTimestamp { readonly get; internal set; }
     public ulong SubmittedFence { readonly get; internal set; }
+    /// <summary>Last assigned texture-copy fence, independently of draw and Present fences.</summary>
+    public ulong TextureCopyFence { readonly get; internal set; }
     public ulong CompletedFence { readonly get; internal set; }
     public ulong UnassignedFence { readonly get; internal set; }
     public ulong UnassignedFrameSequence { readonly get; internal set; }
@@ -84,7 +87,7 @@ public struct D3D12ResourceSnapshot
     [InlineArray(Length)]
     internal struct OwnerBalances
     {
-        internal const int Length = 6;
+        internal const int Length = 8;
         private D3D12ResourceBalance _element;
     }
 
@@ -99,15 +102,16 @@ public struct D3D12ResourceSnapshot
 /// <summary>Single native owner, bounded read retries, no sink calls on the producer path.</summary>
 internal sealed class ResourceDiagnostics
 {
-    private const int Capacity = 32;
+    // Keep the original scene inventory plus all 32 texture slots and one copy staging allocation.
+    private const int Capacity = 128;
     private readonly Entry[] _entries = new Entry[Capacity];
     private D3D12ResourceSnapshot _state;
     private D3D12ResourceSnapshot _published;
     private long _revision;
     private D3D12ResourceSnapshot.PassObservations _passes;
     private uint _passIds;
-    private uint _usedResources;
-    private uint _passResources;
+    private UInt128 _usedResources;
+    private UInt128 _passResources;
     private int _passIndex;
 
     internal bool TryRead(out D3D12ResourceSnapshot snapshot)
@@ -159,15 +163,17 @@ internal sealed class ResourceDiagnostics
             ReleasedBytes = AddSaturating(balance.ReleasedBytes, slot.Bytes)
         };
         slot = default;
-        _usedResources &= ~(1U << index);
-        _passResources &= ~(1U << index);
+        var bit = (UInt128)1 << index;
+        _usedResources &= ~bit;
+        _passResources &= ~bit;
         Publish();
     }
 
     internal void BeginRecording()
     {
         _passes = default;
-        _passIds = _usedResources = _passResources = 0;
+        _passIds = 0;
+        _usedResources = _passResources = 0;
     }
 
     internal void BeginPass(RenderPassId pass)
@@ -185,7 +191,7 @@ internal sealed class ResourceDiagnostics
         var index = IndexOf(pointer);
         if (index < 0)
             return;
-        var bit = 1U << index;
+        var bit = (UInt128)1 << index;
         if ((_passResources & bit) == 0)
         {
             _passResources |= bit;
@@ -205,10 +211,29 @@ internal sealed class ResourceDiagnostics
         // The owner holds the accepted draw and its terrain reader until the separate
         // post-Present submission retires. Keep its recorded resources in the same cut.
         HoldDrawResources();
-        var index = IndexOf(buffer);
+        HoldResource(buffer);
+        BeginSubmission(_state.FrameSequence, fence);
+    }
+
+    internal void BeginTextureCopy(ulong fence, nint staging, nint destination)
+    {
+        HoldResource(staging);
+        HoldResource(destination);
+        // Standalone copy work has no frame sequence or pass observations.
+        BeginSubmission(0, fence);
+    }
+
+    internal void SignalTextureCopy(ulong fence)
+    {
+        _state.TextureCopyFence = fence;
+        Signal(fence, draw: false);
+    }
+
+    private void HoldResource(nint pointer)
+    {
+        var index = IndexOf(pointer);
         if (index >= 0)
             _entries[index].Pending = true;
-        BeginSubmission(_state.FrameSequence, fence);
     }
 
     private void HoldDrawResources()
@@ -216,7 +241,7 @@ internal sealed class ResourceDiagnostics
         var used = _usedResources;
         while (used != 0)
         {
-            var index = BitOperations.TrailingZeroCount(used);
+            var index = (int)UInt128.TrailingZeroCount(used);
             _entries[index].Pending = true;
             used &= used - 1;
         }
