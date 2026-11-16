@@ -244,7 +244,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 Check(context.Allocator->Reset(), "Reset allocator");
                 Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
-                Record(context.Commands, target, frame, subsequent, readback, shadows, plan, terrainPbr, terrainAppearance);
+                Record(context.Commands, target, frame, subsequent, readback, shadows, plan, terrainPbr,
+                    terrainAppearance, out var timingLayout);
                 Check(context.Commands->Close(), "Close command list");
                 if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
                     return GpuFrameSubmitResult.Rejected;
@@ -278,8 +279,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             _retirementHooks?.BeforeExecute?.Invoke(frame.Sequence);
                             _queue->ExecuteCommandLists(1, &commands);
                             Check(SignalQueueWork(next), "Signal queue");
-                            if (_terrainTiming is { } timing)
-                                timing.Sequence = frame.Scene.HasValue ? frame.Sequence : 0;
+                            _terrainTiming?.Publish(frame.Sequence, frame.Scene.HasValue, timingLayout);
                             _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;
                             _nextFrame = (_nextFrame + 1) % _frames.Length;
