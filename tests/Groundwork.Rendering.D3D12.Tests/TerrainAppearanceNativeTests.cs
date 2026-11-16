@@ -127,8 +127,9 @@ public sealed partial class PresentationSmokeTests
             Assert.IsGreaterThan(withReplacement.ColorAt(rockX, sampleY)[0] + 8, withReplacement.ColorAt(rockX, sampleY)[1]);
             CollectionAssert.AreEqual(unshadowed.ColorAt(oreX, sampleY).ToArray(), withReplacement.ColorAt(oreX, sampleY).ToArray());
 
-            var firstOrder = ReadMixedTriangle(0, replacement);
-            var rotatedOrder = ReadMixedTriangle(1, replacement);
+            var swept = SweepMaterialMaps(nextPalette, replacement, targets);
+            var firstOrder = ReadMixedTriangle(0, swept);
+            var rotatedOrder = ReadMixedTriangle(1, swept);
             const int centerX = width / 2;
             Assert.IsLessThan(1f, firstOrder.DepthAt(centerX, sampleY));
             Assert.AreEqual(firstOrder.DepthAt(centerX, sampleY), rotatedOrder.DepthAt(centerX, sampleY));
@@ -148,17 +149,86 @@ public sealed partial class PresentationSmokeTests
         if (requireDebug)
             AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
 
-        OffscreenFrame Read(double receiverDepth, bool shadow, GpuTerrainMaterialSet? materials = null)
+        OffscreenFrame Read(double receiverDepth, bool shadow, GpuTerrainMaterialSet? materials = null, Vector3? sun = null)
         {
             var camera = new VolumeCamera(identity, new(0, 0, receiverDepth - 24), -Vector3.UnitZ, Vector3.UnitY,
                 0.65f, 0.1f, 100, Vector4.One, Vector4.Zero)
             {
-                Sunlight = new(Vector3.Normalize(new(1, 0, 1)), new(2.25f), new(0.32f)),
+                Sunlight = new(sun ?? Vector3.Normalize(new(1, 0, 1)), new(2.25f), new(0.32f)),
                 TerrainShadows = shadow,
             };
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, ++sequence, out var frame));
             gpu.SelectTerrainMaterials(materials, stream);
             return GpuDevice.RenderOffscreen(gpu, width, height, frame);
+        }
+
+        GpuTerrainMaterialSet SweepMaterialMaps(MaterialPalette palette, GpuTerrainMaterialSet bindings, D3D12TextureTarget[] targets)
+        {
+            var previous = Read(24, shadow: false, bindings, Vector3.UnitZ);
+            foreach (var semantic in new[] { MaterialTextureSemantic.Roughness, MaterialTextureSemantic.Metallic, MaterialTextureSemantic.Normal })
+            {
+                var texture = MakeSweepMap(semantic);
+                var current = palette.Resolve(Int01Textures.Rock);
+                var old = current.Textures;
+                var map = new MaterialTextureReference(semantic, texture.AssetId);
+                var maps = new MaterialTextureSet(old.BaseColor, old.Emissive,
+                    semantic == MaterialTextureSemantic.Roughness ? map : old.Roughness,
+                    semantic == MaterialTextureSemantic.Metallic ? map : old.Metallic,
+                    old.AmbientOcclusion, semantic == MaterialTextureSemantic.Normal ? map : old.Normal);
+                var rock = new PbrMaterialDescriptor(current.BaseColor, current.Metallic, current.Roughness,
+                    current.AmbientOcclusion, current.Emissive, current.NormalStrength, maps);
+                palette = new MaterialPalette(palette.VisualRevision + 1,
+                    [new(Int01Textures.Rock, rock), new(Int01Textures.Ore, palette.Resolve(Int01Textures.Ore)),
+                     new(Int01Textures.OrbitProxy, palette.Resolve(Int01Textures.OrbitProxy))]);
+                var target = new D3D12TextureTarget(new(Int01Textures.Rock, semantic), palette.VisualRevision, map);
+                var index = Array.FindIndex(targets, candidate => candidate.Slot == target.Slot);
+                Assert.IsGreaterThanOrEqualTo(0, index);
+                targets[index] = target;
+                Assert.IsTrue(stream.PublishTerrainAppearance(view, palette, targets));
+                var predecessor = Upload(target, texture);
+                Assert.IsTrue(textures.Remove(predecessor, out var retired));
+                Assert.IsTrue(gpu.TryReleaseTexture(retired.Identity));
+                Assert.IsTrue(stream.Release(predecessor));
+                bindings = SelectCut();
+
+                var next = Read(24, shadow: false, bindings, Vector3.UnitZ);
+                var difference = 0;
+                for (var y = 40; y <= 55; y++)
+                for (var x = 57; x <= 72; x++)
+                {
+                    Assert.AreEqual(previous.DepthAt(x, y), next.DepthAt(x, y));
+                    var before = previous.ColorAt(x, y);
+                    var after = next.ColorAt(x, y);
+                    for (var channel = 0; channel < 3; channel++)
+                        difference = Math.Max(difference, Math.Abs(after[channel] - before[channel]));
+                }
+                Assert.IsGreaterThan(1, difference, $"Changing only {semantic} should change shaded rock pixels.");
+                previous = next;
+            }
+            return bindings;
+        }
+
+        static CookedTexture MakeSweepMap(MaterialTextureSemantic semantic)
+        {
+            const int headerBytes = 18;
+            var pixels = new byte[headerBytes + 8 * 8 * 4];
+            pixels[2] = 2;
+            pixels[12] = pixels[14] = 8;
+            pixels[16] = 32;
+            pixels[17] = 0x28;
+            var normal = semantic == MaterialTextureSemantic.Normal;
+            var sample = semantic == MaterialTextureSemantic.Metallic ? (byte)160 : (byte)0;
+            for (var i = headerBytes; i < pixels.Length; i += 4)
+            {
+                pixels[i] = pixels[i + 2] = normal ? (byte)218 : sample;
+                pixels[i + 1] = normal ? (byte)128 : sample;
+                pixels[i + 3] = 255;
+            }
+            Assert.AreEqual(TextureCookError.None, TextureCooker.CookTga32(pixels,
+                new(TextureColorSpace.Linear, normal ? TextureSemantic.Normal : TextureSemantic.Data, 1),
+                Int01Textures.Limits, out var texture));
+            Assert.IsNotNull(texture);
+            return texture;
         }
 
         OffscreenFrame ReadMixedTriangle(int shift, GpuTerrainMaterialSet materials)

@@ -129,6 +129,27 @@ public sealed partial class PresentationSmokeTests
             Assert.IsGreaterThan(mapped.Pixels.DepthAt(width / 2, y), editedPixels.Pixels.DepthAt(width / 2, y));
             Assert.AreEqual(requests.Length, Volatile.Read(ref copyStarts));
 
+            if (Int01VisualCapture.RequestedDirectory(warp, diagnostics: true) is { } captures)
+            {
+                Int01VisualCapture.Write(Path.Combine(captures, "near-present"), width, height, new
+                {
+                    Seed = 42,
+                    OriginalCut = cut,
+                    EditedCut = editedCut,
+                    CameraPosition = camera.Position,
+                    CameraForward = new[] { camera.Forward.X, camera.Forward.Y, camera.Forward.Z },
+                    CameraUp = new[] { camera.Up.X, camera.Up.Y, camera.Up.Z },
+                    VerticalFieldOfView = camera.FieldOfView,
+                    camera.NearPlane,
+                    camera.FarPlane,
+                    SunDirection = new { X = 0, Y = 0, Z = 1 },
+                    DirectPerChannel = 0.45f,
+                    AmbientPerChannel = 0.85f,
+                    Adapter = renderer.ReadDiagnostics().Adapter,
+                    Assets = requests.Select(request => new { request.Slot.Material, request.Slot.Semantic, request.Reference.AssetId }),
+                }, ("near-first-numeric", numeric), ("near-textured", mapped.Pixels), ("near-first-edited", editedPixels.Pixels));
+            }
+
             await renderer.StopAsync(token);
             AssertPlanetAdapter(renderer.ReadDiagnostics().Adapter, warp);
             AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);

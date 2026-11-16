@@ -642,12 +642,16 @@ public sealed partial class PresentationSmokeTests
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
 
+        internal sealed record SavedOverlay(PlanetDescriptor Planet, ulong TerrainRevision, ulong CompletedTick,
+            byte[] Bytes, Func<ushort, bool> SupportsMaterial);
+
         internal VolumeRun(int readers = 8, bool editable = false,
             PlanetVector? camera = null, PlanetVector? forward = null,
             PlanetGeologyField? geology = null, PlanetVector displacement = default, bool openFloor = false,
-            Func<LatticeCoordinate, ushort>? material = null)
+            Func<LatticeCoordinate, ushort>? material = null, SavedOverlay? savedOverlay = null)
         {
-            World = Fixture.OpenWorld();
+            _tick = savedOverlay?.CompletedTick ?? 0;
+            World = Fixture.OpenWorld(completedTick: _tick);
             var descriptor = geology?.Descriptor ?? new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
                 new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
             _camera = camera ?? new PlanetVector(0, 32, 0);
@@ -665,7 +669,10 @@ public sealed partial class PresentationSmokeTests
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
             var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
                 baseline, _unit, _unit, _unit, _unit, 12, readers, 128);
-            Terrain = _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
+            Terrain = savedOverlay is { } saved
+                ? new(World, _editSource ?? throw new ArgumentException("Restore requires an editable source.", nameof(savedOverlay)),
+                    limits, overlayRows, saved.Planet, saved.TerrainRevision, saved.Bytes, saved.SupportsMaterial)
+                : _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
         }
 
         private VolumeStreamingSelection SelectCave(PlanetDescriptor descriptor, VolumeEditDependencies? edit = null) =>
@@ -681,10 +688,11 @@ public sealed partial class PresentationSmokeTests
             Assert.IsNotNull(work);
             return work;
         }
-        internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null)
+        internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null, ulong? sourceRevision = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection,
-                revision - 1, revision, _meshBytes, _unit, _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                sourceRevision ?? revision - 1, revision, _meshBytes, _unit,
+                _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             using (work)
             {

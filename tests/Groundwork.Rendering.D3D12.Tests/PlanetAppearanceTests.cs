@@ -113,8 +113,6 @@ public sealed partial class PresentationSmokeTests
             await prepared.Task.WaitAsync(token);
             Assert.IsTrue(renderer.TryGetExpectedPlanetTextureView(orbit, out var cut));
             Assert.IsFalse(renderer.TryGetExpectedPlanetTextureView(otherLease, out _));
-            Assert.AreEqual(RenderSubmissionResult.InvalidFrame, renderer.TrySubmitPlanetCamera(otherLease, 2,
-                FlightForward, Vector3.UnitY, MathF.PI / 3, NearPlane, FarPlane, Vector4.One, FlightClear));
             Assert.AreEqual(new D3D12TextureView(descriptor.WorldId, new(epoch, generation, origin), plan.EditRevision, generation), cut);
             Assert.IsFalse(stream.PublishTerrainAppearance(cut with { World = Guid.NewGuid() }, palette, targets));
             Assert.IsFalse(stream.PublishTerrainAppearance(cut with { View = cut.View with { RendererEpoch = epoch + 1 } }, palette, targets));
@@ -147,6 +145,33 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(renderer.WasPlanetTerrainPresented(orbit, 1));
             Assert.IsFalse(renderer.WasPlanetTerrainPresented(orbit, 2));
             Assert.IsTrue(terrain.AcknowledgePresented(orbit));
+
+            Assert.AreEqual(RenderSubmissionResult.InvalidFrame, renderer.TrySubmitPlanetCamera(otherLease, 2,
+                FlightForward, Vector3.UnitY, MathF.PI / 3, NearPlane, FarPlane, Vector4.One, FlightClear));
+            Assert.AreEqual(1UL, renderer.Read().LastAcceptedSequence);
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitPlanetCamera(orbit, 2,
+                FlightForward, Vector3.UnitY, MathF.PI / 3, NearPlane, FarPlane, Vector4.One, FlightClear));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 2, token);
+
+            if (Int01VisualCapture.RequestedDirectory(warp, diagnostics: true) is { } captures)
+            {
+                Int01VisualCapture.Write(Path.Combine(captures, "orbit-present"), width, height, new
+                {
+                    Seed = 42,
+                    TextureCut = cut,
+                    CameraPosition = camera,
+                    CameraForward = new[] { FlightForward.X, FlightForward.Y, FlightForward.Z },
+                    CameraUp = new { X = 0, Y = 1, Z = 0 },
+                    VerticalFieldOfView = MathF.PI / 3,
+                    NearPlane,
+                    FarPlane,
+                    SunDirection = new[] { sunlight.Direction.X, sunlight.Direction.Y, sunlight.Direction.Z },
+                    DirectPerChannel = 0.15f,
+                    AmbientPerChannel = 0.8f,
+                    Adapter = renderer.ReadDiagnostics().Adapter,
+                    Assets = targets.Select(target => new { target.Slot.Material, target.Slot.Semantic, target.Reference.AssetId }),
+                }, ("orbit-first-numeric", numeric), ("orbit-textured", mapped));
+            }
 
             await renderer.StopAsync(token);
             Assert.IsFalse(renderer.Read().IncompleteCleanup);

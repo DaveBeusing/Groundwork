@@ -2,6 +2,7 @@ using System.Numerics;
 using System.Security.Cryptography;
 using System.Text;
 using Groundwork.Rendering.Materials;
+using Groundwork.Rendering.Textures;
 using Groundwork.Voxels;
 
 namespace Groundwork.Rendering.D3D12.Tests;
@@ -204,6 +205,11 @@ public sealed partial class PresentationSmokeTests
     {
         const int edge = 512;
         const int rockX = 176, oreX = 336, sampleY = 239;
+        const float nearPlane = 0.1f, farPlane = 100;
+        const double seamRadius = 8.25;
+        var fieldOfView = 2 * MathF.Atan(0.5f);
+        var sunlight = new RenderSunlight(Vector3.UnitZ, Vector3.Zero, Vector3.One);
+        var capture = Int01VisualCapture.RequestedDirectory(warp, requireDebug);
         var descriptor = TerrainAppearanceGeometryTests.Descriptor(8);
         var field = new TerrainAppearanceGeometryTests.SurfaceField(descriptor, split: true);
         var volume = TerrainAppearanceGeometryTests.BuildVolume(field);
@@ -290,9 +296,11 @@ public sealed partial class PresentationSmokeTests
             Verify(nearPixels, orbitPixels, 2);
 
             Install(PackNear(rebased));
-            Verify(nearPixels, Read(rebased, eye), 1);
+            var nearRebasedPixels = Read(rebased, eye);
+            Verify(nearPixels, nearRebasedPixels, 1);
             Install(D3D12Renderer.PackPlanetTerrainWithAppearance(rebasedOrbitLease, descriptor, controls, Int01Textures.OrbitProxy));
-            Verify(orbitPixels, Read(rebased, eye), 1);
+            var orbitRebasedPixels = Read(rebased, eye);
+            Verify(orbitPixels, orbitRebasedPixels, 1);
             Assert.AreEqual(queries, field.Queries);
 
             // These distant coarse triangles cannot share a canonical repeat anchor.
@@ -301,7 +309,8 @@ public sealed partial class PresentationSmokeTests
             var distantOrigin = PlanetLocalFrame.Create(new(0, 0, distant.RadiusMeters));
             using var distantLease = TerrainAppearanceGeometryTests.BuildOrbit(distant, distantOrigin, cube: false);
             Install(D3D12Renderer.PackPlanetTerrainWithAppearance(distantLease, distant, [], Int01Textures.OrbitProxy));
-            var proxy = Read(distantOrigin, new(0, 0, distant.RadiusMeters + 8));
+            var distantEye = new PlanetVector(0, 0, distant.RadiusMeters + 8);
+            var proxy = Read(distantOrigin, distantEye);
             var proxyPixel = proxy.ColorAt(edge / 2, edge / 2);
             Console.WriteLine($"INT-01 unmapped orbit radius={distant.RadiusMeters} proxy={Convert.ToHexString(proxyPixel)}");
             Assert.IsLessThan(1f, proxy.DepthAt(edge / 2, edge / 2));
@@ -309,6 +318,33 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(128f, proxyPixel[1], 1f);
             Assert.AreEqual(191f, proxyPixel[2], 1f);
             Assert.AreEqual(byte.MaxValue, proxyPixel[3]);
+
+            var seams = CompareSeamProbes();
+            Console.WriteLine($"INT-01 verified {seams.Count(probe => probe.Charts == 2)} native edge controls and " +
+                $"{seams.Count(probe => probe.Charts == 3)} native corners.");
+            if (capture is not null)
+            {
+                Int01VisualCapture.Write(capture, edge, new
+                {
+                    Adapter = gpu.Adapter,
+                    gpu.DebugLayerEnabled,
+                    gpu.DredEnabled,
+                    Descriptor = descriptor,
+                    NearPlan = volume.PlanIdentity,
+                    AssetIdSequenceSha256 = assetFingerprint,
+                    AssetTargets = targets.Select(static target => new { target.Slot.Material, target.Slot.Semantic, target.Reference.AssetId }),
+                    Projection = new { FieldOfViewRadians = fieldOfView, NearMetres = nearPlane, FarMetres = farPlane },
+                    Light = new { TowardSun = Components(sunlight.Direction), Direct = Components(sunlight.Direct), Ambient = Components(sunlight.Ambient) },
+                    Camera = new { Eye = eye, Forward = Components(-Vector3.UnitZ), Up = Components(Vector3.UnitY), Origin = origin, RebasedOrigin = rebased },
+                    Proxy = new { Descriptor = distant, Eye = distantEye, Origin = distantOrigin },
+                    Controls = new { RockPixel = new { X = rockX, Y = sampleY }, OrePixel = new { X = oreX, Y = sampleY }, Cells = controls },
+                    SeamProbeExtent = 65,
+                    SeamCubeRadiusMetres = seamRadius,
+                    SeamProbeDistanceMetres = 8,
+                    Seams = seams,
+                }, ("near-mapped", nearPixels), ("orbit-mapped", orbitPixels),
+                    ("near-rebased", nearRebasedPixels), ("orbit-rebased", orbitRebasedPixels), ("orbit-unmapped-proxy", proxy));
+            }
 
             gpu.SelectTerrainMaterials(null, null);
             foreach (var entry in resident)
@@ -331,12 +367,14 @@ public sealed partial class PresentationSmokeTests
             return packed;
         }
 
-        OffscreenFrame Read(PlanetLocalFrame frame, PlanetVector pose)
+        OffscreenFrame Read(PlanetLocalFrame frame, PlanetVector pose) => ReadFrom(frame, pose, -Vector3.UnitZ, Vector3.UnitY, edge);
+
+        OffscreenFrame ReadFrom(PlanetLocalFrame frame, PlanetVector pose, Vector3 forward, Vector3 up, int extent)
         {
             var scene = new RenderScene(Matrix4x4.Identity, Vector4.One,
-                Matrix4x4.CreateLookTo(frame.ToLocal(pose), -Vector3.UnitZ, Vector3.UnitY),
-                2 * MathF.Atan(0.5f), 0.1f, 100) { Sunlight = new(Vector3.UnitZ, Vector3.Zero, Vector3.One) };
-            return GpuDevice.RenderOffscreen(gpu, edge, edge, new(++sequence, Vector4.Zero, scene));
+                Matrix4x4.CreateLookTo(frame.ToLocal(pose), forward, up),
+                fieldOfView, nearPlane, farPlane) { Sunlight = sunlight };
+            return GpuDevice.RenderOffscreen(gpu, extent, extent, new(++sequence, Vector4.Zero, scene));
         }
 
         void Install(RenderMeshRegion region)
@@ -345,6 +383,104 @@ public sealed partial class PresentationSmokeTests
             gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(region);
             previous?.Dispose();
         }
+
+        CanonicalSeamProbe[] CompareSeamProbes()
+        {
+            // Keep every probe away from a point-sampler texel boundary. A cube
+            // with a whole-repeat half extent would put the corners on that cut.
+            var seamDescriptor = TerrainAppearanceGeometryTests.Descriptor(seamRadius);
+            using var initial = TerrainAppearanceGeometryTests.BuildOrbit(seamDescriptor, origin, cube: true);
+            using var rebasedSeams = TerrainAppearanceGeometryTests.BuildOrbit(seamDescriptor, rebased, cube: true);
+            var rock = palette.Resolve(Int01Textures.Rock).Textures;
+            var albedo = assets[rock.BaseColor!];
+            var metallic = assets[rock.Metallic!];
+            var shared = new Dictionary<PlanetSampleKey, (PlanetVector Point, int Charts)>();
+            for (var patch = 0; patch < initial.MeshCount; patch++)
+            {
+                var keys = initial.GetSamples(patch);
+                var positions = initial.GetCanonicalPositions(patch);
+                for (var i = 0; i < keys.Length; i++)
+                {
+                    var key = keys[i];
+                    var largest = Math.Max(Math.Abs(key.X), Math.Max(Math.Abs(key.Y), Math.Abs(key.Z)));
+                    var edges = (Math.Abs(key.X) == largest ? 1 : 0) + (Math.Abs(key.Y) == largest ? 1 : 0) +
+                        (Math.Abs(key.Z) == largest ? 1 : 0);
+                    var offset = largest / 4;
+                    if (edges != 3 && (edges != 2 || (key.X != offset && key.Y != offset && key.Z != offset)))
+                        continue;
+                    var position = positions[i];
+                    if (shared.TryGetValue(key, out var same))
+                        Assert.AreEqual(same.Point, position);
+                    shared[key] = (position, same.Charts + 1);
+                }
+            }
+
+            var controlsInOrder = shared.OrderBy(pair => pair.Key.X).ThenBy(pair => pair.Key.Y).ThenBy(pair => pair.Key.Z).ToArray();
+            Assert.HasCount(12, controlsInOrder.Where(pair => pair.Value.Charts == 2));
+            Assert.HasCount(8, controlsInOrder.Where(pair => pair.Value.Charts == 3));
+            Assert.HasCount(20, controlsInOrder);
+            // These views sample the assembled cube from the same physical point
+            // before and after changing both the floating origin and camera roll.
+            Install(D3D12Renderer.PackPlanetTerrainWithAppearance(initial, seamDescriptor, [], Int01Textures.Rock));
+            var first = controlsInOrder.Select(pair => ReadProbe(pair.Value.Point, origin, rotate: false)).ToArray();
+            Install(D3D12Renderer.PackPlanetTerrainWithAppearance(rebasedSeams, seamDescriptor, [], Int01Textures.Rock));
+            var result = new CanonicalSeamProbe[controlsInOrder.Length];
+            for (var i = 0; i < controlsInOrder.Length; i++)
+            {
+                var (key, control) = controlsInOrder[i];
+                var second = ReadProbe(control.Point, rebased, rotate: true);
+                for (var channel = 0; channel < 4; channel++)
+                    Assert.AreEqual((float)first[i][channel], second[channel], 2f, $"Canonical control {key}, channel {channel}.");
+                result[i] = new(key, control.Point, control.Charts, Convert.ToHexString(first[i]), Convert.ToHexString(second));
+            }
+            return result;
+
+            byte[] ReadProbe(PlanetVector point, PlanetLocalFrame frame, bool rotate)
+            {
+                const int probeExtent = 65;
+                const int middle = probeExtent / 2;
+                const float distance = 8;
+                var outward = Vector3.Normalize(new Vector3((float)point.X, (float)point.Y, (float)point.Z));
+                var up = Vector3.Normalize(Vector3.Cross(Vector3.UnitY, outward));
+                if (rotate)
+                    up = Vector3.Cross(outward, up);
+                var camera = new PlanetVector(point.X + distance * outward.X, point.Y + distance * outward.Y, point.Z + distance * outward.Z);
+                var shot = ReadFrom(frame, camera, -outward, up, probeExtent);
+                var expectedDepth = farPlane * (distance - nearPlane) / ((farPlane - nearPlane) * distance);
+                Assert.AreEqual(expectedDepth, shot.DepthAt(middle, middle), 0.000002f, $"Depth at seam control {point}.");
+                var color = shot.ColorAt(middle, middle);
+                var canonical = PlanetTriplanarMapping.FromCanonical(point);
+                var projection = PlanetTriplanarMapping.Project(canonical, canonical, outward);
+                var rgb = Sample(albedo, projection, srgb: true);
+                var metal = Sample(metallic, projection, srgb: false).X;
+                var expected = rgb * (1 - metal) * 255;
+                for (var channel = 0; channel < 3; channel++)
+                    Assert.AreEqual(expected[channel], color[channel], 2f, $"Rock material at seam control {point}, channel {channel}.");
+                Assert.AreEqual(byte.MaxValue, color[3]);
+                return color.ToArray();
+            }
+
+            static Vector3 Sample(CookedTexture map, PlanetTriplanarProjection projection, bool srgb) =>
+                ReadTexel(map, projection.XProjection, srgb) * projection.Weights.X +
+                ReadTexel(map, projection.YProjection, srgb) * projection.Weights.Y +
+                ReadTexel(map, projection.ZProjection, srgb) * projection.Weights.Z;
+
+            static Vector3 ReadTexel(CookedTexture map, Vector2 texels, bool srgb)
+            {
+                var mip = map.Mips[0];
+                const float period = PlanetTriplanarMapping.TexelsPerRepeat;
+                var uv = texels / period;
+                var x = (int)((uv.X - MathF.Floor(uv.X)) * mip.Width);
+                var y = (int)((uv.Y - MathF.Floor(uv.Y)) * mip.Height);
+                var color = map.Payload.Slice(mip.Offset + y * mip.RowBytes + x * 4, 4);
+                var rgb = new Vector3(color[0], color[1], color[2]) / 255;
+                return srgb ? new(Linear(rgb.X), Linear(rgb.Y), Linear(rgb.Z)) : rgb;
+            }
+
+            static float Linear(float srgb) => srgb <= .04045f ? srgb / 12.92f : MathF.Pow((srgb + .055f) / 1.055f, 2.4f);
+        }
+
+        static float[] Components(Vector3 vector) => [vector.X, vector.Y, vector.Z];
 
         static string Pixel(OffscreenFrame pixels, int x) => Convert.ToHexString(pixels.ColorAt(x, sampleY));
 
@@ -372,4 +508,6 @@ public sealed partial class PresentationSmokeTests
             }
         }
     }
+
+    private readonly record struct CanonicalSeamProbe(PlanetSampleKey Key, PlanetVector Point, int Charts, string InitialRgba, string RebasedRgba);
 }
