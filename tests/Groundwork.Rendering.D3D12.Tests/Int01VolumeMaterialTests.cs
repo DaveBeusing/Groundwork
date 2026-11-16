@@ -218,6 +218,169 @@ public sealed partial class PresentationSmokeTests
         }
     }
 
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Int01ProtectedEditedPresentSurvivesSuccessiveStalePropAndMaterialCuts(bool warp)
+    {
+        const ulong originalSequence = 2;
+        const ulong editSequence = 4;
+        const uint tint = 0xffff00ff;
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(45));
+        var token = timeout.Token;
+        using var run = new VolumeRun(editable: true, openFloor: true,
+            material: static p => p.X < 32 ? Int01Textures.Rock : Int01Textures.Ore);
+        var runtime = run.Fixture.Runtime;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(10));
+        var context = new EngineModuleContext(run.Fixture.Clock, timing, runtime.Reporter, runtime.StopControl);
+        await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork INT-01 recorded cuts {Guid.NewGuid():N}",
+            TerrainWidth, TerrainHeight, 32), runtime.UiWake, runtime.RuntimeOwnership);
+        var assets = new Int01Textures();
+        var palette = assets.Palette;
+        var supersedingPalette = new MaterialPalette(palette.VisualRevision + 1, palette.Entries);
+        var requests = Targets(palette.Resolve(Int01Textures.Rock).Textures, Int01Textures.Rock)
+            .Concat(Targets(palette.Resolve(Int01Textures.Ore).Textures, Int01Textures.Ore)).ToArray();
+        var stream = new D3D12TextureHandoff(new(requests.Length, requests.Length, 8192, 0, 8192,
+            requests.Length * 65_536, (requests.Length + 1) * 65_536, requests.Length));
+        var bindings = new D3D12TerrainTextureBinding[requests.Length];
+        var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        PropCellKey cell = default;
+        D3D12TextureView editedCut = default;
+        PropPublication editedProps = default;
+        var original = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstEdited = new TaskCompletionSource<(ulong Generation, OffscreenFrame Pixels)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
+        var editedRecordings = 0;
+        var recordingsAtExecution = 0;
+        var hooks = new GpuRetirementTestHooks(
+            BeforeValidateRecordedBindings: (sequence, attempt) =>
+            {
+                if (sequence != editSequence || recordingsAtExecution != 0)
+                    return;
+                Assert.AreEqual(editedRecordings, attempt);
+                editedRecordings++;
+                if (attempt == 0)
+                {
+                    lock (props.Gate)
+                    {
+                        var staged = new VisibleProp(new(42, 1, cell, 0), 1, 1, 0, 0, 0);
+                        Assert.IsTrue(props.Admission.TryReadFrame(staged, out var recorded, out _));
+                        Assert.AreEqual(tint, recorded.Tint);
+                        var version = props.ViewVersion;
+                        props.Publish(editedProps with { CoverageGeneration = editedProps.CoverageGeneration + 1 }, []);
+                        Assert.AreEqual(version + 1, props.ViewVersion);
+                        Assert.AreEqual(0, props.Admission.Usage.Cells);
+                    }
+                }
+                else if (attempt == 1)
+                {
+                    Assert.IsTrue(stream.TryCaptureTerrainAppearance(editedCut, bindings, out var capturedPalette, out var count));
+                    Assert.AreSame(palette, capturedPalette);
+                    Assert.AreEqual(requests.Length, count);
+                    for (var index = 0; index < count; index++)
+                    {
+                        Assert.AreEqual(requests[index], bindings[index].Target);
+                        Assert.IsNull(bindings[index].Resident);
+                    }
+                    Assert.IsTrue(stream.PublishTerrainAppearance(editedCut, supersedingPalette, requests));
+                }
+            },
+            BeforeExecute: sequence =>
+            {
+                if (sequence == editSequence && recordingsAtExecution == 0)
+                    recordingsAtExecution = editedRecordings;
+            });
+        await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
+            QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(10), hooks,
+            includeTerrainAppearance: true)
+        {
+            VolumePresentReadbackForTests = (sequence, generation, pixels) =>
+            {
+                if (sequence == originalSequence)
+                    original.TrySetResult(pixels);
+                if (sequence == editSequence)
+                    firstEdited.TrySetResult((generation, pixels));
+            },
+        };
+        renderer.AttachTextureHandoff(stream);
+        renderer.AttachPropCells(props);
+        try
+        {
+            await window.InitializeAsync(context, token);
+            await window.StartAsync(token);
+            await renderer.InitializeAsync(context, token);
+            await renderer.StartAsync(token);
+            var view = run.Terrain.View;
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeMask(view, 1, Vector4.Zero));
+            await AwaitStatus(renderer, state => state.LastPresentedSequence == 1, token);
+            await run.Publish(1, cut: false, renderer);
+            using var installed = run.Terrain.TryRead();
+            Assert.IsNotNull(installed);
+            var camera = VolumeCameraAt(view, 32, 7);
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(installed.Info.Generation, originalSequence, camera));
+            var baseline = await original.Task.WaitAsync(token);
+
+            var next = await run.CutFloor(renderer, token, maskSequence: editSequence - 1);
+            using var edited = run.Terrain.TryRead();
+            Assert.IsNotNull(edited);
+            Assert.AreNotEqual(installed.Info.Generation, edited.Info.Generation);
+            Assert.AreEqual(installed.Info.TerrainRevision + 1, edited.Info.TerrainRevision);
+            editedCut = new(run.Terrain.WorldIdentity, next, edited.Info.TerrainRevision, edited.Info.Generation);
+            editedProps = new(editedCut.World, next.RendererEpoch, editedCut.TerrainRevision, editedCut.CoverageGeneration);
+            props.Publish(editedProps, [cell]);
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(cell, 1, out var request));
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(request, new(32, 32, 3),
+                [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, tint)]));
+            // The cut has valid numeric material constants and declared maps, with no resident maps yet.
+            Assert.IsTrue(stream.PublishTerrainAppearance(editedCut, palette, requests));
+            var committed = run.World.Publication.Committed.Read();
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, editSequence, VolumeCameraAt(next, 32, 7)));
+
+            var presented = await firstEdited.Task.WaitAsync(token);
+            Assert.AreEqual(3, recordingsAtExecution);
+            Assert.AreEqual(edited.Info.Generation, presented.Generation);
+            var state = renderer.Read();
+            Assert.AreEqual(editSequence, state.LastAcceptedSequence);
+            Assert.AreEqual(editSequence, state.LastPresentedSequence);
+            var x = state.AppliedWidth / 2;
+            var y = state.AppliedHeight / 2;
+            Assert.IsLessThan(1f, baseline.DepthAt(x, y));
+            Assert.IsGreaterThan(baseline.DepthAt(x, y), presented.Pixels.DepthAt(x, y));
+            Assert.AreEqual(0UL, renderer.ReadTextureDiagnostics().UploadedBytes);
+            Assert.AreSame(committed.Root, run.World.Publication.Committed.Read().Root);
+            Assert.AreEqual(committed.Stamp, run.World.Publication.Committed.Read().Stamp);
+            Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
+            var acknowledged = 0;
+            var registered = 0;
+            while (run.Terrain.TryReadEvent(out var evidence))
+            {
+                if (evidence.Generation != edited.Info.Generation ||
+                    evidence.Kind is not (VolumeEventKind.Registered or VolumeEventKind.Accepted))
+                    continue;
+                Assert.AreEqual(editSequence, evidence.Frame);
+                Assert.AreEqual(next, evidence.View);
+                if (evidence.Kind == VolumeEventKind.Registered)
+                    registered++;
+                else
+                    acknowledged++;
+            }
+            Assert.AreEqual(1, registered);
+            Assert.AreEqual(1, acknowledged);
+            await renderer.StopAsync(token);
+            AssertPlanetAdapter(renderer.ReadDiagnostics().Adapter, warp);
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
+        }
+        finally
+        {
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+    }
+
     private static D3D12TextureTarget[] Targets(MaterialTextureSet textures, ushort material) =>
     [
         new(new(material, MaterialTextureSemantic.BaseColor), 1, textures.BaseColor!),

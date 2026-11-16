@@ -239,7 +239,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         D3D12PropCells? deferredProps = null;
         try
         {
-            for (var attempt = 0; attempt < 2; attempt++)
+            const int maxRecordings = 3;
+            for (var attempt = 0; attempt < maxRecordings; attempt++)
             {
                 Check(context.Allocator->Reset(), "Reset allocator");
                 Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
@@ -247,6 +248,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 Check(context.Commands->Close(), "Close command list");
                 if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
                     return GpuFrameSubmitResult.Rejected;
+
+                _retirementHooks?.BeforeValidateRecordedBindings?.Invoke(frame.Sequence, attempt);
 
                 // Hold the recorded prop cut through Execute and Signal. Check the
                 // volume authority immediately before the native submission.
@@ -295,7 +298,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
                 // Drop the stale prop cut and keep current material bindings for the retry.
                 // A stale texture cut falls back to numeric terrain materials for protected content.
-                deferredProps = _propFrameStream;
+                deferredProps ??= _propFrameStream;
                 AbortRecordedProps();
                 if (!textureIsCurrent)
                 {
@@ -303,7 +306,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                     terrainAppearance = false;
                     shape = shape with { Texture = default, MaterialConstants = false, MaterialMaps = default };
                 }
-                if (attempt != 0 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
+                if (attempt == maxRecordings - 1 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
                 terrainPbr = !terrainAppearance && TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
