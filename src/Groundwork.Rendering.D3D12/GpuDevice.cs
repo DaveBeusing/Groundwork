@@ -202,7 +202,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (completed == ulong.MaxValue)
             throw new GpuNativeException("Read GPU retirement fence after device removal", RemovedReason);
         var context = _frames[_nextFrame];
-        if (!_retirement.CanReuse(completed, context.Retirement))
+        if (!_retirement.CanReuse(completed, context.Retirement)
+            || _terrainTiming is not null && !_retirement.IsIdle(completed))
             return GpuFrameSubmitResult.Busy;
 
         if (_device == null || _queue == null || _depth == null || !target.IsCurrent(this, _depthGeneration)
@@ -222,6 +223,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (GetPassPlan(shape) is not { } plan)
             return GpuFrameSubmitResult.Rejected;
 
+        var terrainPbr = TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
         var submitted = false;
         D3D12PropCells? deferredProps = null;
         try
@@ -230,7 +232,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 Check(context.Allocator->Reset(), "Reset allocator");
                 Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
-                Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
+                Record(context.Commands, target, frame, subsequent, readback, shadows, plan, terrainPbr);
                 Check(context.Commands->Close(), "Close command list");
                 if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
                     return GpuFrameSubmitResult.Rejected;
@@ -259,6 +261,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             _retirementHooks?.BeforeExecute?.Invoke(frame.Sequence);
                             _queue->ExecuteCommandLists(1, &commands);
                             Check(SignalQueueWork(next), "Signal queue");
+                            if (_terrainTiming is { } timing)
+                                timing.Sequence = frame.Scene.HasValue ? frame.Sequence : 0;
                             _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;
                             _nextFrame = (_nextFrame + 1) % _frames.Length;
@@ -276,7 +280,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 }
 
                 // Appearance churn alone cannot spend a protected terrain retry.
-                // Re-record once without the optional appearance bindings.
+                // Re-record once without the stale bindings, using the frame's untextured material if available.
                 deferredProps = _propFrameStream;
                 AbortRecordedProps();
                 owner?.ClearFrameTexture(this);
@@ -284,6 +288,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                     GetPassPlan(shape with { Props = false, Texture = owner is null ? shape.Texture : default }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
+                terrainPbr = TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
             }
             return GpuFrameSubmitResult.Rejected;
         }
@@ -430,6 +435,9 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         ReleaseShadows();
         Release(_normalPipeline);
         _normalPipeline = null;
+        ReleasePbrPipeline();
+        _terrainTiming?.Dispose();
+        _terrainTiming = null;
         Release(_pipeline);
         Release(_root);
         Release(_fence);

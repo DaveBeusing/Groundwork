@@ -1,4 +1,5 @@
 using System.Numerics;
+using Groundwork.Rendering.Materials;
 
 namespace Groundwork.Rendering;
 
@@ -27,13 +28,19 @@ public readonly record struct RenderScene(
     /// <summary>Optional world-space sunlight for terrain with packed normals.</summary>
     public RenderSunlight? Sunlight { get; init; }
 
+    /// <summary>Opt-in opaque material for identity-world terrain with packed normals.
+    /// The untextured path uses the descriptor's scalar and color inputs.
+    /// </summary>
+    public PbrMaterialDescriptor? TerrainMaterial { get; init; }
+
     /// <summary>Canonical origin for near-terrain shadows. Null selects unshadowed lighting.</summary>
     public RenderShadowOrigin? ShadowOrigin { get; init; }
 
     internal PropPoint? PropOrigin { get; init; }
     internal PropPoint PropEye { get; init; }
 
-    internal bool IsValid => (ShadowOrigin is null || (ShadowOrigin.Value.IsValid && Sunlight.HasValue && World.IsIdentity &&
+    internal bool IsValid => (TerrainMaterial is null || World.IsIdentity) &&
+        (ShadowOrigin is null || (ShadowOrigin.Value.IsValid && Sunlight.HasValue && World.IsIdentity &&
         VerticalFieldOfView is >= 0.01f and <= 3.13f)) && (Sunlight is null || Sunlight.Value.IsValid) && (Fog is null || Fog.Value.IsValid) && IsAffine(World) && IsRigid(View) && RenderFrame.IsColor(Tint) &&
         VerticalFieldOfView > 0 && VerticalFieldOfView < MathF.PI &&
         NearPlane > 0 && FarPlane > NearPlane && float.IsFinite(FarPlane);
@@ -65,7 +72,7 @@ public readonly record struct RenderScene(
     private static bool Near(float value, float expected) => MathF.Abs(value - expected) <= 0.0001f;
 }
 
-/// <summary>Fixed-size frame data that contains no caller-owned references.</summary>
+/// <summary>Fixed-size frame data. Its optional material descriptor is immutable.</summary>
 public readonly record struct RenderFrame(ulong Sequence, Vector4 ClearColor, RenderScene? Scene = null)
 {
     /// <summary>Optional sky, including for frames that hold terrain publication.</summary>

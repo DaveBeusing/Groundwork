@@ -9,4 +9,5 @@ internal sealed record GpuRetirementTestHooks(
     Action<GpuDevice>? BeforeVolumeUpload = null,
     Func<ulong, bool>? RejectPreparedPlan = null,
     Func<ulong, bool>? RejectRecordedPlan = null,
-    Action<ulong>? BeforeExecute = null);
+    Action<ulong>? BeforeExecute = null,
+    Func<bool, int?>? PbrPipelineCreationFailure = null);

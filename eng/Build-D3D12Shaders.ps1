@@ -26,6 +26,8 @@ $shaders = @(
     @{ EntryPoint = 'PSShadow'; Profile = 'ps_6_0'; Output = 'ShadowTerrain.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'PSTexture'; Profile = 'ps_6_0'; Output = 'TextureTerrain.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'PSShadowTexture'; Profile = 'ps_6_0'; Output = 'TextureShadowTerrain.ps.dxil'; Source = 'Cube.hlsl' },
+    @{ EntryPoint = 'PSPbrTerrain'; Profile = 'ps_6_0'; Output = 'PbrTerrain.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1') },
+    @{ EntryPoint = 'PSPbrShadowTerrain'; Profile = 'ps_6_0'; Output = 'PbrShadowTerrain.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1') },
     @{ EntryPoint = 'PSMain'; Profile = 'ps_6_0'; Output = 'Cube.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'SkyVS'; Profile = 'vs_6_0'; Output = 'Sky.vs.dxil'; Source = 'Sky.hlsl' },
     @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'Sky.ps.dxil'; Source = 'Sky.hlsl' }
@@ -41,7 +43,8 @@ function Build-Shaders([string]$Directory) {
     foreach ($shader in $shaders) {
         $inputFile = Join-Path $Directory ($shader.Source)
         $compiled = Join-Path $Directory $shader.Output
-        & $compiler -E $shader.EntryPoint -T $shader.Profile @commonFlags -Fo $compiled $inputFile
+        $defines = $shader['Defines'] ?? @()
+        & $compiler -E $shader.EntryPoint -T $shader.Profile @commonFlags @defines -Fo $compiled $inputFile
         if ($LASTEXITCODE -ne 0) { throw "DXC failed for $($shader.Profile)." }
         & $validator $compiled
         if ($LASTEXITCODE -ne 0) { throw "DXV rejected $($shader.Profile)." }
@@ -116,7 +119,7 @@ try {
                 output = $_.Output
                 source = $_.Source
                 sourceSha256 = (Get-FileHash -LiteralPath (Join-Path $first ($_.Source))).Hash
-                arguments = @('-E', $_.EntryPoint, '-T', $_.Profile) + $commonFlags + @('-Fo', $_.Output, ($_.Source))
+                arguments = @('-E', $_.EntryPoint, '-T', $_.Profile) + $commonFlags + ($_['Defines'] ?? @()) + @('-Fo', $_.Output, ($_.Source))
                 sha256 = (Get-FileHash -LiteralPath (Join-Path $first $_.Output)).Hash
             }
         })

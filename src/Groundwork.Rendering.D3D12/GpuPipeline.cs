@@ -1,4 +1,5 @@
 using System.Numerics;
+using Groundwork.Rendering.Materials;
 using Groundwork.Rendering.Passes;
 using TerraFX.Interop.DirectX;
 using static Groundwork.Rendering.D3D12.GpuNative;
@@ -12,13 +13,74 @@ internal sealed unsafe partial class GpuDevice
     private const uint VertexStride = 3 * sizeof(float) + sizeof(uint);
     private const uint NormalVertexStride = VertexStride + sizeof(uint);
     private const uint FrameConstantCount = 40;
+    private const uint ShadowConstantCount = 20;
+    // The shadow descriptor table takes the 64th DWORD of the PBR shadow root signature.
+    private const uint PbrConstantCount = FrameConstantCount + ShadowConstantCount + 3;
+    private const int PipelineOutOfMemory = unchecked((int)0x8007000E);
     private ID3D12PipelineState* _normalPipeline;
+    private ID3D12RootSignature* _pbrRoot;
+    private ID3D12RootSignature* _pbrShadowRoot;
+    private ID3D12PipelineState* _pbrPipeline;
+    private ID3D12PipelineState* _pbrShadowPipeline;
+    private bool _pbrUnavailable;
+    private bool _pbrShadowUnavailable;
 
     private void CreatePipeline()
     {
         _root = CreateFrameRoot(FrameConstantCount);
         _pipeline = CreateFramePipeline(_root, sky: false);
         _normalPipeline = CreateFramePipeline(_root, sky: false, normals: true);
+    }
+
+    private bool TryPrepareTerrainPbr(RenderScene? scene, bool shadows)
+    {
+        if (scene?.TerrainMaterial is null || ActiveMeshGeometry is not { HasPackedNormals: true } ||
+            FindTexture(_frameTexture) is not null)
+            return false;
+        return shadows
+            ? TryPreparePbrVariant(shadows, ref _pbrShadowRoot, ref _pbrShadowPipeline, ref _pbrShadowUnavailable)
+            : TryPreparePbrVariant(shadows, ref _pbrRoot, ref _pbrPipeline, ref _pbrUnavailable);
+    }
+
+    private bool TryPreparePbrVariant(bool shadows, ref ID3D12RootSignature* root, ref ID3D12PipelineState* pipeline,
+        ref bool unavailable)
+    {
+        if (pipeline != null)
+            return true;
+        if (unavailable)
+            return false;
+
+        ID3D12RootSignature* preparedRoot = null;
+        try
+        {
+            preparedRoot = CreateFrameRoot(PbrConstantCount, shadow: shadows);
+            Check(_retirementHooks?.PbrPipelineCreationFailure?.Invoke(shadows) ?? 0, "Prepare terrain PBR pipeline");
+            pipeline = CreateFramePipeline(preparedRoot, sky: false, normals: true, shadow: shadows, terrainPbr: true);
+            root = preparedRoot;
+            preparedRoot = null;
+            return true;
+        }
+        catch (GpuNativeException error) when (error.HResult == PipelineOutOfMemory && !IsRemoved)
+        {
+            // This optional appearance can fall back without consuming a terrain retry. Cache the
+            // failed variant for this device owner so later material-only frames do not retry it.
+            unavailable = true;
+            return false;
+        }
+        finally
+        {
+            Release(preparedRoot);
+        }
+    }
+
+    private void ReleasePbrPipeline()
+    {
+        Release(_pbrShadowPipeline);
+        Release(_pbrPipeline);
+        Release(_pbrShadowRoot);
+        Release(_pbrRoot);
+        _pbrShadowPipeline = _pbrPipeline = null;
+        _pbrShadowRoot = _pbrRoot = null;
     }
 
     private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false, bool props = false, bool texture = false)
@@ -97,8 +159,11 @@ internal sealed unsafe partial class GpuDevice
             Check(SerializeRootSignature(&rootDescription, D3D_ROOT_SIGNATURE_VERSION.D3D_ROOT_SIGNATURE_VERSION_1,
                 &rootBlob, &error), "Serialize root signature");
             ID3D12RootSignature* root = null;
-            Check(_device->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(),
-                __uuidof<ID3D12RootSignature>(), (void**)&root), "Create root signature");
+            var created = _device->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(),
+                __uuidof<ID3D12RootSignature>(), (void**)&root);
+            if (created.Value < 0)
+                Release(root);
+            Check(created, "Create root signature");
             return root;
         }
         finally
@@ -110,10 +175,12 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false,
-        bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false)
+        bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false,
+        bool terrainPbr = false)
     {
         var vertexShader = LoadShader(props ? "Props.vs.dxil" : depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
         var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" :
+            terrainPbr ? shadow ? "PbrShadowTerrain.ps.dxil" : "PbrTerrain.ps.dxil" :
             texture ? shadow ? "TextureShadowTerrain.ps.dxil" : "TextureTerrain.ps.dxil" :
             shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
         fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8, normal = "NORMAL\0"u8)
@@ -177,8 +244,11 @@ internal sealed unsafe partial class GpuDevice
                 RenderTargetWriteMask = (byte)D3D12_COLOR_WRITE_ENABLE.D3D12_COLOR_WRITE_ENABLE_ALL,
             };
             ID3D12PipelineState* pipeline = null;
-            Check(_device->CreateGraphicsPipelineState(&description,
-                __uuidof<ID3D12PipelineState>(), (void**)&pipeline), "Create graphics pipeline");
+            var created = _device->CreateGraphicsPipelineState(&description,
+                __uuidof<ID3D12PipelineState>(), (void**)&pipeline);
+            if (created.Value < 0)
+                Release(pipeline);
+            Check(created, "Create graphics pipeline");
             return pipeline;
         }
     }
@@ -229,7 +299,7 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
-        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan)
+        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan, bool terrainPbr)
     {
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
@@ -259,7 +329,9 @@ internal sealed unsafe partial class GpuDevice
             {
                 if (!frame.Sky.HasValue)
                     BindFrameTargets(commands, target, rtv, dsv);
-                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants);
+                _terrainTiming?.Begin(commands);
+                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr);
+                _terrainTiming?.End(commands);
             }
             else if (pass.Id == GpuPassPlan.Props)
                 DrawProps(commands, target, frame.Scene!.Value, frame.Sequence);
@@ -292,10 +364,11 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void RecordTerrain(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
-        in ShadowConstants shadows) => Draw(commands, target, scene, shadows, FindTexture(_frameTexture));
+        in ShadowConstants shadows, bool terrainPbr) => Draw(commands, target, scene, shadows,
+        FindTexture(_frameTexture), terrainPbr ? scene.TerrainMaterial : null);
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
-        ShadowConstants shadows = default, TextureEntry? texture = null)
+        ShadowConstants shadows = default, TextureEntry? texture = null, PbrMaterialDescriptor? material = null)
     {
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
@@ -317,7 +390,13 @@ internal sealed unsafe partial class GpuDevice
         }
         var constants = new DrawConstants(scene.World * scene.View * projection, scene.Tint, fogColorOpacity,
             fogDepth, sunDirection, sunDirect, sunAmbient);
-        if (texture is { Ready: true })
+        var meshes = ActiveMeshGeometry;
+        ID3D12PipelineState* materialPipeline = null;
+        if (material is not null && meshes is { HasPackedNormals: true } && texture is null)
+        {
+            materialPipeline = BindTerrainPbr(commands, scene.View, constants, shadows, material);
+        }
+        else if (texture is { Ready: true })
         {
             commands->SetGraphicsRootSignature(_textureRoot);
             var heap = _shadowSrv;
@@ -326,7 +405,7 @@ internal sealed unsafe partial class GpuDevice
             commands->SetGraphicsRootDescriptorTable(2, TextureGpuDescriptor(texture.Identity.Slot));
             commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
             if (shadows.Enabled)
-                commands->SetGraphicsRoot32BitConstants(0, 20, &shadows, FrameConstantCount);
+                commands->SetGraphicsRoot32BitConstants(0, ShadowConstantCount, &shadows, FrameConstantCount);
         }
         else if (shadows.Enabled)
         {
@@ -335,16 +414,16 @@ internal sealed unsafe partial class GpuDevice
             commands->SetDescriptorHeaps(1, &heap);
             commands->SetGraphicsRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
             commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
-            commands->SetGraphicsRoot32BitConstants(0, 20, &shadows, FrameConstantCount);
+            commands->SetGraphicsRoot32BitConstants(0, ShadowConstantCount, &shadows, FrameConstantCount);
         }
         else
         {
             commands->SetGraphicsRootSignature(_root);
             commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
         }
-        if (ActiveMeshGeometry is { } meshes)
+        if (meshes is not null)
         {
-            if (!meshes.Draw(commands, shadows.Enabled, texture is not null))
+            if (!meshes.Draw(commands, shadows.Enabled, texture is not null, materialPipeline))
                 return;
         }
         else
@@ -371,6 +450,37 @@ internal sealed unsafe partial class GpuDevice
             if (shadows.Far.W != 0)
                 ObserveUse(_farShadow);
         }
+    }
+
+    private ID3D12PipelineState* BindTerrainPbr(ID3D12GraphicsCommandList* commands, in Matrix4x4 view,
+        in DrawConstants lighting, in ShadowConstants shadows, PbrMaterialDescriptor material)
+    {
+        commands->SetGraphicsRootSignature(shadows.Enabled ? _pbrShadowRoot : _pbrRoot);
+        if (shadows.Enabled)
+        {
+            var heap = _shadowSrv;
+            commands->SetDescriptorHeaps(1, &heap);
+            commands->SetGraphicsRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
+        }
+
+        // Match the TERRAIN_PBR cbuffer layout. Reuse tint and padding lanes so the existing
+        // shadow data still fits in root constants, without any upload buffers or new descriptors.
+        var constants = lighting with
+        {
+            Tint = new(material.BaseColor, material.Metallic),
+            FogDepth = lighting.FogDepth with { W = material.AmbientOcclusion },
+            SunDirection = lighting.SunDirection with { W = material.Roughness },
+            SunDirect = lighting.SunDirect with { W = material.Emissive.X },
+            SunAmbient = lighting.SunAmbient with { W = material.Emissive.Y },
+        };
+        var shadowData = shadows with { LightZ = shadows.LightZ with { W = material.Emissive.Z } };
+        // Rigid row-vector view: eye = -translation * transpose(rotation).
+        // Half-scale both endpoints before subtraction in the shader to avoid overflow.
+        var halfEye = Vector3.TransformNormal(-0.5f * view.Translation, Matrix4x4.Transpose(view));
+        commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
+        commands->SetGraphicsRoot32BitConstants(0, ShadowConstantCount, &shadowData, FrameConstantCount);
+        commands->SetGraphicsRoot32BitConstants(0, 3, &halfEye, FrameConstantCount + ShadowConstantCount);
+        return shadows.Enabled ? _pbrShadowPipeline : _pbrPipeline;
     }
 
     private ID3D12PipelineState* TerrainPipeline(bool shadows, bool normals, bool textured)

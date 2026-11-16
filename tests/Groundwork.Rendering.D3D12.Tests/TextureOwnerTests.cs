@@ -185,8 +185,11 @@ public sealed partial class PresentationSmokeTests
             Volatile.Write(ref heldFence, 0);
             Volatile.Write(ref hold, 1);
             Volatile.Write(ref holdLatePresent, 1);
+            var untexturedColor = new Vector3(0.05f, 0.17f, 0.61f);
+            var material = new PbrMaterialDescriptor(Vector3.Zero, 0, 0.5f, 1, untexturedColor, 1);
             Assert.AreEqual(RenderSubmissionResult.Accepted,
-                renderer.TrySubmitVolumeCamera(installed.Info.Generation, 4, VolumeCameraAt(view, 32, 7)));
+                renderer.TrySubmitVolumeCamera(installed.Info.Generation, 4,
+                    VolumeCameraAt(view, 32, 7) with { TerrainMaterial = material }));
             await assigned.Task.WaitAsync(token);
             Assert.AreEqual(1, Volatile.Read(ref latePublications));
             Assert.AreEqual(2, Volatile.Read(ref lateDrawSignals));
@@ -197,7 +200,7 @@ public sealed partial class PresentationSmokeTests
             Volatile.Write(ref holdLatePresent, 0);
             Volatile.Write(ref hold, 0);
             var reRecorded = await lateFallback.Task.WaitAsync(token);
-            Assert.IsTrue(fallback.ColorAt(x, y).SequenceEqual(reRecorded.ColorAt(x, y)));
+            AssertColor(reRecorded.ColorAt(x, y), untexturedColor, 255, "stale binding uses untextured PBR on the same Present");
             Assert.AreEqual(fallback.DepthAt(x, y), reRecorded.DepthAt(x, y));
             Assert.AreEqual(copied.UploadedBytes, renderer.ReadTextureDiagnostics().UploadedBytes);
 
