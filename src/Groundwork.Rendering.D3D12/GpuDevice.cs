@@ -280,7 +280,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 }
 
                 // Appearance churn alone cannot spend a protected terrain retry.
-                // Re-record once without the optional appearance bindings.
+                // Re-record once without the stale bindings, using the frame's untextured material if available.
                 deferredProps = _propFrameStream;
                 AbortRecordedProps();
                 owner?.ClearFrameTexture(this);
@@ -288,6 +288,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                     GetPassPlan(shape with { Props = false, Texture = owner is null ? shape.Texture : default }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
+                terrainPbr = TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
             }
             return GpuFrameSubmitResult.Rejected;
         }
