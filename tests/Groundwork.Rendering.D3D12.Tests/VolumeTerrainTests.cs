@@ -150,7 +150,13 @@ public sealed partial class PresentationSmokeTests
         var hold = 1;
         var holdNext = 0;
         var nextObserved = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-        var hooks = new GpuRetirementTestHooks(CompletedValue: (gpu, completed) =>
+        var firstPresentSignalEntry = 0L;
+        var hooks = new GpuRetirementTestHooks(SignalFailure: (_, value) =>
+        {
+            if (value == 4)
+                Volatile.Write(ref firstPresentSignalEntry, System.Diagnostics.Stopwatch.GetTimestamp());
+            return null;
+        }, CompletedValue: (gpu, completed) =>
         {
             if (completed == ulong.MaxValue)
                 return completed;
@@ -168,7 +174,8 @@ public sealed partial class PresentationSmokeTests
         var title = $"Groundwork volume {Guid.NewGuid():N}";
         await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32),
             runtime.UiWake, runtime.RuntimeOwnership);
-        await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1, QualificationDiagnostics,
+        await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
+            QualificationDiagnostics with { EnableResourceSnapshots = true },
             warp, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(10), hooks);
         try
         {
@@ -195,7 +202,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual(1, run.Terrain.Statistics.Readers);
             Assert.AreEqual(1, device.LiveMeshBuffers);
-            Sample("first-fence-held", device);
+            Sample("first-fence-held", device, 2);
             Assert.AreEqual(MeshReplacementSubmissionResult.DuplicateGeneration,
                 renderer.TrySubmitVolumeTerrain(generation, 3, VolumeCameraAt(view, 32, 4)));
 
@@ -220,7 +227,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
                 renderer.TrySubmitVolumeTerrain(generation, 4, VolumeCameraAt(next, 32, 4)));
             await nextObserved.Task.WaitAsync(token);
-            Sample("replacement-fence-held", device);
+            Sample("replacement-fence-held", device, 4);
             var alreadyFinalized = await run.BeginHeldTick();
             Volatile.Write(ref holdNext, 0);
             await AwaitStatus(renderer, s => s.LastPresentedSequence == 4, token);
@@ -242,7 +249,7 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual(0, run.Terrain.Statistics.Readers);
             Assert.AreEqual(0L, device.LiveMeshBytes);
-            Sample("shutdown", device);
+            Sample("shutdown", device, 5);
             AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
         }
         finally
@@ -256,8 +263,42 @@ public sealed partial class PresentationSmokeTests
             resources.CpuBytes, resources.NativeBytes, resources.UploadBytes, resources.RetirementBytes,
             resources.DensityJobs, resources.MeshJobs, resources.QueueSlots, resources.LeaseSlots, resources.RetirementSlots,
         };
-        void Sample(string phase, GpuDevice device)
+        void Sample(string phase, GpuDevice device, ulong expectedSequence)
         {
+            D3D12ResourceSnapshot gpu = default;
+            Assert.IsTrue(SpinWait.SpinUntil(() => renderer.TryReadResourceDiagnostics(out gpu) &&
+                gpu.PresentedSequence == expectedSequence, TimeSpan.FromSeconds(2)));
+            Assert.AreEqual(expectedSequence, gpu.FrameSequence);
+            Assert.IsFalse(gpu.LedgerOverflowed);
+            Assert.IsFalse(gpu.LedgerHasUnknownSizes);
+            if (expectedSequence == 2)
+            {
+                Assert.IsGreaterThan(0L, gpu.PresentTimestamp);
+                Assert.IsLessThanOrEqualTo(Volatile.Read(ref firstPresentSignalEntry), gpu.PresentTimestamp);
+            }
+            var terrain = gpu.GetBalance(D3D12ResourceOwner.Terrain);
+            Assert.AreEqual((ulong)device.LiveMeshBytes, terrain.LiveBytes + terrain.RetainedBytes);
+            if (phase == "shutdown")
+            {
+                Assert.AreEqual(expectedSequence, gpu.RetiredPresentSequence);
+                foreach (var owner in Enum.GetValues<D3D12ResourceOwner>())
+                {
+                    var balance = gpu.GetBalance(owner);
+                    Assert.AreEqual(0, balance.Live + balance.Retained);
+                }
+                Assert.AreEqual(2UL, terrain.Released);
+                Assert.AreEqual(4UL, gpu.GetBalance(D3D12ResourceOwner.Presentation).Released);
+                Assert.AreEqual(2UL, gpu.GetBalance(D3D12ResourceOwner.Depth).Released);
+            }
+            else
+            {
+                Assert.IsLessThan(gpu.PresentFence, gpu.CompletedFence);
+                Assert.IsLessThan(gpu.PresentedSequence, gpu.RetiredPresentSequence);
+                Assert.AreEqual(1, terrain.Retained);
+                Assert.AreEqual(1, gpu.GetBalance(D3D12ResourceOwner.Presentation).Retained);
+                Assert.IsTrue(gpu.TryGetPass(GpuPassPlan.Terrain, out var pass));
+                Assert.AreEqual(new D3D12PassObservation(0, 3), pass);
+            }
             if (!measure)
                 return;
             var now = System.Diagnostics.Stopwatch.GetTimestamp();
@@ -268,6 +309,23 @@ public sealed partial class PresentationSmokeTests
                 route = warp ? "warp-fence" : "hardware-fence",
                 phase,
                 elapsedMs = System.Diagnostics.Stopwatch.GetElapsedTime(phaseStart, now).TotalMilliseconds,
+                frameSequence = gpu.FrameSequence,
+                rendererEpoch = run.Terrain.View.RendererEpoch,
+                gpu.DrawFence,
+                gpu.PresentFence,
+                gpu.SubmittedFence,
+                gpu.CompletedFence,
+                gpu.RetiredPresentSequence,
+                gpu.RetiredPresentFence,
+                qpcFrequency = System.Diagnostics.Stopwatch.Frequency,
+                gpu.DrawTimestamp,
+                gpu.PresentTimestamp,
+                gpu.RetiredPresentTimestamp,
+                resourceBalances = Enum.GetValues<D3D12ResourceOwner>().Select(owner =>
+                    new { owner = owner.ToString(), balance = gpu.GetBalance(owner) }).ToArray(),
+                observedPasses = Enumerable.Range(1, 10).Select(id =>
+                    (id, observed: gpu.TryGetPass(new((uint)id), out var pass), pass)).
+                    Where(row => row.observed).Select(row => new { row.id, row.pass.Barriers, row.pass.ResourceUses }).ToArray(),
                 used = ResourceVector(stats.Used),
                 peak = ResourceVector(stats.Peak),
                 stats.Readers,

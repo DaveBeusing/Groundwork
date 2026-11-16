@@ -41,6 +41,7 @@ internal sealed unsafe partial class GpuDevice
         var allocationBytes = (long)allocation.SizeInBytes;
         var resource = CreateResource(_device, _meshUploadHeap,
             description, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+        ObserveResource(resource, D3D12ResourceOwner.Terrain, allocation.SizeInBytes);
         Interlocked.Add(ref _liveMeshBytes, allocationBytes);
         Interlocked.Increment(ref _liveMeshBuffers);
         try
@@ -56,7 +57,7 @@ internal sealed unsafe partial class GpuDevice
 
     private void ReleaseMeshBuffer(ID3D12Resource* resource, long allocationBytes)
     {
-        Release(resource);
+        ReleaseObservedResource(resource);
         Interlocked.Add(ref _liveMeshBytes, -allocationBytes);
         Interlocked.Decrement(ref _liveMeshBuffers);
     }
@@ -133,6 +134,7 @@ internal sealed unsafe partial class GpuDevice
         private readonly PackedMesh[] _packed;
         private readonly long _allocationBytes;
         private ID3D12Resource* _resource;
+        internal ID3D12Resource* Resource => _resource;
         internal int PackedBytes { get; }
 
         internal bool HasLiveBinding(GpuDevice owner) =>
@@ -167,7 +169,7 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal void Draw(ID3D12GraphicsCommandList* commands, bool shadows)
+        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows)
         {
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
@@ -183,6 +185,7 @@ internal sealed unsafe partial class GpuDevice
                 }
                 DrawMesh(commands, mesh);
             }
+            return stride != 0;
         }
 
         internal (float Min, float Max) ShadowDepth(ShadowBasis basis, ShadowCascade near, ShadowCascade far)
@@ -201,11 +204,18 @@ internal sealed unsafe partial class GpuDevice
             return (min, max);
         }
 
-        internal void DrawShadow(ID3D12GraphicsCommandList* commands, ShadowBasis basis, ShadowCascade cascade)
+        internal bool DrawShadow(ID3D12GraphicsCommandList* commands, ShadowBasis basis, ShadowCascade cascade)
         {
+            var drawn = false;
             foreach (ref readonly var mesh in _packed.AsSpan())
+            {
                 if (mesh.IndexCount != 0 && Intersects(mesh, basis, cascade))
+                {
                     DrawMesh(commands, mesh);
+                    drawn = true;
+                }
+            }
+            return drawn;
         }
 
         private static bool Intersects(in PackedMesh mesh, ShadowBasis basis, ShadowCascade cascade)

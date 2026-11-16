@@ -1,4 +1,5 @@
 using Groundwork.Core;
+using Groundwork.Diagnostics;
 using Groundwork.Platform.Windows;
 using TerraFX.Interop.DirectX;
 using static TerraFX.Interop.Windows.Windows;
@@ -19,7 +20,63 @@ public sealed partial class PresentationSmokeTests
     public Task WarpConfirmedRemovalSettlesMeshWithAnUnobservedSuccessfulSignal() =>
         VerifyWarpRetirementFailure(injectSignalFailure: false);
 
-    private static async Task VerifyWarpRetirementFailure(bool injectSignalFailure)
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [TestCategory("D3D12MeshRetirementFaults")]
+    [DataRow(false)]
+    [DataRow(true)]
+    public Task WarpRetirementFaultKeepsTerminalEvidenceWithOptionalSink(bool throws) =>
+        VerifyWarpRetirementFailure(injectSignalFailure: true, throws ? DiagnosticDelivery.Throwing : DiagnosticDelivery.Saturated);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [TestCategory("D3D12MeshRetirementFaults")]
+    public async Task WarpStopDeadlinePreservesUnassignedCustodyEvidenceAfterNormalSignal()
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        using var resume = new ManualResetEventSlim();
+        var token = timeout.Token;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromMilliseconds(300), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
+        var runtime = CreateRuntime(timing);
+        var context = new EngineModuleContext(TimeProvider.System, timing, runtime.Reporter, runtime.StopControl);
+        var entered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var hooks = new GpuRetirementTestHooks(BeforeExecute: sequence =>
+        {
+            if (sequence == 2)
+            {
+                entered.TrySetResult();
+                resume.Wait(token);
+            }
+        });
+        var title = $"Groundwork D3D12 stop deadline {Guid.NewGuid():N}";
+        await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32),
+            runtime.UiWake, runtime.RuntimeOwnership);
+        await using var renderer = D3D12Renderer.CreateWithMeshReplacement(window, runtime.RuntimeOwnership, CreateTerrainPair(),
+            _ => { }, QualificationDiagnostics, useWarp: true, operationTimeout: TimeSpan.FromSeconds(10), retirementHooks: hooks);
+        try
+        {
+            await StartMeshReplacement(window, renderer, context, title, useWarp: true, token);
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmit(CreateTerrainFrame() with { Sequence = 2 }));
+            await entered.Task.WaitAsync(token);
+            await Assert.ThrowsAsync<IncompleteCleanupException>(() => renderer.StopAsync(token).AsTask());
+            Assert.IsFalse(renderer.TryReadResourceDiagnostics(out _));
+
+            resume.Set();
+            await AwaitStatus(renderer, state => state.Lifecycle == RendererLifecycle.Stopped, token);
+            Assert.IsNull(renderer.Read().FirstFault);
+            Assert.IsNull(renderer.ReadDiagnostics().DeviceRemoval);
+            Assert.AreEqual(D3D12CustodyStatus.UnassignedSubmission | D3D12CustodyStatus.IncompleteCleanup,
+                renderer.ReadTerminalGpuCustody());
+            AssertCleanDiagnostics(renderer.ReadDiagnostics(), diagnosticsRequested: true);
+        }
+        finally
+        {
+            resume.Set();
+            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+        }
+    }
+
+    private static async Task VerifyWarpRetirementFailure(bool injectSignalFailure, DiagnosticDelivery delivery = DiagnosticDelivery.Off)
     {
         Assert.IsTrue(Environment.UserInteractive, "Run this test on an interactive Windows desktop.");
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
@@ -27,8 +84,9 @@ public sealed partial class PresentationSmokeTests
         using var permitRemoval = new ManualResetEventSlim();
         var token = timeout.Token;
         var timing = new RuntimeTimingLimits(TimeSpan.FromMilliseconds(700), TimeSpan.FromSeconds(2), TimeSpan.FromSeconds(2));
-        var runtime = CreateRuntime(timing);
+        var runtime = CreateRuntime(timing, runtimeDiagnosticRecords: delivery == DiagnosticDelivery.Off ? 0 : 4);
         var context = new EngineModuleContext(TimeProvider.System, timing, runtime.Reporter, runtime.StopControl);
+        DiagnosticDispatcher? dispatcher = null;
         var title = $"Groundwork WARP retirement fault {Guid.NewGuid():N}";
         var targetOwners = new LeaseTracker(runtime.RuntimeOwnership);
         var rendererOwners = new LeaseTracker(runtime.RuntimeOwnership);
@@ -73,13 +131,30 @@ public sealed partial class PresentationSmokeTests
 
         await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32), runtime.UiWake, targetOwners);
         await using var renderer = D3D12Renderer.CreateWithMeshReplacement(window, rendererOwners, CreateTerrainPair(), _ => { },
-            QualificationDiagnostics, useWarp: true, startupTimeout: TimeSpan.FromSeconds(15),
+            QualificationDiagnostics with { EnableResourceSnapshots = delivery != DiagnosticDelivery.Off },
+            useWarp: true, startupTimeout: TimeSpan.FromSeconds(15),
             operationTimeout: TimeSpan.FromSeconds(15), afterMeshInstallation: () => Interlocked.Increment(ref installations),
             retirementHooks: hooks);
 
         try
         {
             var (hwnd, meshes) = await StartMeshReplacement(window, renderer, context, title, useWarp: true, token);
+            if (delivery != DiagnosticDelivery.Off)
+            {
+                dispatcher = new DiagnosticDispatcher(runtime.Diagnostics, runtime.RuntimeOwnership,
+                    new RetirementSink(delivery == DiagnosticDelivery.Throwing));
+                for (uint index = 1; index <= 4; index++)
+                    Assert.AreEqual(FaultReportStatus.Recorded, ReportOptional(runtime, index));
+                Assert.AreEqual(FaultReportStatus.Coalesced, ReportOptional(runtime, 5));
+                if (delivery == DiagnosticDelivery.Throwing)
+                {
+                    Assert.AreEqual(0, await dispatcher.DrainAsync(1).WaitAsync(token));
+                    Assert.IsTrue(dispatcher.SinkDisabled);
+                    Assert.IsNotNull(runtime.Diagnostics.ReadEmergency().Sink);
+                }
+            }
+            else
+                Assert.IsFalse(renderer.TryReadResourceDiagnostics(out _));
             Volatile.Write(ref armed, true);
             Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmit(CreateTerrainFrame() with { Sequence = 2 }));
             var gpu = await signalReached.Task.WaitAsync(token);
@@ -96,9 +171,26 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreEqual(1, rendererOwners.Active);
                 releaseSignal.Set();
                 Assert.AreEqual(0, await retirementHeld.Task.WaitAsync(token), "The fence sentinel is synthetic.");
+                if (dispatcher is not null)
+                {
+                    await dispatcher.StopAsync(runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation), TimeProvider.System, token);
+                    dispatcher = null;
+                }
                 await Assert.ThrowsAsync<IncompleteCleanupException>(() => renderer.StopAsync(token).AsTask());
                 Assert.AreEqual(new RenderFaultSummary((uint)RendererStage.Present, signalError, null, 2), renderer.Read().FirstFault);
                 Assert.AreEqual(1UL, renderer.Read().LastPresentedSequence);
+                Assert.AreEqual(D3D12CustodyStatus.UnassignedSubmission | D3D12CustodyStatus.FenceSentinelObserved |
+                    D3D12CustodyStatus.IncompleteCleanup, renderer.ReadTerminalGpuCustody());
+                Assert.AreEqual(FaultClass.UnknownCritical, runtime.Diagnostics.ReadEmergency().Primary?.Classification);
+                Assert.AreEqual(FaultClass.IncompleteCleanup, runtime.Diagnostics.ReadEmergency().Cleanup?.Classification);
+                if (delivery != DiagnosticDelivery.Off)
+                {
+                    Assert.IsTrue(renderer.TryReadResourceDiagnostics(out var held));
+                    Assert.AreEqual(heldFence, held.UnassignedFence);
+                    Assert.AreEqual(2UL, held.UnassignedFrameSequence);
+                    Assert.IsLessThan(heldFence, held.CompletedFence);
+                    Assert.AreEqual(1, held.GetBalance(D3D12ResourceOwner.Presentation).Retained);
+                }
                 Assert.IsTrue(runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
                 Assert.AreEqual(ShutdownSettlement.Custody, runtime.SettleStop());
                 Assert.AreEqual(1, targetOwners.Active, "The admitted Present has returned, but the window remains owned.");
@@ -135,6 +227,14 @@ public sealed partial class PresentationSmokeTests
             Assert.IsFalse(IsWindow(hwnd));
             Assert.AreEqual(ShutdownSettlement.Released, runtime.SettleStop());
             Assert.AreEqual(injectSignalFailure, stopped.IncompleteCleanup);
+            Assert.IsTrue(renderer.ReadTerminalGpuCustody().HasFlag(D3D12CustodyStatus.ConfirmedRemoval));
+            if (delivery != DiagnosticDelivery.Off)
+            {
+                Assert.IsTrue(renderer.TryReadResourceDiagnostics(out var released));
+                var presentation = released.GetBalance(D3D12ResourceOwner.Presentation);
+                Assert.AreEqual(0, presentation.Live + presentation.Retained);
+                Assert.AreEqual(2UL, presentation.Released);
+            }
 
             var diagnostics = renderer.ReadDiagnostics();
             Console.WriteLine($"Debug layer enabled {diagnostics.DebugLayerEnabled}, DRED enabled {diagnostics.DredEnabled}.");
@@ -165,8 +265,22 @@ public sealed partial class PresentationSmokeTests
         {
             permitRemoval.Set();
             releaseSignal.Set();
-            runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            var deadline = runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation);
+            if (dispatcher is not null)
+                await dispatcher.StopAsync(deadline, TimeProvider.System);
         }
+    }
+
+    private static FaultReportStatus ReportOptional(RuntimeSafetyAuthority runtime, uint code) =>
+        runtime.Reporter.TryReport(new FaultObservation(FaultClass.DiagnosticOnly, FaultSeverity.Information,
+            FaultSubsystem.Diagnostics, FaultOrigin.Primary, code, TimeProvider.System.GetTimestamp(), default, [], []));
+
+    private enum DiagnosticDelivery { Off, Saturated, Throwing }
+
+    private sealed class RetirementSink(bool throws) : IDiagnosticSink
+    {
+        public ValueTask WriteAsync(DiagnosticEvent observation, CancellationToken cancellationToken) =>
+            throws ? ValueTask.FromException(new InvalidOperationException("Injected optional sink failure.")) : ValueTask.CompletedTask;
     }
 
     private static unsafe int RemoveWarpRetirementDevice(GpuDevice gpu)

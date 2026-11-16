@@ -14,6 +14,9 @@ public sealed partial class D3D12Renderer : IRenderer
     private readonly IRuntimeOwnership _ownership;
     private readonly bool _useWarp;
     private readonly D3D12DiagnosticsOptions _diagnosticsOptions;
+    private readonly ResourceDiagnostics? _resourceDiagnostics;
+    private int _gpuFaultCustody;
+    private GpuDevice? _observedGpu;
     private readonly TimeSpan _startupTimeout;
     private readonly TimeSpan _operationTimeout;
     private readonly Action<WindowsSwapChain, int, int>? _resize;
@@ -70,6 +73,7 @@ public sealed partial class D3D12Renderer : IRenderer
         ArgumentNullException.ThrowIfNull(ownership);
         (_window, _ownership, _useWarp) = (window, ownership, useWarp);
         _diagnosticsOptions = diagnostics;
+        _resourceDiagnostics = diagnostics.EnableResourceSnapshots ? new() : null;
         _startupTimeout = ValidateTimeout(startupTimeout ?? TimeSpan.FromSeconds(5), nameof(startupTimeout));
         _operationTimeout = ValidateTimeout(operationTimeout ?? TimeSpan.FromSeconds(2), nameof(operationTimeout));
     }
@@ -154,6 +158,46 @@ public sealed partial class D3D12Renderer : IRenderer
 
     /// <summary>Reads the last published native diagnostics without calling the graphics driver.</summary>
     public D3D12DiagnosticsSnapshot ReadDiagnostics() => Volatile.Read(ref _diagnostics);
+
+    /// <summary>Attempts a coherent, driver-free read of the latest optional GPU resource snapshot.</summary>
+    /// <remarks>Returns false before the first publication, when disabled, or during concurrent publication.</remarks>
+    public bool TryReadResourceDiagnostics(out D3D12ResourceSnapshot snapshot)
+    {
+        if (_resourceDiagnostics?.TryRead(out snapshot) != true)
+        {
+            snapshot = default;
+            return false;
+        }
+        if (Read().IncompleteCleanup)
+            snapshot.Custody |= D3D12CustodyStatus.IncompleteCleanup;
+        return true;
+    }
+
+    /// <summary>Last terminal native custody evidence, independent of optional snapshots and sink delivery.</summary>
+    public D3D12CustodyStatus ReadTerminalGpuCustody()
+    {
+        var state = Read();
+        var status = (D3D12CustodyStatus)Volatile.Read(ref _gpuFaultCustody);
+        if (state.FirstFault.HasValue || state.IncompleteCleanup)
+            status |= Volatile.Read(ref _observedGpu)?.ReadObservedCustody() ?? D3D12CustodyStatus.None;
+        if (state.IncompleteCleanup)
+            status |= D3D12CustodyStatus.IncompleteCleanup;
+        return status;
+    }
+
+    private void ObserveTerminalGpuCustody(GpuDevice? gpu, int? removal)
+    {
+        if (gpu is null)
+            return;
+        var custody = gpu.ObserveTerminalCustody(removal < 0);
+        Interlocked.Or(ref _gpuFaultCustody, (int)custody);
+    }
+
+    private void LatchObservedGpuCustody()
+    {
+        if (Volatile.Read(ref _observedGpu) is { } gpu)
+            Interlocked.Or(ref _gpuFaultCustody, (int)gpu.ReadObservedCustody());
+    }
 
     public RenderSubmissionResult TrySubmit(in RenderFrame frame)
     {
@@ -313,6 +357,7 @@ public sealed partial class D3D12Renderer : IRenderer
     {
         if (Interlocked.CompareExchange(ref _primary, ExceptionDispatchInfo.Capture(error), null) is not null)
             return;
+        LatchObservedGpuCustody();
 
         CloseVolumeAdmission();
         lock (_lifecycle)
@@ -343,6 +388,7 @@ public sealed partial class D3D12Renderer : IRenderer
             "The renderer still owns native resources after cleanup failed.", error);
         if (Interlocked.CompareExchange(ref _incomplete, incomplete, null) is not null)
             return;
+        LatchObservedGpuCustody();
 
         _admission.RecordCleanupFault(new RenderFaultSummary((uint)RendererStage.Cleanup, error.HResult, null, null), incomplete: true);
         Report(FaultClass.IncompleteCleanup, FaultOrigin.Cleanup, error);
