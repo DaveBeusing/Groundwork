@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Groundwork.Core;
 using Groundwork.Core.Tests;
 using Groundwork.Jobs;
@@ -89,6 +90,30 @@ public sealed partial class VolumeStreamingTests
     }
 
     [TestMethod]
+    public async Task ProfiledWorkerReportsOrderedPhasesAndStillPublishesThroughCore()
+    {
+        using var run = new Run();
+        using var work = run.Stage(VolumeWorkClass.Movement, 0, 1);
+
+        var beforeExecute = Stopwatch.GetTimestamp();
+        Assert.IsTrue(work.ExecuteProfiled(out var profile));
+        var afterExecute = Stopwatch.GetTimestamp();
+        Assert.IsTrue(beforeExecute <= profile.Started && profile.Started <= profile.OverlayPrepared &&
+            profile.OverlayPrepared <= profile.BricksGenerated && profile.BricksGenerated <= profile.PlanCreated &&
+            profile.PlanCreated <= profile.MeshBuilt && profile.MeshBuilt <= profile.Completed &&
+            profile.Completed <= afterExecute);
+        Assert.IsFalse(work.ExecuteProfiled(out var repeatedProfile));
+        Assert.AreEqual(default(VolumeStreamingWorkProfile), repeatedProfile);
+        Assert.IsNull(run.Coordinator.TryRead());
+
+        await run.Publish(work);
+        using var reader = run.Coordinator.TryRead();
+        Assert.IsNotNull(reader);
+        Assert.AreEqual(work.Generation, reader.Info.Generation);
+        Assert.IsTrue(reader.Meshes.ToArray().All(mesh => mesh.PlanIdentity == reader.Info.PlanIdentity));
+    }
+
+    [TestMethod]
     public async Task JobsDispatchPreparesPrivatelyAndCoreCommitsOneCompleteRoot()
     {
         using var run = new Run();
@@ -151,7 +176,8 @@ public sealed partial class VolumeStreamingTests
             run.Coordinator.ChangeView(nextFrame, 2);
             Assert.IsFalse(run.Coordinator.AcknowledgeFrame(registration));
             Assert.IsTrue(superseded.IsCancellationRequested);
-            Assert.IsFalse(superseded.Execute());
+            Assert.IsFalse(superseded.ExecuteProfiled(out var supersededProfile));
+            Assert.AreEqual(default(VolumeStreamingWorkProfile), supersededProfile);
             Assert.AreEqual(0, run.Coordinator.Statistics.Used.DensityJobs);
             Assert.AreEqual(oldWork.Generation, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Terrain.Generation);
             Assert.IsFalse(run.Coordinator.HasAdmittedCoverage(default));

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Groundwork.Core;
 
 namespace Groundwork.Voxels;
@@ -110,13 +111,23 @@ public sealed class VolumeStreamingWork : IDisposable
     public ulong Generation => _generation.Id;
     public bool IsCancellationRequested => _owner.IsCancelled(_generation);
 
-    public bool Execute(CancellationToken cancellationToken = default)
+    public bool Execute(CancellationToken cancellationToken = default) =>
+        ExecuteCore(false, out _, cancellationToken);
+
+    /// <summary>Executes the job and captures phase timings if the coordinator accepts the result.</summary>
+    /// <remarks>The profile is default when execution returns <see langword="false"/> or throws.</remarks>
+    public bool ExecuteProfiled(out VolumeStreamingWorkProfile profile, CancellationToken cancellationToken = default) =>
+        ExecuteCore(true, out profile, cancellationToken);
+
+    private bool ExecuteCore(bool measure, out VolumeStreamingWorkProfile profile, CancellationToken cancellationToken)
     {
+        profile = default;
         if (Interlocked.CompareExchange(ref _state, 1, 0) != 0)
             return false;
         VolumeArtifacts? artifacts = null;
         try
         {
+            var started = measure ? Stopwatch.GetTimestamp() : 0;
             Check(cancellationToken);
             var overlay = _generation.Overlay;
             VolumeOreDepletion depletion = default;
@@ -135,8 +146,10 @@ public sealed class VolumeStreamingWork : IDisposable
             ReadOnlySpan<VolumeMeshRequest> requests = overlay is { Count: > 0 }
                 ? overlay.Refine(_generation.Selection, CheckEditCancellation)
                 : _generation.Selection.Requests;
+            var overlayPrepared = measure ? Stopwatch.GetTimestamp() : 0;
             var store = new PlanetBrickStore((IPlanetBrickSource?)overlay ?? _source, (long)requests.Length * PlanetBrickStore.BrickPayloadBytes, requests.Length);
             VolumeMeshPlan? plan = null;
+            long bricksGenerated, planCreated, meshBuilt;
             try
             {
                 foreach (var request in requests)
@@ -145,8 +158,10 @@ public sealed class VolumeStreamingWork : IDisposable
                     if (!store.TryGenerate(request.Brick, cancellationToken))
                         throw new InvalidOperationException("Reserved brick quota is insufficient.");
                 }
+                bricksGenerated = measure ? Stopwatch.GetTimestamp() : 0;
                 plan = VolumeMeshPlan.TryCreate(store, requests, _generation.TargetRevision, long.MaxValue, overlay?.Digest)
                     ?? throw new InvalidOperationException("Reserved plan leases are unavailable.");
+                planCreated = measure ? Stopwatch.GetTimestamp() : 0;
                 var meshes = new PlanetVolumeMesh[_generation.Selection.MeshCount];
                 long remaining = _generation.MeshLimit;
                 var index = 0;
@@ -163,6 +178,7 @@ public sealed class VolumeStreamingWork : IDisposable
                         }
                 artifacts = new VolumeArtifacts(store, plan, meshes);
                 plan = null;
+                meshBuilt = measure ? Stopwatch.GetTimestamp() : 0;
             }
             finally
             {
@@ -176,6 +192,8 @@ public sealed class VolumeStreamingWork : IDisposable
             Check(cancellationToken);
             var accepted = _owner.Complete(_generation, artifacts, overlay, depletion);
             artifacts = null;
+            if (measure && accepted)
+                profile = new(started, overlayPrepared, bricksGenerated, planCreated, meshBuilt, Stopwatch.GetTimestamp());
             return accepted;
         }
         catch (OperationCanceledException) when (_generation.Cancelled && !cancellationToken.IsCancellationRequested)
