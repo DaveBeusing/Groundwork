@@ -165,6 +165,46 @@ public sealed partial class VolumeStreamingTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task BegunTickRecordsTheConsumedReceiptEvenAfterCameraAuthorization(bool enableTiming)
+    {
+        using var run = new Run(enableEventTiming: enableTiming);
+        using var work = run.Stage(VolumeWorkClass.Movement, 0, 1);
+        Assert.IsTrue(work.Execute());
+        await run.Publish(work);
+        Assert.ThrowsExactly<InvalidOperationException>(run.Coordinator.EnableEventTiming);
+
+        using var frame = run.Coordinator.TryRegisterFrame(work.Generation, run.Coordinator.View, 1);
+        Assert.IsNotNull(frame);
+        Assert.IsTrue(run.Coordinator.AcknowledgeFrame(frame));
+        Assert.IsTrue(run.Coordinator.AuthorizeCameraFrame(frame, 2));
+        var tick = await run.BeginTick();
+        Assert.IsTrue(run.Coordinator.BeginTick(tick));
+
+        var events = new List<VolumeStreamingEvent>();
+        while (run.Coordinator.TryReadEvent(out var record))
+            events.Add(record);
+
+        var ready = events.Single(e => e.Kind == VolumeEventKind.WorkReady);
+        var receipt = events.Single(e => e.Kind == VolumeEventKind.Accepted && e.Generation == work.Generation);
+        var opened = events.Single(e => e.Kind == VolumeEventKind.Opened && e.Generation == work.Generation);
+        Assert.IsTrue(events.Any(e => e.Kind == VolumeEventKind.Registered && e.Frame == 2));
+        Assert.AreEqual(1UL, receipt.Frame);
+        Assert.AreEqual(receipt.Frame, opened.Frame);
+        Assert.AreEqual(work.Generation, opened.Generation);
+        Assert.AreEqual(receipt.View, opened.View);
+        Assert.AreEqual(tick, opened.Stamp);
+        Assert.IsGreaterThan(receipt.Stamp!.Value.Tick, tick.Tick);
+        if (enableTiming)
+            Assert.IsTrue(ready.MonotonicTimestamp > 0 &&
+                ready.MonotonicTimestamp <= receipt.MonotonicTimestamp &&
+                receipt.MonotonicTimestamp <= opened.MonotonicTimestamp);
+        else
+            Assert.IsTrue(events.All(e => e.MonotonicTimestamp == 0));
+    }
+
+    [TestMethod]
     public async Task CancellationDuringGenerationKeepsCreditsUntilWorkerSettles()
     {
         using var run = new Run();
@@ -471,7 +511,7 @@ public sealed partial class VolumeStreamingTests
     private sealed class Run : IDisposable
     {
         private ulong _tick;
-        public Run(int journal = 1024, (int Dimension, int Delta)? adjust = null)
+        public Run(int journal = 1024, (int Dimension, int Delta)? adjust = null, bool enableEventTiming = false)
         {
             World = Fixture.OpenWorld();
             Selection = VolumeStreamingSelection.Select(Descriptor, default, new PlanetVector(1, 0, 0));
@@ -482,6 +522,8 @@ public sealed partial class VolumeStreamingTests
             Limits = new VolumeStreamingLimits(baseline + movement + Unit + Unit + Unit, baseline,
                 movement, Unit, Unit, Unit, 16, 16, journal);
             Coordinator = new VolumeStreamingCoordinator(World, Descriptor, Limits);
+            if (enableEventTiming)
+                Coordinator.EnableEventTiming();
             Coordinator.ChangeView(PlanetLocalFrame.Create(default), 1);
             Assert.IsTrue(Coordinator.ConfirmMask(Coordinator.View));
         }
