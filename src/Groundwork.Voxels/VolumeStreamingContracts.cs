@@ -68,7 +68,8 @@ internal sealed class VolumeArtifacts(PlanetBrickStore store, VolumeMeshPlan pla
 }
 
 internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStreamingSelection selection,
-    ulong sourceRevision, ulong targetRevision, VolumeViewIdentity view, long meshLimit, VolumeResources resources)
+    ulong sourceRevision, ulong targetRevision, VolumeViewIdentity view, long meshLimit, VolumeResources resources,
+    IPlanetBrickSource source)
 {
     public ulong Id { get; } = id;
     public VolumeWorkClass Kind { get; } = kind;
@@ -88,6 +89,8 @@ internal sealed class VolumeGeneration(ulong id, VolumeWorkClass kind, VolumeStr
     public RootChangePermit? Permit { get; set; }
     public bool Outstanding { get; set; } = true;
     public bool IsPrivate { get; init; }
+    public ulong? AheadBaseRevision { get; set; }
+    public IPlanetBrickSource Source { get; } = source;
     public volatile bool Cancelled;
     public bool Released { get; set; }
     public bool Retired { get; set; }
@@ -100,14 +103,12 @@ public sealed class VolumeStreamingWork : IDisposable
 {
     private readonly VolumeStreamingCoordinator _owner;
     private readonly VolumeGeneration _generation;
-    private readonly IPlanetBrickSource _source;
     private readonly int _overlayLimit;
     private int _state;
-    internal VolumeStreamingWork(VolumeStreamingCoordinator owner, VolumeGeneration generation, IPlanetBrickSource source, int overlayLimit)
+    internal VolumeStreamingWork(VolumeStreamingCoordinator owner, VolumeGeneration generation, int overlayLimit)
     {
         _owner = owner;
         _generation = generation;
-        _source = source;
         _overlayLimit = overlayLimit;
     }
     public ulong Generation => _generation.Id;
@@ -160,8 +161,7 @@ public sealed class VolumeStreamingWork : IDisposable
             var started = measure ? Stopwatch.GetTimestamp() : 0;
             Check(cancellationToken);
             VolumeArtifacts? donor = null;
-            using var borrow = privateWork is not null && ReferenceEquals(_owner, privateWork._owner) &&
-                ReferenceEquals(_source, privateWork._source)
+            using var borrow = privateWork is not null && ReferenceEquals(_owner, privateWork._owner)
                 ? _owner.TryBorrowPrivate(_generation, privateWork._generation, out donor)
                 : null;
             var overlay = _generation.Overlay;
@@ -182,7 +182,8 @@ public sealed class VolumeStreamingWork : IDisposable
                 ? overlay.Refine(_generation.Selection, CheckEditCancellation)
                 : _generation.Selection.Requests;
             var overlayPrepared = measure ? Stopwatch.GetTimestamp() : 0;
-            var store = new PlanetBrickStore((IPlanetBrickSource?)overlay ?? _source, (long)requests.Length * PlanetBrickStore.BrickPayloadBytes, requests.Length);
+            var store = new PlanetBrickStore((IPlanetBrickSource?)overlay ?? _generation.Source,
+                (long)requests.Length * PlanetBrickStore.BrickPayloadBytes, requests.Length);
             VolumeMeshPlan? plan = null;
             long bricksGenerated, planCreated, meshBuilt;
             VolumeBrickGenerationTiming brickTiming = default;

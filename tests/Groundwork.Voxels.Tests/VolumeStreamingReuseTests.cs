@@ -6,6 +6,72 @@ namespace Groundwork.Voxels.Tests;
 public sealed partial class VolumeStreamingTests
 {
     [TestMethod]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task AheadWorkSurvivesViewsAndInitialCommitOnlyWithTheSameSampler(bool sameSampler)
+    {
+        using var run = new Run();
+        var donorSampler = new Source();
+        var publishingSampler = sameSampler ? donorSampler : new Source(threshold: 307);
+        using var donor = StageAhead(run, donorSampler);
+        Assert.IsTrue(donor.ExecuteDetailedProfiled(out var donorProfile));
+        var prior = run.Coordinator.View;
+        run.Coordinator.ChangeView(prior.Frame, prior.RendererEpoch);
+        Assert.IsTrue(run.Coordinator.ConfirmMask(run.Coordinator.View));
+
+        using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1, publishingSampler);
+        Assert.IsTrue(initial.ExecuteDetailedProfiled(out var initialProfile));
+        await run.Publish(initial);
+        Assert.AreEqual(!sameSampler, donor.IsCancellationRequested);
+
+        using var target = run.Stage(VolumeWorkClass.Movement, 1, 1, publishingSampler);
+        Assert.IsTrue(target.ExecuteDetailedProfiled(donor, out var profile));
+        Assert.AreEqual(sameSampler ? donor.Generation : 0UL, profile.ReuseSourceGeneration);
+        Assert.IsTrue(profile.Bricks.ToArray().All(brick => brick.Reused == sameSampler));
+        Assert.IsTrue(profile.Meshes.ToArray().All(mesh => mesh.Reused == sameSampler));
+        VolumeReuseAssertions.SameGeometry(sameSampler ? donorProfile : initialProfile, profile);
+        donor.Dispose();
+        run.Coordinator.Stop();
+        Assert.AreEqual(default, run.Coordinator.Statistics.Used);
+    }
+
+    [TestMethod]
+    [DataRow("pending")]
+    [DataRow("disposed")]
+    [DataRow("invalidated epoch")]
+    public void AheadWorkFallsBackWithoutWaitingForUnavailableDonor(string unavailable)
+    {
+        using var run = new Run();
+        var sampler = new Source();
+        using var donor = StageAhead(run, sampler);
+        if (unavailable != "pending")
+            Assert.IsTrue(donor.Execute());
+        if (unavailable == "disposed")
+            donor.Dispose();
+        var prior = run.Coordinator.View;
+        if (unavailable == "invalidated epoch")
+        {
+            run.Coordinator.InvalidateRenderer(prior.RendererEpoch);
+            Assert.IsTrue(donor.IsCancellationRequested);
+            run.Coordinator.ChangeView(prior.Frame, prior.RendererEpoch + 1);
+        }
+        else
+            run.Coordinator.ChangeView(prior.Frame, prior.RendererEpoch);
+
+        using var target = run.Stage(VolumeWorkClass.Movement, 0, 1, sampler);
+        using var cold = run.Stage(VolumeWorkClass.Recovery, 0, 1, sampler);
+        Assert.IsTrue(target.ExecuteDetailedProfiled(donor, out var profile));
+        Assert.IsTrue(cold.ExecuteDetailedProfiled(out var expected));
+        Assert.AreEqual(0UL, profile.ReuseSourceGeneration);
+        Assert.IsFalse(profile.Bricks.ToArray().Any(brick => brick.Reused));
+        Assert.IsFalse(profile.Meshes.ToArray().Any(mesh => mesh.Reused));
+        VolumeReuseAssertions.SameGeometry(expected, profile);
+        donor.Dispose();
+        run.Coordinator.Stop();
+        Assert.AreEqual(default, run.Coordinator.Statistics.Used);
+    }
+
+    [TestMethod]
     public async Task PrivateBuildReusesPayloadButOnlyTargetCanPublish()
     {
         using var run = new Run();
@@ -113,20 +179,29 @@ public sealed partial class VolumeStreamingTests
         Assert.IsNotNull(work);
         return work;
     }
+
+    private static VolumeStreamingWork StageAhead(Run run, IPlanetBrickSource sampler)
+    {
+        Assert.AreEqual(VolumeAdmission.Accepted, run.Coordinator.TryStagePrivateAhead(VolumeWorkClass.Speculative,
+            run.Selection, 0, 1, 2_000_000, run.Unit, sampler, out var work));
+        Assert.IsNotNull(work);
+        return work;
+    }
 }
 
 public sealed partial class VolumeEditTests
 {
     [TestMethod]
-    [DataRow(9, 1, 1)]
-    [DataRow(-1, 1, 2)]
-    [DataRow(0, 2, 2)]
+    [DataRow(9, 1, 1, false)]
+    [DataRow(9, 1, 1, true)]
+    [DataRow(-1, 1, 2, true)]
+    [DataRow(0, 2, 2, true)]
     public async Task PrivateReuseMatchesColdEditAndInvalidatesIncidentBricksAndMeshHalo(
-        int brushX, int invalidatedBricks, int invalidatedMeshes)
+        int brushX, int invalidatedBricks, int invalidatedMeshes, bool ahead)
     {
         // The x=0 mesh face also separates bricks. A brush one vertex earlier still affects its gradient stencil.
-        var cached = await EditWithOptionalPrivateSource(brushX, true);
-        var cold = await EditWithOptionalPrivateSource(brushX, false);
+        var cached = await EditWithOptionalPrivateSource(brushX, true, ahead);
+        var cold = await EditWithOptionalPrivateSource(brushX, false, ahead);
         VolumeReuseAssertions.SameGeometry(cold.Profile, cached.Profile);
         Assert.AreEqual(cold.Identity, cached.Identity);
         CollectionAssert.AreEqual(cold.Overlay, cached.Overlay);
@@ -142,25 +217,37 @@ public sealed partial class VolumeEditTests
     }
 
     private static async Task<(VolumeStreamingWorkDetailedProfile Profile, string Identity, byte[] Overlay)>
-        EditWithOptionalPrivateSource(int brushX, bool reuse)
+        EditWithOptionalPrivateSource(int brushX, bool reuse, bool ahead)
     {
         using var run = new EditRun();
-        await run.BuildInitial();
+        var prepareBeforeInitial = brushX == 9;
+        if (!prepareBeforeInitial)
+            await run.BuildInitial();
+        VolumeStreamingWork? aheadSource = null;
+        if (reuse && ahead)
+            Assert.AreEqual(VolumeAdmission.Accepted, run.StageAheadRecovery(out aheadSource, prepareBeforeInitial ? 0UL : 1UL));
+        using var ownedAhead = aheadSource;
+        VolumeStreamingWorkDetailedProfile privateProfile = default;
+        if (aheadSource is not null)
+            Assert.IsTrue(aheadSource.ExecuteDetailedProfiled(out privateProfile));
+        if (prepareBeforeInitial)
+            await run.BuildInitial();
         var begin = await run.OpenTick();
         var brush = new VolumeBrushIntent(begin.Tick, 1, 1, new(brushX, 9, 8), new(brushX, 11, 9),
             VolumeBrushOperation.Add, 11);
         Assert.AreEqual(VolumeAdmission.Accepted, run.Coordinator.SealEditTick(begin.Tick, run.Source.Descriptor, [brush]));
         run.Hold();
         VolumeStreamingWork? source = null;
-        if (reuse)
+        if (reuse && !ahead)
             Assert.AreEqual(VolumeAdmission.Accepted, run.StagePrivateRecovery(out source));
-        using var donor = source;
-        VolumeStreamingWorkDetailedProfile privateProfile = default;
-        if (reuse)
+        using var ownedSource = source;
+        if (source is not null)
         {
-            Assert.IsNotNull(donor);
-            Assert.IsTrue(donor.ExecuteDetailedProfiled(out privateProfile));
+            Assert.IsTrue(source.ExecuteDetailedProfiled(out privateProfile));
         }
+        var donor = aheadSource ?? source;
+        if (reuse)
+            Assert.IsNotNull(donor);
         Assert.AreEqual(VolumeAdmission.Accepted, run.Stage(brush, out var edit));
         Assert.IsNotNull(edit);
         using (edit)
@@ -178,9 +265,27 @@ public sealed partial class VolumeEditTests
                     .Any(pair => pair.First.DensitySha256 != pair.Second.DensitySha256));
                 Assert.IsTrue(privateProfile.Meshes.ToArray().Zip(profile.Meshes.ToArray())
                     .Any(pair => pair.First.GeometrySha256 != pair.Second.GeometrySha256));
-                donor.Dispose();
+                if (!ahead)
+                    donor.Dispose();
             }
             await run.Commit(edit, edit: true);
+            if (aheadSource is not null)
+            {
+                Assert.IsTrue(aheadSource.IsCancellationRequested);
+                if (prepareBeforeInitial)
+                {
+                    Assert.AreEqual(VolumeAdmission.Accepted, run.StageRecovery(out var successor, revision: 2));
+                    Assert.IsNotNull(successor);
+                    using (successor)
+                    {
+                        Assert.IsTrue(successor.ExecuteDetailedProfiled(aheadSource, out var fallback));
+                        Assert.AreEqual(0UL, fallback.ReuseSourceGeneration);
+                        Assert.IsFalse(fallback.Bricks.ToArray().Any(brick => brick.Reused));
+                        Assert.IsFalse(fallback.Meshes.ToArray().Any(mesh => mesh.Reused));
+                        VolumeReuseAssertions.SameGeometry(profile, fallback);
+                    }
+                }
+            }
             using var published = run.Coordinator.TryRead();
             Assert.IsNotNull(published);
             Assert.AreEqual(edit.Generation, published.Info.Generation);
