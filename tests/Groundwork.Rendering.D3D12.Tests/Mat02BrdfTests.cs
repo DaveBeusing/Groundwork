@@ -82,6 +82,10 @@ public sealed partial class PresentationSmokeTests
             Check(emissive, sunlight, Vector3.Zero, "emissive and numeric texture fallback");
             Check(emissive, default, Vector3.Zero, "emissive without sunlight");
             Check(emissive, sunlight, Vector3.Zero, "shadow-compatible root layout", shadow: true);
+            var fogColor = new Vector3(0.25f, 0.56f, 0.83f);
+            var brightEmissive = new PbrMaterialDescriptor(Vector3.Zero, 0, 0.65f, 1, new Vector3(1e8f), 1);
+            var fogged = Read(brightEmissive, default, Vector3.Zero, fog: new RenderFog(fogColor, 0, 2, 1));
+            AssertColor(fogged, fogColor, 255, "fully opaque fog over bright emission");
             CollectionAssert.AreEqual(legacy, Read(null, sunlight, Vector3.Zero), "Disabling PBR restores all legacy channels.");
 
             VerifyExistingTextureRoute();
@@ -94,7 +98,8 @@ public sealed partial class PresentationSmokeTests
         PbrMaterialDescriptor Material(float roughness, float metal = 0, float ao = 1) =>
             new(baseColor, metal, roughness, ao, Vector3.Zero, 1);
 
-        byte[] Read(PbrMaterialDescriptor? material, RenderSunlight light, Vector3 eye, bool shadow = false)
+        byte[] Read(PbrMaterialDescriptor? material, RenderSunlight light, Vector3 eye, bool shadow = false,
+            RenderFog? fog = null)
         {
             var frame = new RenderFrame(1, Vector4.Zero, scene with
             {
@@ -102,6 +107,7 @@ public sealed partial class PresentationSmokeTests
                 Sunlight = light == default ? null : light,
                 TerrainMaterial = material,
                 ShadowOrigin = shadow ? new(0, 0, 0) : null,
+                Fog = fog,
             });
             Assert.IsTrue(frame.IsValid);
             var pixels = GpuDevice.RenderOffscreen(gpu, size, size, frame);

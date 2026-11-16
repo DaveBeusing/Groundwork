@@ -12,7 +12,17 @@ public sealed partial class PresentationSmokeTests
     [TestCategory("WindowsDesktopSmoke")]
     [DataRow(true)]
     [DataRow(false)]
-    public async Task Mat02MaterialChangeRetainsMeshAndFirstEditPresentUsesCommittedGeneration(bool warp)
+    public async Task Mat02MaterialChangeRetainsMeshAndFirstEditPresentUsesCommittedGeneration(bool warp) =>
+        await VerifyMat02Volume(warp, failPipelineCreation: false);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task Mat02PipelineAllocationFailurePresentsProtectedTerrainWithLegacyColor(bool warp) =>
+        await VerifyMat02Volume(warp, failPipelineCreation: true);
+
+    private static async Task VerifyMat02Volume(bool warp, bool failPipelineCreation)
     {
         using var deadline = new CancellationTokenSource(TimeSpan.FromSeconds(50));
         var token = deadline.Token;
@@ -26,9 +36,16 @@ public sealed partial class PresentationSmokeTests
             .Select(_ => new TaskCompletionSource<(ulong Generation, OffscreenFrame Pixels)>(
                 TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
         var packedVertices = 0;
+        var pbrAttempts = 0;
+        var hooks = failPipelineCreation ? new GpuRetirementTestHooks(PbrPipelineCreationFailure: shadows =>
+        {
+            Assert.IsFalse(shadows);
+            Interlocked.Increment(ref pbrAttempts);
+            return unchecked((int)0x8007000E);
+        }) : null;
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
             QualificationDiagnostics with { EnableResourceSnapshots = true }, warp, TimeSpan.FromSeconds(15),
-            null, null, (position, material) =>
+            null, hooks, (position, material) =>
             {
                 Interlocked.Increment(ref packedVertices);
                 return TestVolumeColor(position, material);
@@ -59,7 +76,7 @@ public sealed partial class PresentationSmokeTests
             var x = status.AppliedWidth / 2;
             var y = status.AppliedHeight / 2;
             Assert.IsLessThan(1f, before.DepthAt(x, y));
-            AssertColor(before.ColorAt(x, y), red, 255, "original material");
+            AssertTerrainColor(before, red, "original material");
 
             var root = run.World.Publication.Committed.Read().Root;
             var vertices = Volatile.Read(ref packedVertices);
@@ -72,7 +89,7 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(RenderSubmissionResult.Accepted,
                 renderer.TrySubmitVolumeCamera(generation, 3, camera with { TerrainMaterial = Emissive(green) }));
             var appearance = await Read(3, generation);
-            AssertColor(appearance.ColorAt(x, y), green, 255, "material-only frame");
+            AssertTerrainColor(appearance, green, "material-only frame");
             Assert.AreEqual(before.DepthAt(x, y), appearance.DepthAt(x, y));
             Assert.AreEqual(vertices, Volatile.Read(ref packedVertices), "A material-only frame must reuse the packed mesh.");
             Assert.AreEqual(baseline, TerrainBalance(3), "No new native terrain upload or release.");
@@ -100,7 +117,21 @@ public sealed partial class PresentationSmokeTests
             var after = await Read(5, edited.Info.Generation);
             Assert.IsLessThan(1f, after.DepthAt(x, y));
             Assert.IsGreaterThan(before.DepthAt(x, y), after.DepthAt(x, y));
-            AssertColor(after.ColorAt(x, y), blue, 255, "first present of edited terrain");
+            AssertTerrainColor(after, blue, "first present of edited terrain");
+            Assert.AreEqual(failPipelineCreation ? 1 : 0, Volatile.Read(ref pbrAttempts));
+
+            void AssertTerrainColor(OffscreenFrame frame, Vector3 emissive, string name)
+            {
+                var pixel = frame.ColorAt(x, y);
+                if (failPipelineCreation)
+                {
+                    Assert.AreEqual((byte)0xcc, pixel[0], name);
+                    Assert.AreEqual((byte)255, pixel[3], name);
+                    return;
+                }
+
+                AssertColor(pixel, emissive, 255, name);
+            }
 
             await renderer.StopAsync(token);
             var diagnostics = renderer.ReadDiagnostics();

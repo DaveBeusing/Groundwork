@@ -206,7 +206,9 @@ float4 ShadeTerrainPbr(VertexOutput input, float shadow)
     if (FogColorOpacity.a > 0)
     {
         float amount = FogColorOpacity.a * saturate((input.ViewDepth * FogDepth.z - FogDepth.x) * FogDepth.y);
-        color = lerp(color, FogColorOpacity.rgb, amount);
+        // Preserve the fog endpoint even when linear emissive radiance dwarfs the fog color.
+        precise float3 blended = color * (1 - amount) + FogColorOpacity.rgb * amount;
+        color = blended;
     }
     return float4(color, 1);
 }

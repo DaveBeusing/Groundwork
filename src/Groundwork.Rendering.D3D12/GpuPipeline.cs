@@ -16,11 +16,14 @@ internal sealed unsafe partial class GpuDevice
     private const uint ShadowConstantCount = 20;
     // The shadow descriptor table takes the 64th DWORD of the PBR shadow root signature.
     private const uint PbrConstantCount = FrameConstantCount + ShadowConstantCount + 3;
+    private const int PipelineOutOfMemory = unchecked((int)0x8007000E);
     private ID3D12PipelineState* _normalPipeline;
     private ID3D12RootSignature* _pbrRoot;
     private ID3D12RootSignature* _pbrShadowRoot;
     private ID3D12PipelineState* _pbrPipeline;
     private ID3D12PipelineState* _pbrShadowPipeline;
+    private bool _pbrUnavailable;
+    private bool _pbrShadowUnavailable;
 
     private void CreatePipeline()
     {
@@ -29,22 +32,44 @@ internal sealed unsafe partial class GpuDevice
         _normalPipeline = CreateFramePipeline(_root, sky: false, normals: true);
     }
 
-    private void EnsurePbrPipeline(bool shadows)
+    private bool TryPrepareTerrainPbr(RenderScene? scene, bool shadows)
     {
-        if (shadows)
+        if (scene?.TerrainMaterial is null || ActiveMeshGeometry is not { HasPackedNormals: true } ||
+            FindTexture(_frameTexture) is not null)
+            return false;
+        return shadows
+            ? TryPreparePbrVariant(shadows, ref _pbrShadowRoot, ref _pbrShadowPipeline, ref _pbrShadowUnavailable)
+            : TryPreparePbrVariant(shadows, ref _pbrRoot, ref _pbrPipeline, ref _pbrUnavailable);
+    }
+
+    private bool TryPreparePbrVariant(bool shadows, ref ID3D12RootSignature* root, ref ID3D12PipelineState* pipeline,
+        ref bool unavailable)
+    {
+        if (pipeline != null)
+            return true;
+        if (unavailable)
+            return false;
+
+        ID3D12RootSignature* preparedRoot = null;
+        try
         {
-            if (_pbrShadowRoot == null)
-                _pbrShadowRoot = CreateFrameRoot(PbrConstantCount, shadow: true);
-            if (_pbrShadowPipeline == null)
-                _pbrShadowPipeline = CreateFramePipeline(_pbrShadowRoot, sky: false, normals: true,
-                    shadow: true, terrainPbr: true);
+            preparedRoot = CreateFrameRoot(PbrConstantCount, shadow: shadows);
+            Check(_retirementHooks?.PbrPipelineCreationFailure?.Invoke(shadows) ?? 0, "Prepare terrain PBR pipeline");
+            pipeline = CreateFramePipeline(preparedRoot, sky: false, normals: true, shadow: shadows, terrainPbr: true);
+            root = preparedRoot;
+            preparedRoot = null;
+            return true;
         }
-        else
+        catch (GpuNativeException error) when (error.HResult == PipelineOutOfMemory && !IsRemoved)
         {
-            if (_pbrRoot == null)
-                _pbrRoot = CreateFrameRoot(PbrConstantCount);
-            if (_pbrPipeline == null)
-                _pbrPipeline = CreateFramePipeline(_pbrRoot, sky: false, normals: true, terrainPbr: true);
+            // This optional appearance can fall back without consuming a terrain retry. Cache the
+            // failed variant for this device owner so later material-only frames do not retry it.
+            unavailable = true;
+            return false;
+        }
+        finally
+        {
+            Release(preparedRoot);
         }
     }
 
@@ -134,8 +159,11 @@ internal sealed unsafe partial class GpuDevice
             Check(SerializeRootSignature(&rootDescription, D3D_ROOT_SIGNATURE_VERSION.D3D_ROOT_SIGNATURE_VERSION_1,
                 &rootBlob, &error), "Serialize root signature");
             ID3D12RootSignature* root = null;
-            Check(_device->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(),
-                __uuidof<ID3D12RootSignature>(), (void**)&root), "Create root signature");
+            var created = _device->CreateRootSignature(0, rootBlob->GetBufferPointer(), rootBlob->GetBufferSize(),
+                __uuidof<ID3D12RootSignature>(), (void**)&root);
+            if (created.Value < 0)
+                Release(root);
+            Check(created, "Create root signature");
             return root;
         }
         finally
@@ -216,8 +244,11 @@ internal sealed unsafe partial class GpuDevice
                 RenderTargetWriteMask = (byte)D3D12_COLOR_WRITE_ENABLE.D3D12_COLOR_WRITE_ENABLE_ALL,
             };
             ID3D12PipelineState* pipeline = null;
-            Check(_device->CreateGraphicsPipelineState(&description,
-                __uuidof<ID3D12PipelineState>(), (void**)&pipeline), "Create graphics pipeline");
+            var created = _device->CreateGraphicsPipelineState(&description,
+                __uuidof<ID3D12PipelineState>(), (void**)&pipeline);
+            if (created.Value < 0)
+                Release(pipeline);
+            Check(created, "Create graphics pipeline");
             return pipeline;
         }
     }
@@ -268,7 +299,7 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
-        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan)
+        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan, bool terrainPbr)
     {
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
@@ -299,7 +330,7 @@ internal sealed unsafe partial class GpuDevice
                 if (!frame.Sky.HasValue)
                     BindFrameTargets(commands, target, rtv, dsv);
                 _terrainTiming?.Begin(commands);
-                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants);
+                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr);
                 _terrainTiming?.End(commands);
             }
             else if (pass.Id == GpuPassPlan.Props)
@@ -333,8 +364,8 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void RecordTerrain(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
-        in ShadowConstants shadows) => Draw(commands, target, scene, shadows, FindTexture(_frameTexture),
-        scene.TerrainMaterial);
+        in ShadowConstants shadows, bool terrainPbr) => Draw(commands, target, scene, shadows,
+        FindTexture(_frameTexture), terrainPbr ? scene.TerrainMaterial : null);
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
         ShadowConstants shadows = default, TextureEntry? texture = null, PbrMaterialDescriptor? material = null)
@@ -424,7 +455,6 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12PipelineState* BindTerrainPbr(ID3D12GraphicsCommandList* commands, in Matrix4x4 view,
         in DrawConstants lighting, in ShadowConstants shadows, PbrMaterialDescriptor material)
     {
-        EnsurePbrPipeline(shadows.Enabled);
         commands->SetGraphicsRootSignature(shadows.Enabled ? _pbrShadowRoot : _pbrRoot);
         if (shadows.Enabled)
         {

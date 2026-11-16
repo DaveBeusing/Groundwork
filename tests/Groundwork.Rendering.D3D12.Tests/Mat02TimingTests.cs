@@ -15,7 +15,7 @@ public sealed partial class PresentationSmokeTests
     public void Mat02PairedTerrainTimings(bool warp)
     {
         if (Environment.GetEnvironmentVariable("GROUNDWORK_MAT02_MEASURE") != "1")
-            return;
+            Assert.Inconclusive("Set GROUNDWORK_MAT02_MEASURE=1 to collect the paired timing samples.");
 
         const int width = 1920;
         const int height = 1080;

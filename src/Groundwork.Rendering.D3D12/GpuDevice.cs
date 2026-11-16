@@ -223,6 +223,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (GetPassPlan(shape) is not { } plan)
             return GpuFrameSubmitResult.Rejected;
 
+        var terrainPbr = TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
         var submitted = false;
         D3D12PropCells? deferredProps = null;
         try
@@ -231,7 +232,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 Check(context.Allocator->Reset(), "Reset allocator");
                 Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
-                Record(context.Commands, target, frame, subsequent, readback, shadows, plan);
+                Record(context.Commands, target, frame, subsequent, readback, shadows, plan, terrainPbr);
                 Check(context.Commands->Close(), "Close command list");
                 if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
                     return GpuFrameSubmitResult.Rejected;
