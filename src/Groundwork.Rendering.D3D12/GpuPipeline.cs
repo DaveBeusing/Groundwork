@@ -292,22 +292,7 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void RecordTerrain(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
-        in ShadowConstants shadows)
-    {
-        commands->SetPipelineState(_pipeline);
-        commands->SetGraphicsRootSignature(_root);
-        if (ActiveMeshGeometry is null)
-        {
-            var vertices = new D3D12_VERTEX_BUFFER_VIEW
-            {
-                BufferLocation = _cubeGeometry->GetGPUVirtualAddress(),
-                SizeInBytes = VertexCount * VertexStride,
-                StrideInBytes = VertexStride,
-            };
-            commands->IASetVertexBuffers(0, 1, &vertices);
-        }
-        Draw(commands, target, scene, shadows, FindTexture(_frameTexture));
-    }
+        in ShadowConstants shadows) => Draw(commands, target, scene, shadows, FindTexture(_frameTexture));
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
         ShadowConstants shadows = default, TextureEntry? texture = null)
@@ -364,8 +349,14 @@ internal sealed unsafe partial class GpuDevice
         }
         else
         {
-            if (texture is not null)
-                commands->SetPipelineState(_texturePipeline);
+            var vertices = new D3D12_VERTEX_BUFFER_VIEW
+            {
+                BufferLocation = _cubeGeometry->GetGPUVirtualAddress(),
+                SizeInBytes = VertexCount * VertexStride,
+                StrideInBytes = VertexStride,
+            };
+            commands->IASetVertexBuffers(0, 1, &vertices);
+            commands->SetPipelineState(texture is null ? _pipeline : _texturePipeline);
             commands->DrawInstanced(VertexCount, 1, 0, 0);
         }
         if (_resourceDiagnostics is not null)

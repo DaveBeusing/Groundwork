@@ -277,6 +277,16 @@ public sealed unsafe class GpuTextureTests
         AssertCenter(gpu, 2, 128, 64, 0);
         var warm = gpu.TextureStatistics.UploadedBytes;
         AssertCenter(gpu, 3, 128, 64, 0);
+        var farther = new RenderFrame(4, Vector4.Zero, Scene);
+        var nearer = Scene with
+        {
+            World = Matrix4x4.CreateTranslation(0, 0, -2),
+            Tint = new(0, 1, 0, 1)
+        };
+        var textured = GpuDevice.RenderOffscreen(gpu, 64, 64, farther);
+        var followOn = GpuDevice.RenderOffscreen(gpu, 64, 64, farther, nearer);
+        Assert.IsTrue(followOn.ColorAt(32, 32).SequenceEqual(new byte[] { 0, 255, 0, 255 }));
+        Assert.IsLessThan(textured.DepthAt(32, 32), followOn.DepthAt(32, 32));
         Assert.AreEqual(warm, gpu.TextureStatistics.UploadedBytes);
 
         var srgb = Rgba(3, 2, TextureColorSpace.Srgb, 128, 64, 0);
