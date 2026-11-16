@@ -238,7 +238,8 @@ public sealed class D3D12TextureHandoff
     /// <summary>Evaluate demand and reserve a worker for the selected tier, if one is needed.</summary>
     /// <remarks>Start at the coarse tier and refine only after the first resident mip. Distances in the
     /// hysteresis band retain the previous request. A source or native preparation failure is retryable
-    /// after demand changes. Quota denial can be retried after the corresponding credit settles.</remarks>
+    /// after demand changes. Quota denial keeps the eligible resident mip available and can be
+    /// retried after the corresponding credit settles.</remarks>
     public D3D12TextureResult TryRequestTier(D3D12TextureView view, D3D12TextureTarget target,
         D3D12TextureMipPolicy policy, double distance, D3D12TextureReservation fine, D3D12TextureReservation coarse,
         out D3D12TextureTicket ticket)
@@ -249,8 +250,6 @@ public sealed class D3D12TextureHandoff
         if (!policy.IsValid || !double.IsFinite(distance) || distance < 0 || !fine.IsValid || !coarse.IsValid)
             return D3D12TextureResult.Invalid;
 
-        Action? wake = null;
-        D3D12TextureResult result;
         lock (Gate)
         {
             if (Closed)
@@ -286,18 +285,10 @@ public sealed class D3D12TextureHandoff
             if (demand.Failed)
                 return D3D12TextureResult.Unavailable;
             var reservation = requestedMip == policy.FineMip ? fine : coarse;
-            result = Reserve(view, target, requestedMip, reservation, out ticket);
-            if (result == D3D12TextureResult.Quota && resident >= 0 && _entries[resident].SourceMip < requestedMip &&
-                FitsAfterRetirement(in _entries[resident], reservation))
-            {
-                // A demotion that cannot overlap drops to the allocated fallback. Credit remains
-                // with the predecessor until its allocation and descriptor physically retire.
-                Invalidate(ref _entries[resident]);
-                wake = _wake;
-            }
+            // The requested index may resolve to this same physical tier on the adapter.
+            // Keep the resident drawable when there is no credit to prepare a replacement.
+            return Reserve(view, target, requestedMip, reservation, out ticket);
         }
-        wake?.Invoke();
-        return result;
     }
 
     public bool TryReadResidency(D3D12TextureView view, D3D12TextureTarget target, out D3D12TextureResidency residency)
@@ -375,13 +366,6 @@ public sealed class D3D12TextureHandoff
         reservation.PayloadBytes <= _limits.PayloadBytes - used.PayloadBytes &&
         reservation.StagingBytes <= _limits.StagingBytes - used.StagingBytes &&
         reservation.NativeBytes <= _limits.NativeBytes - used.NativeBytes;
-
-    private bool FitsAfterRetirement(in Entry predecessor, D3D12TextureReservation reservation)
-    {
-        var used = CountUsage();
-        return Fits(used with { Descriptors = used.Descriptors - 1, NativeBytes = used.NativeBytes - predecessor.Reservation.NativeBytes },
-            reservation);
-    }
 
     /// <summary>Transfer a validated cooked payload after the worker has drained its source and scratch storage.</summary>
     /// <remarks>A stale or incompatible completion settles its worker credit without enqueuing an upload.</remarks>

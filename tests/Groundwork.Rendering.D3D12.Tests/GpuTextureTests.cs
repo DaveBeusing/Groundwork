@@ -1,6 +1,7 @@
 using System.Buffers.Binary;
 using System.Diagnostics;
 using System.Numerics;
+using Groundwork.Rendering.Materials;
 using Groundwork.Rendering.Passes;
 using Groundwork.Rendering.Textures;
 using Groundwork.Voxels;
@@ -90,7 +91,7 @@ public sealed unsafe class GpuTextureTests
             BinaryPrimitives.WriteUInt16LittleEndian(blocks.AsSpan(32), 0x07e0);
             BinaryPrimitives.WriteUInt16LittleEndian(blocks.AsSpan(40), 0x001f);
             Assert.AreEqual(TextureCookError.None, TextureCooker.CookBc1(blocks, 8, 8,
-                new(TextureColorSpace.Linear, TextureSemantic.Color, 4), Limits, out var bc1));
+                new(TextureColorSpace.Srgb, TextureSemantic.Color, 4), Limits, out var bc1));
             Assert.IsNotNull(bc1);
             Assert.IsFalse(gpu.TryGetTextureRequirements(bc1, 2, out _));
             Assert.IsTrue(gpu.TryGetTextureRequirements(bc1, 1, out var legal));
@@ -117,6 +118,32 @@ public sealed unsafe class GpuTextureTests
             Assert.IsTrue(gpu.TryReleaseTexture(bc1Predecessor));
             Assert.IsTrue(gpu.SetFrameTexture(bc1Binding, 1));
             AssertCenter(gpu, 4, 0, 255, 0);
+
+            // The coarser logical request resolves to the same physical tier on this adapter.
+            var view = new D3D12TextureView(new Guid("69d64fe4-e581-4cb8-846c-38e543a103cb"),
+                new(1, 1, PlanetLocalFrame.Create(default)), 1, 1);
+            var target = new D3D12TextureTarget(new(1, MaterialTextureSemantic.BaseColor), 1,
+                new(MaterialTextureSemantic.BaseColor, bc1.AssetId));
+            var oneDescriptor = new D3D12TextureHandoff(new(1, 1, credit.SourceBytes, 1, credit.PayloadBytes,
+                credit.StagingBytes, credit.NativeBytes, 1));
+            Assert.IsTrue(oneDescriptor.Publish(view, 1, [target]));
+            Assert.AreEqual(D3D12TextureResult.Accepted, oneDescriptor.TryRequest(view, target, credit, out var resident));
+            Assert.AreEqual(D3D12TextureResult.Accepted, oneDescriptor.TryComplete(resident, bc1));
+            Assert.IsTrue(oneDescriptor.TryTake(view, out var transfer));
+            Assert.AreEqual(resident, transfer.Ticket);
+            Assert.IsTrue(oneDescriptor.MarkCopySubmitted(resident, selected));
+            Assert.IsTrue(oneDescriptor.TryInstall(resident, view, out _));
+            var trafficBefore = gpu.TextureStatistics.UploadedBytes;
+            Assert.AreEqual(D3D12TextureResult.Quota,
+                oneDescriptor.TryRequestTier(view, target, new(1, 2, 10, 20), 25, credit, credit, out _));
+            Assert.IsTrue(oneDescriptor.TryGetDrawableResident(view, out var kept));
+            Assert.AreEqual(resident, kept);
+            Assert.IsFalse(oneDescriptor.HasReady(view));
+            Assert.IsTrue(oneDescriptor.TryReadResidency(view, target, out var residency));
+            Assert.AreEqual(new D3D12TextureResidency(2, selected.SourceMip, selected.TextureAllocationBytes), residency);
+            AssertCenter(gpu, 5, 0, 255, 0);
+            Assert.AreEqual(trafficBefore, gpu.TextureStatistics.UploadedBytes);
+
             Assert.IsTrue(gpu.TryReleaseTexture(bc1Binding));
             Assert.AreEqual(0L, gpu.TextureStatistics.NativeBytes);
             Assert.AreEqual(0L, gpu.TextureStatistics.StagingBytes);

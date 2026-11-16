@@ -63,7 +63,7 @@ public sealed class TextureStreamTests
     }
 
     [TestMethod]
-    public void DemotionOverCapUsesFallbackAndRetriesOnlyWithSettledCreditOrNewDemand()
+    public void TierChangeOverCapRetainsAdmissibleResidentAndRetriesAfterCreditSettles()
     {
         var view = View();
         var fine = Credit with { NativeBytes = 131_072 };
@@ -79,12 +79,14 @@ public sealed class TextureStreamTests
         var wakes = 0;
         stream.BindOwner(view.World, () => wakes++);
         Assert.AreEqual(D3D12TextureResult.Quota, Demand(21, out _));
-        Assert.AreEqual(1, wakes);
-        Assert.IsTrue(stream.TryReadResidency(view, target, out var fallback));
-        Assert.AreEqual(new D3D12TextureResidency(2, null, 0), fallback);
+        Assert.AreEqual(0, wakes);
+        Assert.IsTrue(stream.TryReadResidency(view, target, out var fineResidency));
+        Assert.AreEqual(new D3D12TextureResidency(2, 0, fine.NativeBytes), fineResidency);
+        Assert.IsTrue(stream.TryGetDrawableResident(view, out var drawable));
+        Assert.AreEqual(predecessor, drawable);
         Assert.AreEqual(fine.NativeBytes, stream.ReadUsage().NativeBytes);
         Assert.AreEqual(D3D12TextureResult.Quota, Demand(21, out _));
-        Assert.AreEqual(1, wakes);
+        Assert.AreEqual(0, wakes);
         Assert.IsTrue(stream.Release(predecessor));
         Assert.AreEqual(D3D12TextureResult.Accepted, Demand(21, out var missing));
         Assert.IsTrue(stream.CompleteWorker(missing));
