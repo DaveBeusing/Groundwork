@@ -61,7 +61,8 @@ public sealed partial class D3D12Renderer
 
             gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
                 retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null),
-                session: _deviceSession);
+                session: _deviceSession, resourceDiagnostics: _resourceDiagnostics);
+            Volatile.Write(ref _observedGpu, gpu);
             gpu.PropStream = _props;
             if (_textures is { } textures)
                 _textureOwner = new(textures, gpu);
@@ -92,9 +93,10 @@ public sealed partial class D3D12Renderer
             // A revoked HWND can invalidate an operation between the grant and handle access.
             var destroyed = target?.Revoked.IsCompletedSuccessfully == true &&
                 target.Revoked.Result == PresentationTargetRevocation.NativeDestroyed;
+            var removed = gpu?.RemovedReason;
+            ObserveTerminalGpuCustody(gpu, removed);
             if ((!Stopping && _meshRuntimeFence is not { IsOpen: false }) || destroyed)
             {
-                var removed = gpu?.RemovedReason;
                 Fail(stage, error, removed < 0 ? removed : null, frameSequence);
             }
             else
@@ -476,7 +478,10 @@ public sealed partial class D3D12Renderer
 
             // Stop has already closed admission. Keep the device and lifetime lease during diagnostics.
             if (gpu?.CaptureDred() is { } removal)
+            {
+                ObserveTerminalGpuCustody(gpu, removal.Reason);
                 Volatile.Write(ref _diagnostics, _diagnostics with { DeviceRemoval = removal });
+            }
 
             watchdog.Dispose();
             chain?.Dispose();
@@ -488,6 +493,7 @@ public sealed partial class D3D12Renderer
                 PublishTextureDiagnostics(gpu);
             _textureOwner = null;
             ReleaseVolumeCustody();
+            Volatile.Write(ref _observedGpu, null);
             if (gpu?.FinalDebugSummary is { } debugMessages)
                 Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
             lifetime?.Dispose();

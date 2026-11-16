@@ -30,15 +30,19 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private readonly D3D12_HEAP_TYPE _meshUploadHeap;
     private GpuRetirement _retirement;
     private readonly GpuRetirementTestHooks? _retirementHooks;
+    private readonly ResourceDiagnostics? _resourceDiagnostics;
+    private volatile bool _observedFenceSentinel;
     private D3D12DeviceSession? _session;
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
-        GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null, D3D12DeviceSession? session = null)
+        GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null, D3D12DeviceSession? session = null,
+        ResourceDiagnostics? resourceDiagnostics = null)
     {
         if (meshes is not null && region is not null)
             throw new ArgumentException("Only one initial mesh set may be supplied.", nameof(region));
 
         _retirementHooks = retirementHooks;
+        _resourceDiagnostics = resourceDiagnostics;
         try
         {
             fixed (IDXGIFactory4** factory = &_factory)
@@ -121,14 +125,18 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     private ulong ReadCompletedValue()
     {
         var completed = _fence->GetCompletedValue();
-        if (_retirementHooks?.CompletedValue is not { } observe)
-            return completed;
-
-        // A test may hide completion or inject the sentinel, but it cannot
-        // fabricate successful retirement or hide an actual removal sentinel.
-        var observed = observe(this, completed);
-        return completed == ulong.MaxValue || observed == ulong.MaxValue
-            ? ulong.MaxValue : Math.Min(completed, observed);
+        if (_retirementHooks?.CompletedValue is { } observe)
+        {
+            // A test may hide completion or inject the sentinel, but it cannot
+            // fabricate successful retirement or hide an actual removal sentinel.
+            var observed = observe(this, completed);
+            completed = completed == ulong.MaxValue || observed == ulong.MaxValue
+                ? ulong.MaxValue : Math.Min(completed, observed);
+        }
+        if (completed == ulong.MaxValue)
+            _observedFenceSentinel = true;
+        _resourceDiagnostics?.Complete(completed);
+        return completed;
     }
 
     internal GpuTarget Attach(ID3D12Resource* backBuffer, int width, int height)
@@ -139,7 +147,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             if (!IsIdle)
                 throw new InvalidOperationException("Cannot replace depth while GPU work is outstanding.");
 
-            Release(_depth);
+            ReleaseObservedResource(_depth);
             _depth = null;
             _depthWidth = 0;
             _depthHeight = 0;
@@ -148,6 +156,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             _depth = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT,
                 Texture(width, height, DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
+            ObserveResource(_depth, D3D12ResourceOwner.Depth);
             _device->CreateDepthStencilView(_depth, null, _depthHeap->GetCPUDescriptorHandleForHeapStart());
             _depthWidth = width;
             _depthHeight = height;
@@ -246,8 +255,11 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             textureGate = null;
                             var commands = (ID3D12CommandList*)context.Commands;
                             var next = BeginQueueWork();
+                            _resourceDiagnostics?.BeginDraw(frame.Sequence, next);
+                            _retirementHooks?.BeforeExecute?.Invoke(frame.Sequence);
                             _queue->ExecuteCommandLists(1, &commands);
                             Check(SignalQueueWork(next), "Signal queue");
+                            _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;
                             _nextFrame = (_nextFrame + 1) % _frames.Length;
                             PublishRecordedProps(deferredProps);
@@ -321,6 +333,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     {
         if (_fence != null && !IsIdle && !IsRemoved)
             throw new InvalidOperationException("GPU resources are still owned by an unretired submission.");
+        if (_resourceDiagnostics is not null && IsRemoved)
+            _resourceDiagnostics.NoteCustody(D3D12CustodyStatus.ConfirmedRemoval);
         ReleaseResources();
     }
 
@@ -400,11 +414,11 @@ internal sealed unsafe partial class GpuDevice : IDisposable
     {
         foreach (var frame in _frames)
             frame.Dispose();
-        Release(_depth);
+        ReleaseObservedResource(_depth);
         Release(_depthHeap);
         ActiveMeshGeometry?.Dispose();
         ActiveMeshGeometry = null;
-        Release(_cubeGeometry);
+        ReleaseObservedResource(_cubeGeometry);
         Release(_skyPipeline);
         Release(_skyRoot);
         _skyPipeline = null;
@@ -490,6 +504,7 @@ internal sealed unsafe class GpuTarget : IDisposable
         _heap = CreateHeap(owner.Device, D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
         owner.Device->CreateRenderTargetView(buffer, null, Rtv);
         _buffer = buffer;
+        owner.ObserveResource(buffer, D3D12ResourceOwner.Presentation);
         Width = width;
         Height = height;
     }
@@ -500,7 +515,7 @@ internal sealed unsafe class GpuTarget : IDisposable
     public void Dispose()
     {
         Release(_heap);
-        Release(_buffer);
+        _owner.ReleaseObservedResource(_buffer);
         _heap = null;
         _buffer = null;
     }

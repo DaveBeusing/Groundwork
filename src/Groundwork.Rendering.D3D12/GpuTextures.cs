@@ -156,11 +156,13 @@ internal sealed unsafe partial class GpuDevice
                 context = EnsureTextureCopyContext();
                 staging = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_UPLOAD, Buffer((ulong)actual.StagingBytes),
                     D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_GENERIC_READ);
+                ObserveResource(staging, D3D12ResourceOwner.TextureStaging, (ulong)actual.StagingAllocationBytes);
                 ObserveTextureAllocationPeak(actual.StagingAllocationBytes);
                 Check(TexturePreparationFailureForTests?.Invoke(GpuTexturePreparationStep.Destination) ?? 0,
                     "Prepare texture destination");
                 destination = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, description,
                     D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
+                ObserveResource(destination, D3D12ResourceOwner.Texture, (ulong)actual.TextureAllocationBytes);
                 ObserveTextureAllocationPeak(actual.StagingAllocationBytes + actual.TextureAllocationBytes);
                 FillTextureUpload(staging, texture, footprint.Footprint.RowPitch, rows);
             }
@@ -178,6 +180,7 @@ internal sealed unsafe partial class GpuDevice
                 return false;
 
             var retire = BeginQueueWork();
+            _resourceDiagnostics?.BeginTextureCopy(retire, (nint)staging, (nint)destination);
             slots[slot] = entry;
             _pendingTextureSlot = slot;
             _textureStaging = staging;
@@ -189,6 +192,7 @@ internal sealed unsafe partial class GpuDevice
             var commands = (ID3D12CommandList*)context.Commands;
             _queue->ExecuteCommandLists(1, &commands);
             Check(SignalQueueWork(retire), "Signal texture copy");
+            _resourceDiagnostics?.SignalTextureCopy(retire);
             _textureCopyFence = retire;
             identity = candidate;
             return true;
@@ -197,8 +201,8 @@ internal sealed unsafe partial class GpuDevice
         {
             if (descriptorWritten && destination != null)
                 WriteTextureSrv(null, description.Format, (uint)slot + FirstTextureDescriptor);
-            Release(destination);
-            Release(staging);
+            ReleaseObservedResource(destination);
+            ReleaseObservedResource(staging);
         }
     }
 
@@ -296,7 +300,7 @@ internal sealed unsafe partial class GpuDevice
         var entry = _textureSlots![_pendingTextureSlot]!;
         identity = entry.Identity;
         entry.Ready = true;
-        Release(_textureStaging);
+        ReleaseObservedResource(_textureStaging);
         _textureStaging = null;
         _pendingTextureSlot = -1;
         _textureCopyFence = 0;
@@ -310,7 +314,7 @@ internal sealed unsafe partial class GpuDevice
             return false;
         // The shared queue includes all accepted draws and the distinct post-Present signal.
         WriteTextureSrv(null, DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM, (uint)identity.Slot + FirstTextureDescriptor);
-        Release(entry.Resource);
+        ReleaseObservedResource(entry.Resource);
         _textureSlots![identity.Slot] = null;
         TextureStatistics = TextureStatistics with { NativeBytes = TextureStatistics.NativeBytes - entry.AllocationBytes };
         if (_frameTexture == identity)
@@ -399,12 +403,12 @@ internal sealed unsafe partial class GpuDevice
     {
         _textureCopyContext?.Dispose();
         _textureCopyContext = null;
-        Release(_textureStaging);
+        ReleaseObservedResource(_textureStaging);
         _textureStaging = null;
         if (_textureSlots is { } slots)
             foreach (var slot in slots)
                 if (slot is not null)
-                    Release(slot.Resource);
+                    ReleaseObservedResource(slot.Resource);
         _textureSlots = null;
         _pendingTextureSlot = -1;
         _textureCopyFence = 0;

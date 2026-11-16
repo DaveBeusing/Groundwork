@@ -50,10 +50,20 @@ public sealed unsafe class GpuTextureTests
         var signals = 0;
         var hold = true;
         var sentinel = false;
+        var diagnostics = new ResourceDiagnostics();
+        D3D12ResourceSnapshot beforeSignal = default;
+        D3D12ResourceSnapshot beforeDraw = default;
         var hooks = new GpuRetirementTestHooks(
-            SignalFailure: (_, _) => { signals++; return null; },
-            CompletedValue: (_, value) => sentinel ? ulong.MaxValue : hold ? 0 : value);
-        using var gpu = new GpuDevice(warp: true, retirementHooks: hooks);
+            SignalFailure: (device, _) =>
+            {
+                signals++;
+                if (device.HasTextureCopy)
+                    Assert.IsTrue(diagnostics.TryRead(out beforeSignal));
+                return null;
+            },
+            CompletedValue: (_, value) => sentinel ? ulong.MaxValue : hold ? 0 : value,
+            BeforeExecute: _ => Assert.IsTrue(diagnostics.TryRead(out beforeDraw)));
+        using var gpu = new GpuDevice(warp: true, retirementHooks: hooks, resourceDiagnostics: diagnostics);
         var oversizedFootprint = Rgba(1, 8200, TextureColorSpace.Linear, 255, 0, 0);
         Assert.IsFalse(gpu.TryGetTextureRequirements(oversizedFootprint, out _));
         var texture = Rgba(3, 2, TextureColorSpace.Linear, 255, 0, 0);
@@ -66,9 +76,25 @@ public sealed unsafe class GpuTextureTests
         Assert.AreEqual(0, signals);
         Assert.AreEqual(new GpuTextureStatistics(0, 0,
             requirements.StagingAllocationBytes + requirements.TextureAllocationBytes, 0), gpu.TextureStatistics);
+        Assert.IsTrue(diagnostics.TryRead(out var aborted));
+        Assert.AreEqual(0UL, aborted.SubmittedFence);
+        Assert.AreEqual(1UL, aborted.GetBalance(D3D12ResourceOwner.Texture).Released);
+        Assert.AreEqual(1UL, aborted.GetBalance(D3D12ResourceOwner.TextureStaging).Released);
 
         Assert.IsTrue(gpu.TrySubmitTexture(texture, 2, requirements, out var submitted));
         Assert.AreEqual(1, signals);
+        Assert.AreEqual(1UL, beforeSignal.UnassignedFence);
+        Assert.AreEqual(0UL, beforeSignal.UnassignedFrameSequence);
+        Assert.AreEqual(0UL, beforeSignal.TextureCopyFence);
+        Assert.AreEqual((ulong)requirements.TextureAllocationBytes,
+            beforeSignal.GetBalance(D3D12ResourceOwner.Texture).RetainedBytes);
+        Assert.AreEqual((ulong)requirements.StagingAllocationBytes,
+            beforeSignal.GetBalance(D3D12ResourceOwner.TextureStaging).RetainedBytes);
+        Assert.IsTrue(diagnostics.TryRead(out var assigned));
+        Assert.AreEqual(1UL, assigned.TextureCopyFence);
+        Assert.AreEqual(assigned.TextureCopyFence, assigned.SubmittedFence);
+        Assert.AreEqual(0UL, assigned.CompletedFence);
+        Assert.AreEqual(0UL, assigned.DrawFence);
         Assert.AreEqual(requirements.StagingAllocationBytes, gpu.TextureStatistics.StagingBytes);
         Assert.AreEqual(requirements.TextureAllocationBytes, gpu.TextureStatistics.NativeBytes);
         Assert.AreEqual(requirements.StagingAllocationBytes + requirements.TextureAllocationBytes, gpu.TextureStatistics.NativePeakBytes);
@@ -85,6 +111,18 @@ public sealed unsafe class GpuTextureTests
         hold = false;
         Assert.AreEqual(submitted, AwaitTexture(gpu));
         Assert.AreEqual(0L, gpu.TextureStatistics.StagingBytes);
+        Assert.IsTrue(diagnostics.TryRead(out var retired));
+        Assert.AreEqual(retired.SubmittedFence, retired.CompletedFence);
+        Assert.AreEqual(2UL, retired.GetBalance(D3D12ResourceOwner.TextureStaging).Released);
+        Assert.AreEqual(1, retired.GetBalance(D3D12ResourceOwner.Texture).Live);
+        Assert.IsTrue(gpu.SetFrameTexture(submitted, 2));
+        AssertCenter(gpu, 2, 255, 0, 0);
+        Assert.AreEqual(1, beforeDraw.GetBalance(D3D12ResourceOwner.Texture).Retained);
+        Assert.IsTrue(diagnostics.TryRead(out var rendered));
+        Assert.AreEqual(1UL, rendered.TextureCopyFence);
+        Assert.AreEqual(2UL, rendered.DrawFence);
+        Assert.IsTrue(rendered.TryGetPass(GpuPassPlan.Terrain, out var terrain));
+        Assert.AreEqual(4, terrain.ResourceUses);
         Assert.IsTrue(gpu.TryReleaseTexture(submitted));
         Assert.AreEqual(0L, gpu.TextureStatistics.NativeBytes);
     }
@@ -165,7 +203,8 @@ public sealed unsafe class GpuTextureTests
     {
         const int signalFailure = unchecked((int)0x8007000E);
         var hooks = new GpuRetirementTestHooks(SignalFailure: (_, _) => signalFailure);
-        using var gpu = new GpuDevice(warp: true, enableDred: true, retirementHooks: hooks);
+        var diagnostics = new ResourceDiagnostics();
+        using var gpu = new GpuDevice(warp: true, enableDred: true, retirementHooks: hooks, resourceDiagnostics: diagnostics);
         var texture = Rgba(4, 4, TextureColorSpace.Linear, 128, 64, 0);
         Assert.IsTrue(gpu.TryGetTextureRequirements(texture, out var requirements));
         var failure = Assert.ThrowsExactly<GpuNativeException>(() => gpu.TrySubmitTexture(texture, 1, requirements, out _));
@@ -176,6 +215,12 @@ public sealed unsafe class GpuTextureTests
         Assert.IsFalse(gpu.TryRetireTextureCopy(out _));
         Assert.AreEqual(requirements.StagingAllocationBytes, gpu.TextureStatistics.StagingBytes);
         Assert.AreEqual(requirements.TextureAllocationBytes, gpu.TextureStatistics.NativeBytes);
+        Assert.IsTrue(diagnostics.TryRead(out var unassigned));
+        Assert.AreEqual(1UL, unassigned.UnassignedFence);
+        Assert.AreEqual(0UL, unassigned.SubmittedFence);
+        Assert.AreEqual(0UL, unassigned.TextureCopyFence);
+        Assert.AreEqual(1, unassigned.GetBalance(D3D12ResourceOwner.Texture).Retained);
+        Assert.AreEqual(1, unassigned.GetBalance(D3D12ResourceOwner.TextureStaging).Retained);
         Assert.ThrowsExactly<InvalidOperationException>(gpu.Dispose);
 
         ID3D12Device5* removable = null;
@@ -192,6 +237,9 @@ public sealed unsafe class GpuTextureTests
         gpu.Dispose();
         Assert.AreEqual(0L, gpu.TextureStatistics.StagingBytes);
         Assert.AreEqual(0L, gpu.TextureStatistics.NativeBytes);
+        Assert.IsTrue(diagnostics.TryRead(out var removed));
+        Assert.AreEqual(1UL, removed.GetBalance(D3D12ResourceOwner.Texture).Released);
+        Assert.AreEqual(1UL, removed.GetBalance(D3D12ResourceOwner.TextureStaging).Released);
     }
 
     [TestMethod]

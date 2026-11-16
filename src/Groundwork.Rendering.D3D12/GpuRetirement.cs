@@ -2,9 +2,10 @@ namespace Groundwork.Rendering.D3D12;
 
 internal struct GpuRetirement
 {
-    private bool _awaitingSignal;
+    private volatile bool _awaitingSignal;
 
     internal ulong Submitted { get; private set; }
+    internal bool AwaitingSignal => _awaitingSignal;
 
     internal bool CanReuse(ulong completed, ulong retirement)
         => !_awaitingSignal && completed != ulong.MaxValue && completed >= retirement;
