@@ -20,4 +20,10 @@ The 1920×1080 window tests export the initial numeric and textured near and orb
 dotnet test tests/Groundwork.Rendering.D3D12.Tests -c Release --no-build --filter 'FullyQualifiedName~Int01MixedVoxelMaterialsDrawAt1080p|FullyQualifiedName~OrbitAppearanceUsesTheAcceptedLeaseAndWaitsForProtectedFirstPresent|FullyQualifiedName~Int01SavedEditRestoresCanonicalGeometryAndTexturedPixels'
 ```
 
+The shared-window fixture presents near, orbit, near again, and a near view with an open trench in one 1920×1080 Win32 swap chain. It compares retired pixels at the shared rock and ore controls and checks the changed trench depth. The device, palette, and resident maps persist across all four Presents. The windowed fixture uses a standalone presentation lease. The near and orbit window tests above verify the respective production authority and admission paths.
+
+```powershell
+dotnet test tests/Groundwork.Rendering.D3D12.Tests -c Release --no-build --filter 'FullyQualifiedName~CanonicalWindowPresentsTheSameMixedMaterialsAcrossNearAndOrbit'
+```
+
 The BMP hashes identify a particular capture. The test tolerances govern pixel comparisons across drivers. The separate [1080p timing fixture](../../benchmarks/Int01Materials.md) records the measured cost of the legacy and textured paths.

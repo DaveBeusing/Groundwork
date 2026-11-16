@@ -140,7 +140,7 @@ public sealed class TerrainAppearanceGeometryTests
         }
     }
 
-    internal static PlanetVolumeMesh BuildVolume(SurfaceField field)
+    internal static PlanetVolumeMesh BuildVolume(SurfaceField field, ulong revision = 1)
     {
         const int bricks = 8;
         var store = new PlanetBrickStore(field, bricks * PlanetBrickStore.BrickPayloadBytes, bricks);
@@ -155,7 +155,7 @@ public sealed class TerrainAppearanceGeometryTests
                 Assert.IsNotNull(lease);
                 inputs[index] = new(lease, 1);
             }
-            var mesh = PlanetVolumeMesher.Build(inputs, 1, long.MaxValue);
+            var mesh = PlanetVolumeMesher.Build(inputs, revision, long.MaxValue);
             Assert.IsNotNull(mesh);
             return mesh;
         }
@@ -169,7 +169,7 @@ public sealed class TerrainAppearanceGeometryTests
     internal static PlanetDescriptor Descriptor(double radius) => new(new("551ffcb9-db29-40c3-8093-91929e4d65a2"),
         new("38b17c17-dacf-46ad-85db-4b5cad78c393"), 42, 1, 1, 1, new string('a', 64), radius);
 
-    internal sealed class SurfaceField(PlanetDescriptor descriptor, bool split = false) : IPlanetBrickSource
+    internal sealed class SurfaceField(PlanetDescriptor descriptor, bool split = false, bool openTrench = false) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => descriptor;
         public int Queries { get; private set; }
@@ -177,7 +177,8 @@ public sealed class TerrainAppearanceGeometryTests
         public long SampleDensity(LatticeCoordinate point)
         {
             Queries++;
-            return (point.Z - 8) * 256;
+            var surface = openTrench && point.X == 0 && Math.Abs(point.Y) <= 1 ? 4 : 8;
+            return (point.Z - surface) * 256;
         }
 
         public ushort SampleMaterial(LatticeCoordinate cell)
