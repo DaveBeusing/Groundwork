@@ -70,6 +70,13 @@ public sealed partial class D3D12Renderer
         bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null) =>
         new(window, ownership, terrain, rendererEpoch, diagnostics, useWarp, startupTimeout, operationTimeout, null);
 
+    /// <summary>Creates a volume renderer that packs canonical material IDs and triplanar coordinates within the existing geometry credits.</summary>
+    /// <remarks>Attach a texture handoff before startup to publish a terrain palette for the active view.</remarks>
+    public static D3D12Renderer CreateWithTexturedVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
+        VolumeStreamingCoordinator terrain, ulong rendererEpoch, D3D12DiagnosticsOptions diagnostics = default,
+        bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null) =>
+        new(window, ownership, terrain, rendererEpoch, diagnostics, useWarp, startupTimeout, operationTimeout, null, includeTerrainAppearance: true);
+
     /// <summary>Creates a volume renderer with a fixed terrain color policy.</summary>
     public static D3D12Renderer CreateWithColoredVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
         VolumeStreamingCoordinator terrain, ulong rendererEpoch, VolumeTerrainColorEvaluator colorEvaluator,
@@ -581,9 +588,13 @@ public sealed partial class D3D12Renderer
         lock (_volumeGate)
         {
             if (frame != appearance.Submission.View.Frame || _textureFrameTicket != appearance.TextureTicket ||
+                !ReferenceEquals(_textureFrameMaterials, appearance.Materials) ||
                 CurrentAcknowledgedAppearanceView(appearance.Submission.LatestTakenSequence) != appearance.Submission.View ||
                 CurrentTextureView() != appearance.TextureView)
                 return false;
+
+            if (appearance.Materials is not null)
+                return RecordedTextureIsCurrent();
 
             return _textures.TryGetDrawableResident(appearance.TextureView, out var current)
                 ? current == appearance.TextureTicket : !appearance.TextureTicket.HasValue;

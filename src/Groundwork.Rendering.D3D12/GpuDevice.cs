@@ -214,16 +214,27 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             return GpuFrameSubmitResult.Rejected;
 
         var shadows = frame.Scene is { } scene ? PrepareShadows(target, scene) : default;
+        var terrainAppearance = PrepareFrameTerrainMaterials(frame.Scene is { World.IsIdentity: true }, shadows.Constants.Enabled);
         var shape = new GpuPassShape(target.Width, target.Height,
             frame.Scene.HasValue ? ActiveMeshGeometry?.PackedBytes ?? checked((int)(VertexCount * VertexStride)) : 0,
             frame.Scene.HasValue, frame.Sky.HasValue,
             frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null,
             frame.Scene.HasValue && subsequent.HasValue, shadows.NearKind, shadows.FarKind,
-            readback is not null, owner is not null, frame.Scene.HasValue ? FrameTextureImport() : default);
+            readback is not null, owner is not null, frame.Scene.HasValue && !terrainAppearance ? FrameTextureImport() : default,
+            terrainAppearance, terrainAppearance ? _frameTerrainMaterials!.Imports : default);
         if (GetPassPlan(shape) is not { } plan)
-            return GpuFrameSubmitResult.Rejected;
+        {
+            if (!terrainAppearance)
+                return GpuFrameSubmitResult.Rejected;
+            shape = shape with { MaterialConstants = false, MaterialMaps = default };
+            if (GetPassPlan(shape) is not { } fallback)
+                return GpuFrameSubmitResult.Rejected;
+            terrainAppearance = false;
+            FrameTerrainMaterialAddress = 0;
+            plan = fallback;
+        }
 
-        var terrainPbr = TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
+        var terrainPbr = !terrainAppearance && TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
         var submitted = false;
         D3D12PropCells? deferredProps = null;
         try
@@ -232,7 +243,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 Check(context.Allocator->Reset(), "Reset allocator");
                 Check(context.Commands->Reset(context.Allocator, _pipeline), "Reset command list");
-                Record(context.Commands, target, frame, subsequent, readback, shadows, plan, terrainPbr);
+                Record(context.Commands, target, frame, subsequent, readback, shadows, plan, terrainPbr, terrainAppearance);
                 Check(context.Commands->Close(), "Close command list");
                 if (attempt == 0 && _retirementHooks?.RejectRecordedPlan?.Invoke(frame.Sequence) == true)
                     return GpuFrameSubmitResult.Rejected;
@@ -284,11 +295,15 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 deferredProps = _propFrameStream;
                 AbortRecordedProps();
                 owner?.ClearFrameTexture(this);
-                if (attempt != 0 ||
-                    GetPassPlan(shape with { Props = false, Texture = owner is null ? shape.Texture : default }) is not { } terrainPlan)
+                if (owner is not null)
+                {
+                    terrainAppearance = false;
+                    shape = shape with { Texture = default, MaterialConstants = false, MaterialMaps = default };
+                }
+                if (attempt != 0 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
-                terrainPbr = TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
+                terrainPbr = !terrainAppearance && TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
             }
             return GpuFrameSubmitResult.Rejected;
         }
@@ -431,11 +446,13 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         _presentReadback?.Dispose();
         _presentReadback = null;
         ReleaseProps();
+        ReleaseTerrainMaterialConstants();
         ReleaseTextures();
         ReleaseShadows();
         Release(_normalPipeline);
         _normalPipeline = null;
         ReleasePbrPipeline();
+        ReleaseTerrainAppearancePipelines();
         _terrainTiming?.Dispose();
         _terrainTiming = null;
         Release(_pipeline);

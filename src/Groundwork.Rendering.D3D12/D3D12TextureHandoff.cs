@@ -88,11 +88,13 @@ public sealed class D3D12TextureHandoff
     private readonly D3D12TextureTarget[] _publicationScratch;
     private readonly Entry[] _entries;
     private Guid _ownerWorld;
+    private ulong _ownerEpoch;
     private D3D12TextureView _view;
     private ulong _paletteRevision;
     private MaterialPalette? _terrainPalette;
     private int _targetCount;
     private ulong _generation;
+    private long _materialBacking;
     private D3D12TextureUsage _peak;
     private Action? _wake;
     private int _revoked;
@@ -132,7 +134,8 @@ public sealed class D3D12TextureHandoff
         lock (Gate)
         {
             if (Closed || !view.IsValid || paletteRevision == 0 || targets.Length > _targets.Length ||
-                (_ownerWorld != Guid.Empty && _ownerWorld != view.World) || (_view.IsValid && !CanAdvanceView(view)))
+                (_ownerWorld != Guid.Empty && _ownerWorld != view.World) ||
+                (_ownerEpoch != 0 && view.View.RendererEpoch != _ownerEpoch) || (_view.IsValid && !CanAdvanceView(view)))
                 return false;
 
             // Validate the bounded owned snapshot so caller-backed spans cannot change the accepted cut.
@@ -359,16 +362,41 @@ public sealed class D3D12TextureHandoff
             return _peak;
     }
 
-    internal void BindOwner(Guid world, Action wake)
+    internal bool TryReserveMaterialBacking(long bytes)
+    {
+        lock (Gate)
+        {
+            if (Closed || bytes <= 0 || _materialBacking != 0 || bytes > _limits.NativeBytes - CountUsage().NativeBytes)
+                return false;
+
+            _materialBacking = bytes;
+            RecordPeak(CountUsage());
+            return true;
+        }
+    }
+
+    internal void ReleaseMaterialBacking(long bytes)
+    {
+        lock (Gate)
+        {
+            if (bytes <= 0 || bytes != _materialBacking)
+                throw new InvalidOperationException("The retired material buffer does not match its reserved backing.");
+            _materialBacking = 0;
+        }
+    }
+
+    internal void BindOwner(Guid world, Action wake, ulong rendererEpoch = 0)
     {
         if (world == Guid.Empty)
-            throw new ArgumentException("The volume renderer must supply a world.", nameof(world));
+            throw new ArgumentException("The renderer must supply a world.", nameof(world));
         ArgumentNullException.ThrowIfNull(wake);
         lock (Gate)
         {
-            if (Closed || _wake is not null || (_view.IsValid && _view.World != world))
-                throw new InvalidOperationException("The texture stream is closed, attached, or belongs to another world.");
+            if (Closed || _wake is not null || _view.IsValid &&
+                (_view.World != world || rendererEpoch != 0 && _view.View.RendererEpoch != rendererEpoch))
+                throw new InvalidOperationException("The texture stream does not match this renderer attachment.");
             _ownerWorld = world;
+            _ownerEpoch = rendererEpoch;
             _wake = wake;
         }
     }
@@ -386,6 +414,7 @@ public sealed class D3D12TextureHandoff
                 return;
             _drained = true;
             _wake = null;
+            _terrainPalette = null;
             foreach (ref var entry in _entries.AsSpan())
                 if (entry.State != State.Free)
                     Invalidate(ref entry);
@@ -592,7 +621,7 @@ public sealed class D3D12TextureHandoff
         var workers = 0;
         var handoffs = 0;
         var descriptors = 0;
-        long source = 0, scratch = 0, payload = 0, staging = 0, native = 0;
+        long source = 0, scratch = 0, payload = 0, staging = 0, native = _materialBacking;
         foreach (ref readonly var entry in _entries.AsSpan())
         {
             var state = entry.State;

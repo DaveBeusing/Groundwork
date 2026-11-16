@@ -374,7 +374,8 @@ internal sealed unsafe partial class GpuDevice
         _shadowSrv = heap;
         for (uint i = 0; i < ShadowDescriptors; i++)
             WriteTextureSrv(null, DXGI_FORMAT.DXGI_FORMAT_R32_FLOAT, i);
-        WriteTextureSrv(null, DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM, ShadowDescriptors);
+        for (uint i = ShadowDescriptors; i < FirstTextureDescriptor + MaxTextureSlots; i++)
+            WriteTextureSrv(null, DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM, i);
     }
 
     private void WriteTextureSrv(ID3D12Resource* texture, DXGI_FORMAT format, uint index)

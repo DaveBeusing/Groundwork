@@ -11,6 +11,7 @@ public sealed partial class D3D12Renderer
     // submitted to DXGI, together with the sequence and installed volume generation.
     internal Action<ulong, ulong, OffscreenFrame>? VolumePresentReadbackForTests { private get; init; }
     internal Action<ulong, ulong, ulong, OffscreenFrame>? AppearancePresentReadbackForTests { private get; init; }
+    internal Action<ulong, ulong, OffscreenFrame>? PlanetAppearanceReadbackForTests { private get; init; }
     internal Action<D3D12Renderer>? BeforeRetrySelectionForTests { private get; init; }
     internal Func<long>? FirstContentTimestampForTests { private get; init; }
 
@@ -22,7 +23,7 @@ public sealed partial class D3D12Renderer
 
     private readonly record struct AppearanceSubmission(ulong Identity, AcknowledgedVolumeView View, ulong LatestTakenSequence);
     private readonly record struct RecordedAppearance(AppearanceSubmission Submission, D3D12TextureView TextureView,
-        D3D12TextureTicket? TextureTicket);
+        D3D12TextureTicket? TextureTicket, GpuTerrainMaterialSet? Materials);
 
     private long FirstContentTimestamp() => FirstContentTimestampForTests?.Invoke() ?? Stopwatch.GetTimestamp();
 
@@ -132,6 +133,7 @@ public sealed partial class D3D12Renderer
         var appearancePending = false;
         var pendingRetirement = false;
         RenderFrame? volumePresented = null;
+        (ulong Sequence, ulong Generation)? planetPresented = null;
         AppearanceSubmission? appearancePresented = null;
         FirstContentRetry? retry = null;
         var executedFirst = 0UL;
@@ -180,6 +182,11 @@ public sealed partial class D3D12Renderer
                     }
                     appearancePresented = null;
                 }
+                if (planetPresented is { } orbit)
+                {
+                    PlanetAppearanceReadbackForTests?.Invoke(orbit.Sequence, orbit.Generation, gpu.ReadRetiredPresent());
+                    planetPresented = null;
+                }
             }
 
             if (_textureOwner is { HasSubmittedCopy: true } textures)
@@ -216,7 +223,7 @@ public sealed partial class D3D12Renderer
             {
                 SetSurface(RenderSurfaceState.Suspended, chain);
                 redraw |= current.HasValue;
-                appearancePending |= RefreshTextures(gpu);
+                NoticeTextureChanges();
                 if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage))
                     break;
                 WaitForFrame(_textureOwner is { HasSubmittedCopy: true }
@@ -275,7 +282,7 @@ public sealed partial class D3D12Renderer
                 redraw = true;
             }
 
-            appearancePending |= RefreshTextures(gpu);
+            NoticeTextureChanges();
 
             if (_admission.MeshRegionReplacement is { } meshes && meshes.TryTake(out var candidate))
             {
@@ -402,7 +409,12 @@ public sealed partial class D3D12Renderer
                 else if (_volume is not null)
                     volumePresented = frame;
                 else if (frame.Scene.HasValue && _admission.MeshRegionReplacement is { } meshAdmission)
-                    meshAdmission.RecordPresented(frame.Sequence, meshAdmission.ReadMeshReplacement().InstalledGeneration);
+                {
+                    var generation = meshAdmission.ReadMeshReplacement().InstalledGeneration;
+                    meshAdmission.RecordPresented(frame.Sequence, generation);
+                    if (PlanetAppearanceReadbackForTests is not null)
+                        planetPresented = (frame.Sequence, generation);
+                }
                 else
                     _admission.RecordPresented(frame.Sequence);
                 if (frame.Scene.HasValue)
@@ -418,6 +430,16 @@ public sealed partial class D3D12Renderer
                     lastProbe = Stopwatch.GetTimestamp();
             }
 
+        }
+
+        void NoticeTextureChanges()
+        {
+            if (!RefreshTextures(gpu))
+                return;
+            if (_volume is null)
+                redraw |= current is { Scene: not null };
+            else
+                appearancePending = true;
         }
 
         void WaitForFrame(int maximum = Timeout.Infinite)
@@ -586,7 +608,7 @@ public sealed partial class D3D12Renderer
                 if (!view.IsValid)
                     return GpuFrameSubmitResult.Rejected;
                 CaptureFrameTexture(gpu, frame);
-                _recordedAppearance = new(redraw, view, _textureFrameTicket);
+                _recordedAppearance = new(redraw, view, _textureFrameTicket, _textureFrameMaterials);
             }
         }
         else
@@ -600,7 +622,7 @@ public sealed partial class D3D12Renderer
         try
         {
             return frame.Scene.HasValue && (VolumePresentReadbackForTests is not null ||
-                appearance.HasValue && AppearancePresentReadbackForTests is not null)
+                appearance.HasValue && AppearancePresentReadbackForTests is not null || PlanetAppearanceReadbackForTests is not null)
                 ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame, this)
                 : gpu.TryRender(chain.CurrentBuffer, frame, this);
         }

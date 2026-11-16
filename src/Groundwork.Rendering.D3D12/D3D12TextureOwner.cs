@@ -16,6 +16,7 @@ public sealed partial class D3D12Renderer
     private TextureOwner? _textureOwner;
     private D3D12TextureView _textureFrameView;
     private D3D12TextureTicket? _textureFrameTicket;
+    private GpuTerrainMaterialSet? _textureFrameMaterials;
     internal Action<D3D12TextureTicket, WaitHandle>? BeforeTextureUploadForTests { private get; init; }
 
     /// <summary>Attach a static cooked texture stream before starting a volume renderer.</summary>
@@ -26,7 +27,7 @@ public sealed partial class D3D12Renderer
         {
             if (_volume is null || _threadStarted || Stopping || _textures is not null)
                 throw new InvalidOperationException("Attach a fresh texture stream before starting a volume renderer.");
-            stream.BindOwner(_volume.WorldIdentity, Wake);
+            stream.BindOwner(_volume.WorldIdentity, Wake, _volumeAppearanceGeometry ? _volumeEpoch : 0);
             _textures = stream;
         }
     }
@@ -60,6 +61,8 @@ public sealed partial class D3D12Renderer
 
     private D3D12TextureView CurrentTextureView()
     {
+        if (_volume is null)
+            return CurrentPlanetTextureView();
         lock (_volumeGate)
         {
             if (!VolumeAdmissionOpen || _volumeInstalled is not { } installed || !_volume!.IsCurrentFrame(installed))
@@ -71,6 +74,8 @@ public sealed partial class D3D12Renderer
 
     private bool HasProtectedTextureCompetition()
     {
+        if (_volume is null)
+            return HasProtectedPlanetTextureCompetition();
         lock (_volumeGate)
             return _volumeStage is not null || _volumeStaged is not null ||
                 _volumeInstalled is { } installed && Read().LastPresentedSequence < installed.Frame;
@@ -127,6 +132,13 @@ public sealed partial class D3D12Renderer
         if (!frame.Scene.HasValue || _textureOwner is not { } owner)
             return;
         var view = CurrentTextureView();
+        if (gpu.ActiveMeshGeometry is { HasTerrainAppearance: true } && owner.CaptureTerrainMaterials(view) is { } materials)
+        {
+            _textureFrameView = view;
+            _textureFrameMaterials = materials;
+            gpu.SelectTerrainMaterials(materials, _textures);
+            return;
+        }
         if (owner.TryResolve(view, out var ticket, out var binding) &&
             gpu.SetFrameTexture(binding, view.View.RendererEpoch))
         {
@@ -135,18 +147,21 @@ public sealed partial class D3D12Renderer
         }
     }
 
-    internal Lock? RecordedTextureGate => _textureFrameTicket.HasValue ? _textures!.Gate : null;
+    internal Lock? RecordedTextureGate => _textureFrameTicket.HasValue || _textureFrameMaterials is not null ? _textures!.Gate : null;
 
-    internal bool RecordedTextureIsCurrent() => _textureFrameTicket is not { } ticket ||
-        _textures!.TryGetDrawableResident(_textureFrameView, out var selected) && selected == ticket;
+    internal bool RecordedTextureIsCurrent() => _textureFrameMaterials is { } materials
+        ? CurrentTextureView() == materials.View && _textureOwner!.IsCurrent(materials)
+        : _textureFrameTicket is not { } ticket || _textures!.TryGetDrawableResident(_textureFrameView, out var selected) && selected == ticket;
 
     internal void ClearFrameTexture(GpuDevice gpu)
     {
-        if (!_textureFrameTicket.HasValue)
+        if (!_textureFrameTicket.HasValue && _textureFrameMaterials is null)
             return;
         _textureFrameTicket = null;
+        _textureFrameMaterials = null;
         _textureFrameView = default;
         gpu.SetFrameTexture(default, 0);
+        gpu.SelectTerrainMaterials(null, null);
     }
 
     private sealed class TextureOwner(D3D12TextureHandoff stream, GpuDevice gpu)
@@ -154,6 +169,9 @@ public sealed partial class D3D12Renderer
         private readonly Dictionary<D3D12TextureTicket, GpuTextureIdentity> _resident = new(GpuDevice.MaxTextureSlots);
         private D3D12TextureTicket? _copy;
         private GpuTextureIdentity _selected;
+        private GpuTerrainMaterialSet? _materials;
+        private D3D12TerrainTextureBinding[]? _appearanceScratch;
+        private GpuTerrainMap[]? _mapScratch;
 
         internal bool HasSubmittedCopy => gpu.HasTextureCopy;
         internal bool HasReady(D3D12TextureView view) => stream.HasReady(view);
@@ -176,10 +194,52 @@ public sealed partial class D3D12Renderer
                 }
             }
             TryResolve(view, out _, out var next);
-            if (next == _selected)
-                return false;
+            var previousMaterials = _materials;
+            _materials = gpu.ActiveMeshGeometry is { HasTerrainAppearance: true } ? CaptureTerrainMaterials(view) : null;
+            var changed = next != _selected || !ReferenceEquals(previousMaterials, _materials);
             _selected = next;
-            return true;
+            return changed;
+        }
+
+        internal GpuTerrainMaterialSet? CaptureTerrainMaterials(D3D12TextureView view)
+        {
+            var bindings = _appearanceScratch ??= new D3D12TerrainTextureBinding[GpuTerrainMaterialSet.Capacity];
+            if (!stream.TryCaptureTerrainAppearance(view, bindings, out var palette, out var count))
+                return null;
+            var cut = bindings.AsSpan(0, count);
+            var ready = 0;
+            try
+            {
+                if (_materials is { } previous && previous.Matches(view, palette!, cut))
+                    return previous;
+
+                var maps = _mapScratch ??= new GpuTerrainMap[GpuTerrainMaterialSet.Capacity];
+                foreach (ref readonly var target in cut)
+                {
+                    if (target.Resident is not { } ticket)
+                        continue;
+                    if (!_resident.TryGetValue(ticket, out var native) || !gpu.TryGetTerrainMap(target.Target, native, view.View.RendererEpoch, out var map))
+                        return null;
+                    maps[ready++] = map;
+                }
+                return new GpuTerrainMaterialSet(view, palette!, cut, maps.AsSpan(0, ready));
+            }
+            finally
+            {
+                cut.Clear();
+                _mapScratch.AsSpan(0, ready).Clear();
+            }
+        }
+
+        internal bool IsCurrent(GpuTerrainMaterialSet materials)
+        {
+            var bindings = _appearanceScratch!;
+            if (!stream.TryCaptureTerrainAppearance(materials.View, bindings, out var palette, out var count))
+                return false;
+            var cut = bindings.AsSpan(0, count);
+            var current = materials.Matches(materials.View, palette!, cut);
+            cut.Clear();
+            return current;
         }
 
         internal bool TryTake(D3D12TextureView view, out D3D12TextureTransfer transfer) =>

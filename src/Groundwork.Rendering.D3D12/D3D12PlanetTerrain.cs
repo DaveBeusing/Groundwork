@@ -54,15 +54,16 @@ public sealed partial class D3D12Renderer
         Vector3 forward, Vector3 up, float verticalFieldOfView, float nearPlane, float farPlane,
         Vector4 tint, Vector4 clearColor, Func<PlanetSampleKey, uint>? sampleColor,
         PlanetDescriptor? descriptor = null, ReadOnlySpan<PlanetSurfaceMaterialSample> controls = default,
-        ushort proxyMaterial = 0)
+        ushort proxyMaterial = 0, RenderSunlight? sunlight = null)
     {
         ArgumentNullException.ThrowIfNull(lease);
-        if (!_planetTerrain)
+        var domain = Volatile.Read(ref _planetTextureDomain);
+        if (!_planetTerrain || descriptor is not null && domain?.Descriptor != descriptor)
             return MeshReplacementSubmissionResult.InvalidRegion;
         if (Read().Lifecycle is RendererLifecycle.Stopping or RendererLifecycle.Stopped)
             return MeshReplacementSubmissionResult.Closed;
 
-        var frame = CreatePlanetFrame(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor);
+        var frame = CreatePlanetFrame(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor, sunlight);
         if (!frame.IsValid)
             return MeshReplacementSubmissionResult.InvalidRegion;
 
@@ -71,24 +72,37 @@ public sealed partial class D3D12Renderer
         if (!lease.TryPinPresentation())
             return MeshReplacementSubmissionResult.InvalidRegion;
 
-        var result = _admission.MeshRegionReplacement!.TrySubmitPairedRegion(lease.Generation, region, frame);
-        if (result == MeshReplacementSubmissionResult.Accepted)
+        var stamp = lease.Stamp;
+        MeshReplacementSubmissionResult result;
+        lock (_planetAppearanceGate)
         {
-            _submittedTerrain = new WeakReference<PlanetTerrainLease>(lease);
-            _submittedTerrainStamp = lease.Stamp;
-            Wake();
+            result = _admission.MeshRegionReplacement!.TrySubmitPairedRegion(stamp.Generation, region, frame);
+            if (result == MeshReplacementSubmissionResult.Accepted)
+            {
+                _submittedTerrain = new WeakReference<PlanetTerrainLease>(lease);
+                _submittedTerrainStamp = stamp;
+                _submittedPlanetAppearance = descriptor is not null && !region.Instances[0].Mesh.TerrainAppearance.IsEmpty
+                    ? new(domain!.For(stamp), sunlight) : null;
+            }
         }
+        if (result == MeshReplacementSubmissionResult.Accepted)
+            Wake();
         return result;
     }
 
-    // Controls belong to the caller's retained shared surface snapshot. For an unshared
-    // orbit proxy, callers pass an empty span and the declared proxy material.
-    internal MeshReplacementSubmissionResult TrySubmitPlanetTerrainWithAppearance(PlanetTerrainLease lease, ulong sequence,
+    /// <summary>Submits a paired planet region with canonical material and mapping inputs.</summary>
+    /// <remarks>Use the descriptor bound to the texture stream. Controls belong to the
+    /// caller's retained shared surface snapshot. For an unshared orbit proxy, pass an
+    /// empty span and the declared proxy material.</remarks>
+    public MeshReplacementSubmissionResult TrySubmitPlanetTerrainWithAppearance(PlanetTerrainLease lease, ulong sequence,
         Vector3 forward, Vector3 up, float verticalFieldOfView, float nearPlane, float farPlane,
         Vector4 tint, Vector4 clearColor, PlanetDescriptor descriptor, ReadOnlySpan<PlanetSurfaceMaterialSample> controls,
-        ushort proxyMaterial, Func<PlanetSampleKey, uint>? sampleColor = null) =>
-        SubmitPlanetTerrain(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor,
-            sampleColor, descriptor, controls, proxyMaterial);
+        ushort proxyMaterial, Func<PlanetSampleKey, uint>? sampleColor = null, RenderSunlight? sunlight = null)
+    {
+        ArgumentNullException.ThrowIfNull(descriptor);
+        return SubmitPlanetTerrain(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor,
+            sampleColor, descriptor, controls, proxyMaterial, sunlight);
+    }
 
     /// <summary>Checks a submitted lease and sequence before its owner acknowledges collision publication.</summary>
     public bool WasPlanetTerrainPresented(PlanetTerrainLease lease, ulong sequence) =>
@@ -98,13 +112,16 @@ public sealed partial class D3D12Renderer
     public bool TryReadPresentedPlanetTerrain(PlanetTerrainLease lease, ulong sequence, out PlanetTerrainStamp stamp)
     {
         ArgumentNullException.ThrowIfNull(lease);
-        stamp = default;
-        if (_submittedTerrain?.TryGetTarget(out var submitted) != true || !ReferenceEquals(submitted, lease) ||
-            !_admission.MeshRegionReplacement!.WasPresented(_submittedTerrainStamp.Generation, sequence))
-            return false;
+        lock (_planetAppearanceGate)
+        {
+            stamp = default;
+            if (_submittedTerrain?.TryGetTarget(out var submitted) != true || !ReferenceEquals(submitted, lease) ||
+                !_admission.MeshRegionReplacement!.WasPresented(_submittedTerrainStamp.Generation, sequence))
+                return false;
 
-        stamp = _submittedTerrainStamp;
-        return true;
+            stamp = _submittedTerrainStamp;
+            return true;
+        }
     }
 
     /// <summary>Updates the view from an active lease without rebuilding its geometry.</summary>
@@ -113,20 +130,25 @@ public sealed partial class D3D12Renderer
         Vector4 tint, Vector4 clearColor)
     {
         ArgumentNullException.ThrowIfNull(lease);
-        if (!_planetTerrain || lease.Stamp != _submittedTerrainStamp)
-            return RenderSubmissionResult.InvalidFrame;
+        RenderSubmissionResult result;
+        lock (_planetAppearanceGate)
+        {
+            if (!_planetTerrain || lease.Stamp != _submittedTerrainStamp)
+                return RenderSubmissionResult.InvalidFrame;
 
-        var frame = CreatePlanetFrame(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor);
-        var result = _admission.MeshRegionReplacement!.TrySubmitPairedCamera(lease.Generation, frame);
+            var frame = CreatePlanetFrame(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor,
+                _submittedPlanetAppearance?.Sunlight);
+            result = _admission.MeshRegionReplacement!.TrySubmitPairedCamera(lease.Generation, frame);
+        }
         if (result is RenderSubmissionResult.Accepted or RenderSubmissionResult.Replaced)
             Wake();
         return result;
     }
 
     internal static RenderFrame CreatePlanetFrame(PlanetTerrainLease lease, ulong sequence, Vector3 forward, Vector3 up,
-        float verticalFieldOfView, float nearPlane, float farPlane, Vector4 tint, Vector4 clearColor) =>
+        float verticalFieldOfView, float nearPlane, float farPlane, Vector4 tint, Vector4 clearColor, RenderSunlight? sunlight = null) =>
         new(sequence, clearColor, new RenderScene(Matrix4x4.Identity, tint,
-            Matrix4x4.CreateLookTo(lease.CameraPosition, forward, up), verticalFieldOfView, nearPlane, farPlane));
+            Matrix4x4.CreateLookTo(lease.CameraPosition, forward, up), verticalFieldOfView, nearPlane, farPlane) { Sunlight = sunlight });
 
     internal static RenderMeshRegion PackPlanetTerrain(PlanetTerrainLease lease, Func<PlanetSampleKey, uint>? sampleColor = null)
     {
