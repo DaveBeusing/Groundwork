@@ -2,6 +2,7 @@ using System.Numerics;
 using Groundwork.Core;
 using Groundwork.Platform.Windows;
 using Groundwork.Rendering.Materials;
+using Groundwork.Voxels;
 
 namespace Groundwork.Rendering.D3D12.Tests;
 
@@ -34,32 +35,62 @@ public sealed partial class PresentationSmokeTests
             .Concat(Targets(assets.Palette.Resolve(Int01Textures.Ore).Textures, Int01Textures.Ore)).ToArray();
         var stream = new D3D12TextureHandoff(new(requests.Length, requests.Length, 8192, 0, 8192,
             requests.Length * 65_536, (requests.Length + 1) * 65_536, requests.Length));
-        var first = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var first = new TaskCompletionSource<(OffscreenFrame Pixels, D3D12PropStatistics Props)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var firstEdited = new TaskCompletionSource<(ulong Generation, OffscreenFrame Pixels)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
-        var painted = new TaskCompletionSource<(ulong Id, ulong Sequence, ulong Generation, OffscreenFrame Pixels)>(
+        var painted = new TaskCompletionSource<(ulong Id, ulong Sequence, ulong Generation, OffscreenFrame Pixels,
+            int RecordedPlans, D3D12PropStatistics Props)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var copyStarts = 0;
+        var recordedPlans = 0;
+        const uint propTint = 0xffff00ff;
+        var propMesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), propMesh, propMesh)]);
+        PropCellKey propCell = default;
+        PropPublication propPublication = default;
+        var hooks = new GpuRetirementTestHooks(RejectRecordedPlan: sequence =>
+        {
+            if (sequence != 2 || Volatile.Read(ref copyStarts) != requests.Length ||
+                Interlocked.Increment(ref recordedPlans) != 1)
+                return false;
+
+            lock (props.Gate)
+            {
+                var resident = new VisibleProp(new(42, 1, propCell, 0), 1, 1, 0, 0, 0);
+                Assert.IsTrue(props.Admission.TryReadFrame(resident, out var recordedProp, out _));
+                Assert.AreEqual(propTint, recordedProp.Tint);
+                var recordedVersion = props.ViewVersion;
+                props.Publish(propPublication with { CoverageGeneration = propPublication.CoverageGeneration + 1 }, []);
+                Assert.AreEqual(recordedVersion + 1, props.ViewVersion);
+                Assert.AreEqual(0, props.Admission.Usage.ResidentInstances);
+            }
+
+            // Let submission admission see the actual stale prop cut. Publish does not wake the owner.
+            return false;
+        });
 
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
-            QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(10), null,
+            QualificationDiagnostics, warp, TimeSpan.FromSeconds(15), TimeSpan.FromSeconds(10), hooks,
             includeTerrainAppearance: true)
         {
             BeforeTextureUploadForTests = (_, _) => Interlocked.Increment(ref copyStarts),
             VolumePresentReadbackForTests = (sequence, generation, pixels) =>
             {
                 if (sequence == 2)
-                    first.TrySetResult(pixels);
+                    first.TrySetResult((pixels, props.ReadStatistics()));
                 if (sequence == 4)
                     firstEdited.TrySetResult((generation, pixels));
             },
             AppearancePresentReadbackForTests = (id, sequence, generation, pixels) =>
             {
                 if (Volatile.Read(ref copyStarts) == requests.Length)
-                    painted.TrySetResult((id, sequence, generation, pixels));
+                    painted.TrySetResult((id, sequence, generation, pixels, Volatile.Read(ref recordedPlans), props.ReadStatistics()));
             },
         };
         renderer.AttachTextureHandoff(stream);
+        renderer.AttachPropCells(props);
         try
         {
             await window.InitializeAsync(context, token);
@@ -76,6 +107,11 @@ public sealed partial class PresentationSmokeTests
             Assert.IsNotNull(installed);
             var generation = installed.Info.Generation;
             var cut = new D3D12TextureView(run.Terrain.WorldIdentity, installed.Info.View, installed.Info.TerrainRevision, generation);
+            propPublication = new(cut.World, view.RendererEpoch, cut.TerrainRevision, generation);
+            props.Publish(propPublication, [propCell]);
+            Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(propCell, 1, out var propRequest));
+            Assert.AreEqual(PropCellResult.Accepted, props.TryStage(propRequest, new(32, 32, 3),
+                [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, propTint)]));
             Assert.IsTrue(stream.PublishTerrainAppearance(cut, assets.Palette, requests));
             foreach (var request in requests)
             {
@@ -90,8 +126,14 @@ public sealed partial class PresentationSmokeTests
             };
             var committed = run.World.Publication.Committed.Read();
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted, renderer.TrySubmitVolumeTerrain(generation, 2, camera));
-            var numeric = await first.Task.WaitAsync(token);
+            var baseline = await first.Task.WaitAsync(token);
+            var numeric = baseline.Pixels;
             var mapped = await painted.Task.WaitAsync(token);
+            Assert.AreEqual(1, baseline.Props.Draws);
+            Assert.AreEqual(1, baseline.Props.Instances);
+            Assert.AreEqual(1, mapped.RecordedPlans);
+            Assert.AreEqual(0, mapped.Props.Draws);
+            Assert.IsLessThan(mapped.Pixels.DepthAt(width / 2, y), numeric.DepthAt(width / 2, y));
             Assert.IsGreaterThan(0UL, mapped.Id);
             Assert.AreEqual(2UL, mapped.Sequence);
             Assert.AreEqual(generation, mapped.Generation);
@@ -101,7 +143,23 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(2UL, renderer.Read().LastPresentedSequence);
             Assert.AreSame(committed.Root, run.World.Publication.Committed.Read().Root);
             Assert.AreEqual(committed.Stamp, run.World.Publication.Committed.Read().Stamp);
+            Assert.IsTrue(run.Terrain.Statistics.MovementHeld);
             Assert.AreEqual((ulong)(requests.Length * 8 * 8 * 4), renderer.ReadTextureDiagnostics().UploadedBytes);
+            var registrations = 0;
+            var acknowledgements = 0;
+            while (run.Terrain.TryReadEvent(out var authorityEvent))
+            {
+                if (authorityEvent.Generation != generation ||
+                    authorityEvent.Kind is not (VolumeEventKind.Registered or VolumeEventKind.Accepted))
+                    continue;
+                Assert.AreEqual(2UL, authorityEvent.Frame);
+                if (authorityEvent.Kind == VolumeEventKind.Registered)
+                    registrations++;
+                else
+                    acknowledgements++;
+            }
+            Assert.AreEqual(1, registrations);
+            Assert.AreEqual(1, acknowledgements);
 
             Assert.IsLessThan(1f, numeric.DepthAt(leftX, y));
             Assert.IsLessThan(1f, numeric.DepthAt(rightX, y));

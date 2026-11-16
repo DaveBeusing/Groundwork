@@ -254,13 +254,16 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                 var textureGate = owner?.RecordedTextureGate;
                 propGate?.Enter();
                 textureGate?.Enter();
+                bool textureIsCurrent;
                 try
                 {
-                    if (RecordedPropsAreCurrent() && (owner is null || owner.RecordedTextureIsCurrent()))
+                    textureIsCurrent = owner is null || owner.RecordedTextureIsCurrent();
+                    if (textureIsCurrent && RecordedPropsAreCurrent())
                     {
                         if (owner is not null && !owner.AuthorizeRecordedFrame(frame))
                             return GpuFrameSubmitResult.Rejected;
-                        if (RecordedPropsAreCurrent() && (owner is null || owner.RecordedTextureIsCurrent()))
+                        textureIsCurrent = owner is null || owner.RecordedTextureIsCurrent();
+                        if (textureIsCurrent && RecordedPropsAreCurrent())
                         {
                             // The texture view is sealed for this submission. Only
                             // this owner can release its exact native binding.
@@ -290,13 +293,13 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                     propGate?.Exit();
                 }
 
-                // Appearance churn alone cannot spend a protected terrain retry.
-                // Re-record once without the stale bindings, using the frame's untextured material if available.
+                // Drop the stale prop cut and keep current material bindings for the retry.
+                // A stale texture cut falls back to numeric terrain materials for protected content.
                 deferredProps = _propFrameStream;
                 AbortRecordedProps();
-                owner?.ClearFrameTexture(this);
-                if (owner is not null)
+                if (!textureIsCurrent)
                 {
+                    owner!.ClearFrameTexture(this);
                     terrainAppearance = false;
                     shape = shape with { Texture = default, MaterialConstants = false, MaterialMaps = default };
                 }
