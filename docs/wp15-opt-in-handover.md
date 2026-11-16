@@ -23,4 +23,6 @@ Run the Groundwork Release D3D12 tests with the filter above. Run WYU's eng/Test
 
 The existing five-pair 1080p moving-sun replay stayed within the absolute GPU budget. Pooled relative p95/p99 deltas were +29.62%/+25.98% at midday, +15.59%/+15.67% at low sun and +15.55%/+15.75% during repeated turns. All phases exceeded the relative +10%/+15% limits. This handover adds functional verification and uses the existing performance evidence. Default enablement and reference-system production qualification remain open.
 
+The [WP15 workstation shadow benchmark](../benchmarks/Wp15Shadows.md) records the later matched source fixture, its raw evidence and the outstanding integrated reference comparison.
+
 [WYU #56](https://github.com/DaveBeusing/wyu/pull/56) · [Groundwork #113](https://github.com/DaveBeusing/Groundwork/issues/113) · [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89)

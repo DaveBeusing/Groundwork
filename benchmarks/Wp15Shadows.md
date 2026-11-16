@@ -1,6 +1,6 @@
 # WP15 shadow-only workstation benchmark
 
-This source benchmark measures the D3D12 shadow path for [#113](https://github.com/DaveBeusing/Groundwork/issues/113). The underlying implementation is Groundwork master `f10ab3fc51ef4a0d0796d6d3a2cf9c252dde7fb8). The timing hooks activate only for this test and existing explicit timing fixtures.
+This source benchmark measures the D3D12 shadow path for [#113](https://github.com/DaveBeusing/Groundwork/issues/113). The underlying implementation is Groundwork master `f10ab3fc51ef4a0d0796d6d3a2cf9c252dde7fb8`. The timing hooks activate only for this test and existing explicit timing fixtures.
 
 ## Reproduction
 
@@ -16,8 +16,24 @@ Each pair starts a fresh Release test host. Both variants use the same determini
 
 The 1920 × 1080 offscreen fixture uses four immutable packed-normal meshes with 4,612 triangles. Receiver grids sit at 24 m and 48 m with geometry that occludes light on both. Both variants retain the same geometry, tint, directional sunlight and distance fog. Exactly one input changes within a pair, the shadow-enabled flag. Midday uses a higher moving light, low sun a shallower moving light and quick turns alternate camera yaw while the light moves. Each shadow-enabled measured frame records two native cascade passes. The disabled variant records zero. Two untimed pixel probes per phase check matched depth and visible darkening.
 
-- The direct queue GPU frame interval starts before Clear and ends before the color/depth readback transfer. The terrain interval covers terrain recording commands. Each shadow interval includes the cascade transitions, clear and draw. The fixture uses the same GPU readback copy and waits for retirement in each variant. CPU pixel extraction occurs only at the two untimed probe points.
+- The direct queue GPU frame interval starts before Clear and ends before the color/depth readback transfer. The terrain interval covers GPU execution of the terrain draw after target binding. Each shadow interval includes the cascade transitions, clear and draw. The fixture uses the same GPU readback copy and waits for retirement in each variant. CPU pixel extraction occurs only at the two untimed probe points.
 - CPU recording starts before shadow preparation and ends after command-list close. The resource ledger stays enabled for both routes to report native backing. The timings include this instrumentation and whole-frame recording. The benchmark leaves shadow-specific allocations and isolated cascade-setup CPU cost to the remaining qualification.
 - Per-pair and pooled summaries use nearest-rank p50, p95 and p99. Incremental GPU time is the sum of the two enabled cascade times and the enabled terrain time minus the disabled terrain time at the same step of the same pair. The relative GPU frame change compares the enabled and disabled percentiles of the recorded frame interval.
 
 This comparison isolates the shadow flag in a serialized source fixture. The installed WYU Far Horizon comparison with Package B, E and fixed G state, real Present and the #88 reference hardware remains open. The relative thresholds from #113 provide context for the measured frame interval. The production budget, the full WP15 toggle and default activation require their own qualification.
+
+## Workstation results
+
+The source run used clean commit `bbc4845783d519f9b46acf8f3a09f3a336c23f9b`, Windows x64 build 26300, .NET SDK 10.0.403, the Balanced power plan and an NVIDIA RTX PRO 5000 Blackwell Laptop with driver 32.0.15.9653. The Core Ultra 9 285HX host has 24 cores and 68,137,205,760 bytes of RAM.
+
+Five pairs passed. Each phase contains 10,000 matched frames per variant, for 60,000 measured frames in all. Every enabled frame recorded both cascade passes. Shadow backing after the measured sequence was 8 MiB live and zero retained. Geometry backing matched across variants. Two untimed pixel controls per phase and pair confirmed visible darkening and unchanged depth. Six related regressions passed in separate test hosts, including the WARP and NVIDIA Debug Layer/DRED cases for the first edited Present.
+
+| Phase | GPU frame p95 off / on (ms) | Cascades p95 (ms) | Terrain p95 off / on (ms) | Incremental GPU p95 / p99 (ms) | Frame delta p95 / p99 |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Midday | 0.224 / 2.457 | 0.168 | 0.189 / 2.245 | 2.242 / 3.834 | +996.0% / +1343.5% |
+| Low sun | 0.224 / 2.187 | 0.144 | 0.189 / 1.944 | 1.936 / 2.893 | +877.1% / +999.9% |
+| Quick turns | 0.218 / 2.164 | 0.163 | 0.182 / 1.884 | 1.941 / 3.408 | +890.3% / +1141.5% |
+
+Among the measured passes, the shadow-enabled terrain pass had the highest p95 in each phase. Pooled results exceed the issue's absolute and relative targets in this fixture. Per-pair medians stayed close, while the incremental p95 in pair 2 was 0.416–0.502 ms across phases and the other pairs ranged from 2.103–2.279 ms. All pairs are included. This run identifies where the measured tail falls within the GPU command list. Attribution of the tail requires further profiling.
+
+The raw pair files retain each frame, matching route step, GPU interval, and CPU recording and retirement observations. Pooled and per-pair data are in `summary.json`, with SHA-256 `6f389e2f0ae2b40b4c886bf0345e4e319a4e9dc5855f82d9395ded459f034d82`. Both #88 and #113 remain open for the integrated reference comparison and production acceptance.
