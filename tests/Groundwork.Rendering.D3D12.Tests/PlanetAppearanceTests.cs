@@ -53,6 +53,8 @@ public sealed partial class PresentationSmokeTests
         using var install = new ManualResetEventSlim();
         var copies = 0;
         var held = 0;
+        D3D12Renderer? observedRenderer = null;
+        D3D12TextureDiagnostics firstTextureDiagnostics = default;
         var generation = orbit.Generation;
         const int x = width / 2;
         const int y = height / 2;
@@ -68,16 +70,27 @@ public sealed partial class PresentationSmokeTests
             })
         {
             BeforeTextureUploadForTests = (_, _) => Interlocked.Increment(ref copies),
-            PlanetAppearanceReadbackForTests = (sequence, observedGeneration, pixels) =>
+            PlanetAppearanceReadbackForTests = (identity, sequence, observedGeneration, pixels) =>
             {
-                if (sequence != 1 || observedGeneration != generation || first.TrySetResult(pixels))
+                if (sequence != 1 || observedGeneration != generation)
                     return;
+                if (!first.Task.IsCompleted)
+                {
+                    Assert.AreEqual(0UL, identity);
+                    firstTextureDiagnostics = observedRenderer!.ReadTextureDiagnostics();
+                    first.TrySetResult(pixels);
+                    return;
+                }
                 if (Volatile.Read(ref copies) == targets.Length &&
                     !pixels.ColorAt(x, y).SequenceEqual(first.Task.Result.ColorAt(x, y)))
+                {
+                    Assert.IsGreaterThan(0UL, identity);
                     textured.TrySetResult(pixels);
+                }
             },
         };
-        renderer.AttachPlanetTextureHandoff(stream, descriptor, epoch);
+        observedRenderer = renderer;
+        renderer.AttachPlanetTextureHandoff(stream, terrain, descriptor, epoch);
         Assert.IsFalse(renderer.TryGetExpectedPlanetTextureView(orbit, out _));
         try
         {
@@ -89,13 +102,19 @@ public sealed partial class PresentationSmokeTests
             await AwaitStatus(renderer, state => state.AppliedWidth == width && state.AppliedHeight == height, token);
             AssertPlanetAdapter(renderer.ReadDiagnostics().Adapter, warp);
             var sunlight = new RenderSunlight(-FlightForward, new(0.15f), new(0.8f));
+            Assert.AreEqual(orbit.Stamp, otherLease.Stamp);
+            Assert.AreEqual(MeshReplacementSubmissionResult.InvalidRegion,
+                renderer.TrySubmitPlanetTerrainWithAppearance(otherLease, 1, FlightForward, Vector3.UnitY, MathF.PI / 3,
+                    NearPlane, FarPlane, Vector4.One, FlightClear, descriptor, [], Int01Textures.OrbitProxy, sunlight: sunlight));
+            Assert.AreEqual(0UL, renderer.Read().LastAcceptedSequence);
             Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
                 renderer.TrySubmitPlanetTerrainWithAppearance(orbit, 1, FlightForward, Vector3.UnitY, MathF.PI / 3,
                     NearPlane, FarPlane, Vector4.One, FlightClear, descriptor, [], Int01Textures.OrbitProxy, sunlight: sunlight));
             await prepared.Task.WaitAsync(token);
             Assert.IsTrue(renderer.TryGetExpectedPlanetTextureView(orbit, out var cut));
-            Assert.AreEqual(orbit.Stamp, otherLease.Stamp);
             Assert.IsFalse(renderer.TryGetExpectedPlanetTextureView(otherLease, out _));
+            Assert.AreEqual(RenderSubmissionResult.InvalidFrame, renderer.TrySubmitPlanetCamera(otherLease, 2,
+                FlightForward, Vector3.UnitY, MathF.PI / 3, NearPlane, FarPlane, Vector4.One, FlightClear));
             Assert.AreEqual(new D3D12TextureView(descriptor.WorldId, new(epoch, generation, origin), plan.EditRevision, generation), cut);
             Assert.IsFalse(stream.PublishTerrainAppearance(cut with { World = Guid.NewGuid() }, palette, targets));
             Assert.IsFalse(stream.PublishTerrainAppearance(cut with { View = cut.View with { RendererEpoch = epoch + 1 } }, palette, targets));
@@ -112,6 +131,9 @@ public sealed partial class PresentationSmokeTests
             install.Set();
 
             var numeric = await first.Task.WaitAsync(token);
+            Assert.IsGreaterThan(0L, firstTextureDiagnostics.ResidentAndPendingBytes);
+            Assert.AreEqual(0UL, firstTextureDiagnostics.UploadedBytes);
+            Assert.AreEqual(0L, firstTextureDiagnostics.StagingBytes);
             var mapped = await textured.Task.WaitAsync(token);
             Assert.IsLessThan(1f, numeric.DepthAt(x, y));
             Assert.AreEqual(numeric.DepthAt(x, y), mapped.DepthAt(x, y));

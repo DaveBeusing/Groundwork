@@ -58,7 +58,8 @@ public sealed partial class D3D12Renderer
     {
         ArgumentNullException.ThrowIfNull(lease);
         var domain = Volatile.Read(ref _planetTextureDomain);
-        if (!_planetTerrain || descriptor is not null && domain?.Descriptor != descriptor)
+        if (!_planetTerrain || domain is not null && !domain.Coordinator.OwnsLease(lease) ||
+            descriptor is not null && domain?.Descriptor != descriptor)
             return MeshReplacementSubmissionResult.InvalidRegion;
         if (Read().Lifecycle is RendererLifecycle.Stopping or RendererLifecycle.Stopped)
             return MeshReplacementSubmissionResult.Closed;
@@ -133,7 +134,8 @@ public sealed partial class D3D12Renderer
         RenderSubmissionResult result;
         lock (_planetAppearanceGate)
         {
-            if (!_planetTerrain || lease.Stamp != _submittedTerrainStamp)
+            if (!_planetTerrain || _planetTextureDomain is { } domain && !domain.Coordinator.OwnsLease(lease) ||
+                lease.Stamp != _submittedTerrainStamp)
                 return RenderSubmissionResult.InvalidFrame;
 
             var frame = CreatePlanetFrame(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor,
@@ -249,12 +251,12 @@ public sealed partial class D3D12Renderer
                     var a = samples[(int)triangles[triangle]];
                     var b = samples[(int)triangles[triangle + 1]];
                     var c = samples[(int)triangles[triangle + 2]];
+                    OrderTerrainMaterialTriangle(indices.AsSpan(offset, 3), (uint)offset, a.Material, b.Material, c.Material);
                     WriteTerrainAppearance(appearance.AsSpan(offset, 3), a.Point, b.Point, c.Point, a.Material, b.Material, c.Material);
                     for (var corner = 0; corner < 3; corner++, offset++)
                     {
                         var index = (int)triangles[triangle + corner];
                         positions[offset] = local[index];
-                        indices[offset] = (uint)offset;
                         normals[offset] = samples[index].Normal;
                         if (!colors.AsSpan().IsEmpty)
                             colors[offset] = samples[index].Color;

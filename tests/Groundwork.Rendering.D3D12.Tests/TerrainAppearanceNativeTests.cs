@@ -126,6 +126,15 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(unshadowed.DepthAt(rockX, sampleY), withReplacement.DepthAt(rockX, sampleY));
             Assert.IsGreaterThan(withReplacement.ColorAt(rockX, sampleY)[0] + 8, withReplacement.ColorAt(rockX, sampleY)[1]);
             CollectionAssert.AreEqual(unshadowed.ColorAt(oreX, sampleY).ToArray(), withReplacement.ColorAt(oreX, sampleY).ToArray());
+
+            var firstOrder = ReadMixedTriangle(0, replacement);
+            var rotatedOrder = ReadMixedTriangle(1, replacement);
+            const int centerX = width / 2;
+            Assert.IsLessThan(1f, firstOrder.DepthAt(centerX, sampleY));
+            Assert.AreEqual(firstOrder.DepthAt(centerX, sampleY), rotatedOrder.DepthAt(centerX, sampleY));
+            Assert.IsGreaterThan(firstOrder.ColorAt(centerX, sampleY)[0], firstOrder.ColorAt(centerX, sampleY)[2]);
+            CollectionAssert.AreEqual(firstOrder.ColorAt(centerX, sampleY).ToArray(), rotatedOrder.ColorAt(centerX, sampleY).ToArray());
+
             gpu.SelectTerrainMaterials(null, null);
             foreach (var pair in textures)
             {
@@ -150,6 +159,30 @@ public sealed partial class PresentationSmokeTests
             Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(camera, ++sequence, out var frame));
             gpu.SelectTerrainMaterials(materials, stream);
             return GpuDevice.RenderOffscreen(gpu, width, height, frame);
+        }
+
+        OffscreenFrame ReadMixedTriangle(int shift, GpuTerrainMaterialSet materials)
+        {
+            Vector3[] points = [new(-6, -4, -24), new(6, -4, -24), new(0, 5, -24)];
+            ushort[] ids = [Int01Textures.Rock, Int01Textures.Ore, Int01Textures.Ore];
+            var corners = new Vector3[3];
+            var vertices = new TerrainAppearanceVertex[3];
+            for (var i = 0; i < corners.Length; i++)
+            {
+                var source = (i + shift) % corners.Length;
+                corners[i] = points[source];
+                vertices[i] = new(points[source] * PlanetTriplanarMapping.TexelsPerMeter,
+                    ids[source] | TerrainAppearanceVertex.MappingBit);
+            }
+
+            Span<uint> indices = stackalloc uint[3];
+            D3D12Renderer.OrderTerrainMaterialTriangle(indices, 0, vertices[0].Material, vertices[1].Material, vertices[2].Material);
+            var n = PackedTerrainNormal.Encode(Vector3.UnitZ);
+            var mesh = RenderMesh.CreateWithTerrainNormals(corners, indices, [], [n, n, n], vertices);
+            var previous = gpu.ActiveMeshGeometry;
+            gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(new RenderMeshRegion([new(mesh, Vector3.Zero)]));
+            previous?.Dispose();
+            return Read(24, shadow: false, materials);
         }
 
         GpuTerrainMaterialSet SelectCut()

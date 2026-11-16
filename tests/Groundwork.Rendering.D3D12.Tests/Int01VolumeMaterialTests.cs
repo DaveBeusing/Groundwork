@@ -35,6 +35,8 @@ public sealed partial class PresentationSmokeTests
         var stream = new D3D12TextureHandoff(new(requests.Length, requests.Length, 8192, 0, 8192,
             requests.Length * 65_536, (requests.Length + 1) * 65_536, requests.Length));
         var first = new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously);
+        var firstEdited = new TaskCompletionSource<(ulong Generation, OffscreenFrame Pixels)>(
+            TaskCreationOptions.RunContinuationsAsynchronously);
         var painted = new TaskCompletionSource<(ulong Id, ulong Sequence, ulong Generation, OffscreenFrame Pixels)>(
             TaskCreationOptions.RunContinuationsAsynchronously);
         var copyStarts = 0;
@@ -44,10 +46,12 @@ public sealed partial class PresentationSmokeTests
             includeTerrainAppearance: true)
         {
             BeforeTextureUploadForTests = (_, _) => Interlocked.Increment(ref copyStarts),
-            VolumePresentReadbackForTests = (sequence, _, pixels) =>
+            VolumePresentReadbackForTests = (sequence, generation, pixels) =>
             {
                 if (sequence == 2)
                     first.TrySetResult(pixels);
+                if (sequence == 4)
+                    firstEdited.TrySetResult((generation, pixels));
             },
             AppearancePresentReadbackForTests = (id, sequence, generation, pixels) =>
             {
@@ -107,6 +111,23 @@ public sealed partial class PresentationSmokeTests
             var ore = mapped.Pixels.ColorAt(rightX, y).ToArray();
             Assert.IsGreaterThan(rock[2] + 2, rock[0]);
             Assert.IsGreaterThan(ore[0] + 2, ore[2]);
+
+            var editedView = await run.CutFloor(renderer, token, maskSequence: 3);
+            using var edited = run.Terrain.TryRead();
+            Assert.IsNotNull(edited);
+            Assert.AreNotEqual(generation, edited.Info.Generation);
+            Assert.AreEqual(cut.TerrainRevision + 1, edited.Info.TerrainRevision);
+            Assert.AreEqual(RenderSubmissionResult.InvalidFrame, renderer.TrySubmitVolumeCamera(generation, 4, camera));
+            var editedCut = new D3D12TextureView(cut.World, editedView, edited.Info.TerrainRevision, edited.Info.Generation);
+            Assert.IsTrue(stream.PublishTerrainAppearance(editedCut, assets.Palette, requests));
+            Assert.AreEqual(MeshReplacementSubmissionResult.Accepted,
+                renderer.TrySubmitVolumeTerrain(edited.Info.Generation, 4, VolumeCameraAt(editedView, 32, 7) with
+                { Sunlight = camera.Sunlight }));
+            var editedPixels = await firstEdited.Task.WaitAsync(token);
+            Assert.AreEqual(edited.Info.Generation, editedPixels.Generation);
+            Assert.AreEqual(4UL, renderer.Read().LastPresentedSequence);
+            Assert.IsGreaterThan(mapped.Pixels.DepthAt(width / 2, y), editedPixels.Pixels.DepthAt(width / 2, y));
+            Assert.AreEqual(requests.Length, Volatile.Read(ref copyStarts));
 
             await renderer.StopAsync(token);
             AssertPlanetAdapter(renderer.ReadDiagnostics().Adapter, warp);

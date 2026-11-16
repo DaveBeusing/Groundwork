@@ -193,6 +193,13 @@ public sealed class PlanetTerrainCoordinator
             _presentation = null;
     }
 
+    /// <summary>Checks that a live presentation lease came from this terrain coordinator.</summary>
+    public bool OwnsLease(PlanetTerrainLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        return lease.IsOwnedBy(this);
+    }
+
     internal bool CanPinPresentation(PlanetTerrainLease lease) =>
         !_stopped && _staged is not null && _presentation == lease && lease.Data == _staged;
 
@@ -264,6 +271,8 @@ public sealed class PlanetTerrainLease : IPlanetSurface, IDisposable
     }
 
     internal bool IsPinned { get; private set; }
+
+    internal bool IsOwnedBy(PlanetTerrainCoordinator owner) => ReferenceEquals(_owner, owner);
 
     /// <summary>Prevents superseding this candidate while a renderer can present it.</summary>
     /// <remarks>Keep this lease until the presentation is acknowledged or the renderer has stopped.</remarks>

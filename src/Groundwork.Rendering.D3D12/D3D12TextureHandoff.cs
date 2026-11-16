@@ -119,7 +119,8 @@ public sealed class D3D12TextureHandoff
         Publish(view, paletteRevision, targets, null);
 
     /// <summary>Publishes an immutable terrain palette with its exact cooked sampler targets.</summary>
-    /// <remarks>The renderer uses numeric material inputs until the matching targets are resident.</remarks>
+    /// <remarks>The renderer uses numeric material inputs until the matching targets are resident.
+    /// Include headroom for the renderer's aligned material constant buffer in the same native backing budget.</remarks>
     public bool PublishTerrainAppearance(D3D12TextureView view, MaterialPalette palette, ReadOnlySpan<D3D12TextureTarget> targets)
     {
         ArgumentNullException.ThrowIfNull(palette);

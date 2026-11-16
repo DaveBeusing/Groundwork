@@ -374,6 +374,8 @@ public sealed partial class D3D12Renderer
                 }
                 if (includeTerrainAppearance)
                 {
+                    OrderTerrainMaterialTriangle(indices.AsSpan(vertex, 3), (uint)vertex,
+                        triangle.A.Material, triangle.B.Material, triangle.C.Material);
                     WriteTerrainAppearance(appearance.AsSpan(vertex, 3),
                         PlanetTriplanarMapping.FromVolume(mesh.Descriptor, mesh.Origin, triangle.A.Position),
                         PlanetTriplanarMapping.FromVolume(mesh.Descriptor, mesh.Origin, triangle.B.Position),
@@ -414,6 +416,18 @@ public sealed partial class D3D12Renderer
             count -= vertices / 3;
         }
         return new RenderMeshRegion(instances);
+    }
+
+    // Integer material identity is flat across the primitive. Anchor it to the majority
+    // of the original IDs, with the lowest canonical ID breaking a three-way tie.
+    // A cyclic index rotation keeps the winding and every original vertex payload.
+    internal static void OrderTerrainMaterialTriangle(Span<uint> indices, uint firstIndex, ushort a, ushort b, ushort c)
+    {
+        var material = a == b || a == c ? a : b == c ? b : Math.Min(a, Math.Min(b, c));
+        var corner = material == a ? 0u : material == b ? 1u : 2u;
+        indices[0] = firstIndex + corner;
+        indices[1] = firstIndex + (corner + 1u) % 3u;
+        indices[2] = firstIndex + (corner + 2u) % 3u;
     }
 
     private static void WriteTerrainAppearance(Span<TerrainAppearanceVertex> output,
@@ -553,6 +567,8 @@ public sealed partial class D3D12Renderer
     {
         if (_recordedAppearance is { } appearance)
             return AuthorizeRecordedAppearance(frame, appearance);
+        if (_recordedPlanetAppearance is { } planet)
+            return AuthorizeRecordedPlanetAppearance(frame, planet);
         if (_volume is null)
             return true;
         lock (_volumeGate)

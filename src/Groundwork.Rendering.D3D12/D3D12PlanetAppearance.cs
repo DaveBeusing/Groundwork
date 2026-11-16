@@ -10,7 +10,7 @@ public sealed partial class D3D12Renderer
     private PlanetTextureDomain? _planetTextureDomain;
     private PlanetAppearanceRegistration? _submittedPlanetAppearance;
 
-    private sealed record PlanetTextureDomain(PlanetDescriptor Descriptor, ulong RendererEpoch)
+    private sealed record PlanetTextureDomain(PlanetTerrainCoordinator Coordinator, PlanetDescriptor Descriptor, ulong RendererEpoch)
     {
         internal D3D12TextureView For(PlanetTerrainStamp stamp) => new(Descriptor.WorldId,
             new(RendererEpoch, stamp.Generation, stamp.Frame), Math.Max(1UL, stamp.EditRevision), stamp.Generation);
@@ -21,9 +21,11 @@ public sealed partial class D3D12Renderer
     /// <summary>Attaches a fresh cooked texture stream to a planet terrain renderer before it starts.</summary>
     /// <remarks>The descriptor identifies the one terrain coordinator's world and planet.
     /// Use a new positive epoch for a replacement renderer in that world.</remarks>
-    public void AttachPlanetTextureHandoff(D3D12TextureHandoff stream, PlanetDescriptor descriptor, ulong rendererEpoch)
+    public void AttachPlanetTextureHandoff(D3D12TextureHandoff stream, PlanetTerrainCoordinator coordinator,
+        PlanetDescriptor descriptor, ulong rendererEpoch)
     {
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(coordinator);
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentOutOfRangeException.ThrowIfZero(rendererEpoch);
         lock (_lifecycle)
@@ -31,7 +33,7 @@ public sealed partial class D3D12Renderer
             if (!_planetTerrain || _threadStarted || Stopping || _textures is not null)
                 throw new InvalidOperationException("Attach a fresh texture stream before starting a planet terrain renderer.");
 
-            var domain = new PlanetTextureDomain(descriptor, rendererEpoch);
+            var domain = new PlanetTextureDomain(coordinator, descriptor, rendererEpoch);
             stream.BindOwner(descriptor.WorldId, Wake, rendererEpoch);
             Volatile.Write(ref _planetTextureDomain, domain);
             _textures = stream;
@@ -49,6 +51,7 @@ public sealed partial class D3D12Renderer
         {
             view = default;
             if (_submittedPlanetAppearance is not { } accepted || !PlanetTextureAdmissionOpen ||
+                _planetTextureDomain?.Coordinator.OwnsLease(lease) != true ||
                 _submittedTerrain?.TryGetTarget(out var submitted) != true || !ReferenceEquals(lease, submitted))
                 return false;
 
