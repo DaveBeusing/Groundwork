@@ -203,7 +203,9 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(new RenderFaultSummary((uint)RendererStage.TextureUpload, signalError, null, lastPresented), failed.FirstFault);
             Assert.AreEqual(RendererLifecycle.Stopping, failed.Lifecycle);
             Assert.IsNull(renderer.ReadDiagnostics().DeviceRemoval);
-            Assert.IsTrue(renderer.TryReadResourceDiagnostics(out var held));
+            D3D12ResourceSnapshot held;
+            while (!renderer.TryReadResourceDiagnostics(out held) || !held.Custody.HasFlag(D3D12CustodyStatus.FenceSentinelObserved))
+                await Task.Delay(10, token);
             AssertRetainedCopy(held);
             Assert.IsTrue(runtime.State.Read().Conditions.HasFlag(SafetyCondition.TerminalStop));
             Assert.IsFalse(textures.TryGetResident(cut, maximumTarget.Slot, out _));
