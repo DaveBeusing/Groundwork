@@ -24,6 +24,11 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12PipelineState* _pbrShadowPipeline;
     private bool _pbrUnavailable;
     private bool _pbrShadowUnavailable;
+    private ID3D12RootSignature* _terrainAppearanceRoot;
+    private ID3D12PipelineState* _terrainAppearancePipeline;
+    private ID3D12PipelineState* _terrainAppearanceShadowPipeline;
+    private bool _terrainAppearanceUnavailable;
+    private bool _terrainAppearanceShadowUnavailable;
 
     private void CreatePipeline()
     {
@@ -42,8 +47,19 @@ internal sealed unsafe partial class GpuDevice
             : TryPreparePbrVariant(shadows, ref _pbrRoot, ref _pbrPipeline, ref _pbrUnavailable);
     }
 
+    private bool TryPrepareTerrainAppearance(bool shadows)
+    {
+        if (ActiveMeshGeometry is not { HasTerrainAppearance: true })
+            return false;
+        return shadows
+            ? TryPreparePbrVariant(shadows, ref _terrainAppearanceRoot, ref _terrainAppearanceShadowPipeline,
+                ref _terrainAppearanceShadowUnavailable, terrainAppearance: true)
+            : TryPreparePbrVariant(shadows, ref _terrainAppearanceRoot, ref _terrainAppearancePipeline,
+                ref _terrainAppearanceUnavailable, terrainAppearance: true);
+    }
+
     private bool TryPreparePbrVariant(bool shadows, ref ID3D12RootSignature* root, ref ID3D12PipelineState* pipeline,
-        ref bool unavailable)
+        ref bool unavailable, bool terrainAppearance = false)
     {
         if (pipeline != null)
             return true;
@@ -53,14 +69,25 @@ internal sealed unsafe partial class GpuDevice
         ID3D12RootSignature* preparedRoot = null;
         try
         {
-            preparedRoot = CreateFrameRoot(PbrConstantCount, shadow: shadows);
-            Check(_retirementHooks?.PbrPipelineCreationFailure?.Invoke(shadows) ?? 0, "Prepare terrain PBR pipeline");
-            pipeline = CreateFramePipeline(preparedRoot, sky: false, normals: true, shadow: shadows, terrainPbr: true);
-            root = preparedRoot;
-            preparedRoot = null;
+            if (terrainAppearance)
+                EnsureFrameSrv();
+            if (root == null)
+                preparedRoot = terrainAppearance
+                    ? CreateFrameRoot(FrameConstantCount + ShadowConstantCount, terrainAppearance: true)
+                    : CreateFrameRoot(PbrConstantCount, shadow: shadows);
+            if (!terrainAppearance)
+                Check(_retirementHooks?.PbrPipelineCreationFailure?.Invoke(shadows) ?? 0, "Prepare terrain PBR pipeline");
+            pipeline = CreateFramePipeline(preparedRoot == null ? root : preparedRoot, sky: false, normals: true,
+                shadow: shadows, terrainPbr: true, terrainAppearance: terrainAppearance);
+            if (preparedRoot != null)
+            {
+                root = preparedRoot;
+                preparedRoot = null;
+            }
             return true;
         }
-        catch (GpuNativeException error) when (error.HResult == PipelineOutOfMemory && !IsRemoved)
+        catch (GpuNativeException error) when ((error.HResult == PipelineOutOfMemory ||
+            terrainAppearance && error.HResult == TextureUnsupported) && !IsRemoved)
         {
             // This optional appearance can fall back without consuming a terrain retry. Cache the
             // failed variant for this device owner so later material-only frames do not retry it.
@@ -83,7 +110,17 @@ internal sealed unsafe partial class GpuDevice
         _pbrShadowRoot = _pbrRoot = null;
     }
 
-    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false, bool props = false, bool texture = false)
+    private void ReleaseTerrainAppearancePipelines()
+    {
+        Release(_terrainAppearanceShadowPipeline);
+        Release(_terrainAppearancePipeline);
+        Release(_terrainAppearanceRoot);
+        _terrainAppearanceShadowPipeline = _terrainAppearancePipeline = null;
+        _terrainAppearanceRoot = null;
+    }
+
+    private ID3D12RootSignature* CreateFrameRoot(uint count, bool shadow = false, bool props = false,
+        bool texture = false, bool terrainAppearance = false)
     {
         var rootParameter = new D3D12_ROOT_PARAMETER
         {
@@ -117,6 +154,23 @@ internal sealed unsafe partial class GpuDevice
                 ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_PIXEL,
                 DescriptorTable = new() { NumDescriptorRanges = 1, pDescriptorRanges = &textureRange },
             };
+        D3D12_DESCRIPTOR_RANGE* terrainRanges = stackalloc D3D12_DESCRIPTOR_RANGE[2];
+        if (terrainAppearance)
+        {
+            terrainRanges[0] = range;
+            terrainRanges[1] = textureRange with
+            {
+                NumDescriptors = MaxTextureSlots,
+                OffsetInDescriptorsFromTableStart = FirstTextureDescriptor,
+            };
+            parameters[1].DescriptorTable = new() { NumDescriptorRanges = 2, pDescriptorRanges = terrainRanges };
+            parameters[2] = new()
+            {
+                ParameterType = D3D12_ROOT_PARAMETER_TYPE.D3D12_ROOT_PARAMETER_TYPE_CBV,
+                ShaderVisibility = D3D12_SHADER_VISIBILITY.D3D12_SHADER_VISIBILITY_ALL,
+                Descriptor = new() { ShaderRegister = 1 },
+            };
+        }
         if (props)
         {
             for (uint i = 1; i <= 2; i++)
@@ -146,10 +200,10 @@ internal sealed unsafe partial class GpuDevice
         samplers[1].MaxLOD = 0;
         var rootDescription = new D3D12_ROOT_SIGNATURE_DESC
         {
-            NumParameters = props || texture ? 3u : shadow ? 2u : 1u,
+            NumParameters = props || texture || terrainAppearance ? 3u : shadow ? 2u : 1u,
             pParameters = parameters,
-            NumStaticSamplers = texture ? 2u : shadow ? 1u : 0u,
-            pStaticSamplers = texture || shadow ? samplers : null,
+            NumStaticSamplers = texture || terrainAppearance ? 2u : shadow ? 1u : 0u,
+            pStaticSamplers = texture || shadow || terrainAppearance ? samplers : null,
             Flags = D3D12_ROOT_SIGNATURE_FLAGS.D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT,
         };
         ID3DBlob* rootBlob = null;
@@ -176,16 +230,19 @@ internal sealed unsafe partial class GpuDevice
 
     private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false,
         bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false,
-        bool terrainPbr = false)
+        bool terrainPbr = false, bool terrainAppearance = false)
     {
-        var vertexShader = LoadShader(props ? "Props.vs.dxil" : depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
+        var vertexShader = LoadShader(terrainAppearance ? "TerrainAppearance.vs.dxil" : props ? "Props.vs.dxil" :
+            depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
         var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" :
+            terrainAppearance ? shadow ? "TerrainAppearanceShadow.ps.dxil" : "TerrainAppearance.ps.dxil" :
             terrainPbr ? shadow ? "PbrShadowTerrain.ps.dxil" : "PbrTerrain.ps.dxil" :
             texture ? shadow ? "TextureShadowTerrain.ps.dxil" : "TextureTerrain.ps.dxil" :
             shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
-        fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8, normal = "NORMAL\0"u8)
+        fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8,
+            normal = "NORMAL\0"u8, texcoord = "TEXCOORD\0"u8)
         {
-            D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[3]
+            D3D12_INPUT_ELEMENT_DESC* elements = stackalloc D3D12_INPUT_ELEMENT_DESC[5]
             {
                 new()
                 {
@@ -199,7 +256,25 @@ internal sealed unsafe partial class GpuDevice
                     AlignedByteOffset = 3 * sizeof(float),
                 },
                 default,
+                default,
+                default,
             };
+            if (terrainAppearance)
+            {
+                elements[3] = new()
+                {
+                    SemanticName = (sbyte*)texcoord,
+                    Format = DXGI_FORMAT.DXGI_FORMAT_R32G32B32_FLOAT,
+                    AlignedByteOffset = NormalVertexStride,
+                };
+                elements[4] = new()
+                {
+                    SemanticName = (sbyte*)texcoord,
+                    SemanticIndex = 1,
+                    Format = DXGI_FORMAT.DXGI_FORMAT_R32_UINT,
+                    AlignedByteOffset = NormalVertexStride + 3 * sizeof(float),
+                };
+            }
             elements[2] = new D3D12_INPUT_ELEMENT_DESC
             {
                 SemanticName = (sbyte*)normal,
@@ -211,7 +286,11 @@ internal sealed unsafe partial class GpuDevice
                 pRootSignature = root,
                 VS = new D3D12_SHADER_BYTECODE { pShaderBytecode = vs, BytecodeLength = (nuint)vertexShader.Length },
                 PS = new D3D12_SHADER_BYTECODE { pShaderBytecode = ps, BytecodeLength = (nuint)pixelShader.Length },
-                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC { pInputElementDescs = elements, NumElements = depthOnly ? 1u : normals ? 3u : 2u },
+                InputLayout = sky ? default : new D3D12_INPUT_LAYOUT_DESC
+                {
+                    pInputElementDescs = elements,
+                    NumElements = terrainAppearance ? 5u : depthOnly ? 1u : normals ? 3u : 2u,
+                },
                 SampleMask = uint.MaxValue,
                 RasterizerState = new D3D12_RASTERIZER_DESC
                 {
@@ -299,7 +378,8 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
-        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan, bool terrainPbr)
+        RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan,
+        bool terrainPbr, bool terrainAppearance)
     {
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
@@ -330,7 +410,7 @@ internal sealed unsafe partial class GpuDevice
                 if (!frame.Sky.HasValue)
                     BindFrameTargets(commands, target, rtv, dsv);
                 _terrainTiming?.Begin(commands);
-                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr);
+                RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr, terrainAppearance);
                 _terrainTiming?.End(commands);
             }
             else if (pass.Id == GpuPassPlan.Props)
@@ -364,11 +444,12 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private void RecordTerrain(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
-        in ShadowConstants shadows, bool terrainPbr) => Draw(commands, target, scene, shadows,
-        FindTexture(_frameTexture), terrainPbr ? scene.TerrainMaterial : null);
+        in ShadowConstants shadows, bool terrainPbr, bool terrainAppearance) => Draw(commands, target, scene, shadows,
+        terrainAppearance ? null : FindTexture(_frameTexture), terrainPbr ? scene.TerrainMaterial : null, terrainAppearance);
 
     private void Draw(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
-        ShadowConstants shadows = default, TextureEntry? texture = null, PbrMaterialDescriptor? material = null)
+        ShadowConstants shadows = default, TextureEntry? texture = null, PbrMaterialDescriptor? material = null,
+        bool terrainAppearance = false)
     {
         var projection = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
             (float)target.Width / target.Height, scene.NearPlane, scene.FarPlane);
@@ -392,7 +473,11 @@ internal sealed unsafe partial class GpuDevice
             fogDepth, sunDirection, sunDirect, sunAmbient);
         var meshes = ActiveMeshGeometry;
         ID3D12PipelineState* materialPipeline = null;
-        if (material is not null && meshes is { HasPackedNormals: true } && texture is null)
+        if (terrainAppearance)
+        {
+            materialPipeline = BindTerrainAppearance(commands, scene.View, constants, shadows);
+        }
+        else if (material is not null && meshes is { HasPackedNormals: true } && texture is null)
         {
             materialPipeline = BindTerrainPbr(commands, scene.View, constants, shadows, material);
         }
@@ -443,13 +528,32 @@ internal sealed unsafe partial class GpuDevice
             ObserveUse(target.Buffer);
             ObserveUse(_depth);
             ObserveUse(ActiveMeshGeometry is { } mesh ? mesh.Resource : _cubeGeometry);
-            if (texture is not null)
+            if (terrainAppearance)
+                ObserveFrameTerrainMaterials();
+            else if (texture is not null)
                 ObserveUse(texture.Resource);
             if (shadows.Near.W != 0)
                 ObserveUse(_nearShadow);
             if (shadows.Far.W != 0)
                 ObserveUse(_farShadow);
         }
+    }
+
+    private ID3D12PipelineState* BindTerrainAppearance(ID3D12GraphicsCommandList* commands, in Matrix4x4 view,
+        in DrawConstants lighting, ShadowConstants shadows)
+    {
+        commands->SetGraphicsRootSignature(_terrainAppearanceRoot);
+        var heap = _shadowSrv;
+        commands->SetDescriptorHeaps(1, &heap);
+        commands->SetGraphicsRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
+        commands->SetGraphicsRootConstantBufferView(2, FrameTerrainMaterialAddress);
+
+        // This shader reads the frame's half-scaled world eye from the unused tint register.
+        var constants = lighting with { Tint = new(HalfEye(view), 0) };
+        commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
+        if (shadows.Enabled)
+            commands->SetGraphicsRoot32BitConstants(0, ShadowConstantCount, &shadows, FrameConstantCount);
+        return shadows.Enabled ? _terrainAppearanceShadowPipeline : _terrainAppearancePipeline;
     }
 
     private ID3D12PipelineState* BindTerrainPbr(ID3D12GraphicsCommandList* commands, in Matrix4x4 view,
@@ -474,14 +578,17 @@ internal sealed unsafe partial class GpuDevice
             SunAmbient = lighting.SunAmbient with { W = material.Emissive.Y },
         };
         var shadowData = shadows with { LightZ = shadows.LightZ with { W = material.Emissive.Z } };
-        // Rigid row-vector view: eye = -translation * transpose(rotation).
-        // Half-scale both endpoints before subtraction in the shader to avoid overflow.
-        var halfEye = Vector3.TransformNormal(-0.5f * view.Translation, Matrix4x4.Transpose(view));
+        var halfEye = HalfEye(view);
         commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
         commands->SetGraphicsRoot32BitConstants(0, ShadowConstantCount, &shadowData, FrameConstantCount);
         commands->SetGraphicsRoot32BitConstants(0, 3, &halfEye, FrameConstantCount + ShadowConstantCount);
         return shadows.Enabled ? _pbrShadowPipeline : _pbrPipeline;
     }
+
+    // Rigid row-vector view: eye = -translation * transpose(rotation).
+    // Half-scale both endpoints before subtraction in the shader to avoid overflow.
+    private static Vector3 HalfEye(in Matrix4x4 view) =>
+        Vector3.TransformNormal(-0.5f * view.Translation, Matrix4x4.Transpose(view));
 
     private ID3D12PipelineState* TerrainPipeline(bool shadows, bool normals, bool textured)
     {

@@ -642,11 +642,16 @@ public sealed partial class PresentationSmokeTests
         internal WorldSafetyPorts World { get; }
         internal VolumeStreamingCoordinator Terrain { get; }
 
+        internal sealed record SavedOverlay(PlanetDescriptor Planet, ulong TerrainRevision, ulong CompletedTick,
+            byte[] Bytes, Func<ushort, bool> SupportsMaterial);
+
         internal VolumeRun(int readers = 8, bool editable = false,
             PlanetVector? camera = null, PlanetVector? forward = null,
-            PlanetGeologyField? geology = null, PlanetVector displacement = default, bool openFloor = false)
+            PlanetGeologyField? geology = null, PlanetVector displacement = default, bool openFloor = false,
+            Func<LatticeCoordinate, ushort>? material = null, SavedOverlay? savedOverlay = null)
         {
-            World = Fixture.OpenWorld();
+            _tick = savedOverlay?.CompletedTick ?? 0;
+            World = Fixture.OpenWorld(completedTick: _tick);
             var descriptor = geology?.Descriptor ?? new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
                 new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, new string('a', 64), 128);
             _camera = camera ?? new PlanetVector(0, 32, 0);
@@ -655,7 +660,7 @@ public sealed partial class PresentationSmokeTests
             _selection = geology is null ? VolumeStreamingSelection.Select(descriptor, _camera, _forward) :
                 SelectCave(descriptor);
             var overlayRows = geology is null ? 1024 : 4096;
-            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false, openFloor) : null);
+            _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false, openFloor, material) : null);
             _meshBytes = geology is null ? 8 * 1024 * 1024 : 32 * 1024 * 1024;
             var native = geology is null ? NativeBytes : CaveNativeBytes;
             _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, _meshBytes) + (_editSource is not null ? 64L * overlayRows + 4096 : 0),
@@ -664,7 +669,10 @@ public sealed partial class PresentationSmokeTests
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
             var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
                 baseline, _unit, _unit, _unit, _unit, 12, readers, 128);
-            Terrain = _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
+            Terrain = savedOverlay is { } saved
+                ? new(World, _editSource ?? throw new ArgumentException("Restore requires an editable source.", nameof(savedOverlay)),
+                    limits, overlayRows, saved.Planet, saved.TerrainRevision, saved.Bytes, saved.SupportsMaterial)
+                : _editSource is null ? new(World, descriptor, limits) : new(World, _editSource, limits, overlayRows);
         }
 
         private VolumeStreamingSelection SelectCave(PlanetDescriptor descriptor, VolumeEditDependencies? edit = null) =>
@@ -680,10 +688,11 @@ public sealed partial class PresentationSmokeTests
             Assert.IsNotNull(work);
             return work;
         }
-        internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null)
+        internal async Task Publish(ulong revision, bool cut, D3D12Renderer? renderer = null, ulong? sourceRevision = null)
         {
             Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStage(VolumeWorkClass.Movement, _selection,
-                revision - 1, revision, _meshBytes, _unit, _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
+                sourceRevision ?? revision - 1, revision, _meshBytes, _unit,
+                _editSource ?? new VolumeFixtureSource(_selection.Descriptor, cut), out var work));
             Assert.IsNotNull(work);
             using (work)
             {
@@ -843,10 +852,11 @@ public sealed partial class PresentationSmokeTests
         }
     }
 
-    private sealed class VolumeFixtureSource(PlanetDescriptor descriptor, bool cut, bool openFloor = false) : IPlanetBrickSource
+    private sealed class VolumeFixtureSource(PlanetDescriptor descriptor, bool cut, bool openFloor = false,
+        Func<LatticeCoordinate, ushort>? material = null) : IPlanetBrickSource
     {
         public PlanetDescriptor Descriptor => descriptor;
         public long SampleDensity(LatticeCoordinate p) => openFloor ? p.Z : Math.Min(cut ? p.Z + 1 : p.Z, 8 - p.Z);
-        public ushort SampleMaterial(LatticeCoordinate p) => 1;
+        public ushort SampleMaterial(LatticeCoordinate p) => material?.Invoke(p) ?? 1;
     }
 }

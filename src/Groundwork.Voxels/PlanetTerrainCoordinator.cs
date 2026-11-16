@@ -193,6 +193,13 @@ public sealed class PlanetTerrainCoordinator
             _presentation = null;
     }
 
+    /// <summary>Checks that a live presentation lease came from this terrain coordinator.</summary>
+    public bool OwnsLease(PlanetTerrainLease lease)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        return lease.IsOwnedBy(this);
+    }
+
     internal bool CanPinPresentation(PlanetTerrainLease lease) =>
         !_stopped && _staged is not null && _presentation == lease && lease.Data == _staged;
 
@@ -250,6 +257,8 @@ public sealed class PlanetTerrainLease : IPlanetSurface, IDisposable
     public int MeshCount => Data.Plan.Tiles.Length;
     public ReadOnlySpan<PlanetTerrainTile> Tiles => Data.Plan.Tiles;
     public ReadOnlySpan<Vector3> GetPositions(int index) => Data.GetPositions(index);
+    /// <summary>Returns retained planet-centred positions before the local float projection.</summary>
+    public ReadOnlySpan<PlanetVector> GetCanonicalPositions(int index) => Data.GetCanonicalPositions(index);
     /// <summary>Returns the canonical sample for each vertex, in the same order as its position.</summary>
     public ReadOnlySpan<PlanetSampleKey> GetSamples(int index) => Data.GetSamples(index);
     public ReadOnlySpan<uint> GetIndices(int index) => Data.GetIndices(index);
@@ -262,6 +271,8 @@ public sealed class PlanetTerrainLease : IPlanetSurface, IDisposable
     }
 
     internal bool IsPinned { get; private set; }
+
+    internal bool IsOwnedBy(PlanetTerrainCoordinator owner) => ReferenceEquals(_owner, owner);
 
     /// <summary>Prevents superseding this candidate while a renderer can present it.</summary>
     /// <remarks>Keep this lease until the presentation is acknowledged or the renderer has stopped.</remarks>
@@ -326,6 +337,7 @@ internal sealed class PlanetTerrainGeneration(ulong id, PlanetTerrainPlan plan, 
     }
 
     internal ReadOnlySpan<Vector3> GetPositions(int index) => _positions[index];
+    internal ReadOnlySpan<PlanetVector> GetCanonicalPositions(int index) => _meshes[index].Positions;
     internal ReadOnlySpan<PlanetSampleKey> GetSamples(int index) => _meshes[index].Samples;
     internal ReadOnlySpan<uint> GetIndices(int index) => _meshes[index].Indices;
 }

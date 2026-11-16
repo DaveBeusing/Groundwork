@@ -2,6 +2,16 @@ using System.Numerics;
 
 namespace Groundwork.Rendering;
 
+// The low 16 bits preserve the canonical terrain ID. The next bit marks a
+// common integral-repeat anchor for the primitive; an unmapped vertex has zero texels.
+internal readonly record struct TerrainAppearanceVertex(Vector3 Texels, uint MaterialAndMapping)
+{
+    internal const uint MappingBit = 1u << 16;
+    internal const int SizeInBytes = 3 * sizeof(float) + sizeof(uint);
+    internal ushort Material => (ushort)(MaterialAndMapping & ushort.MaxValue);
+    internal bool HasMapping => (MaterialAndMapping & MappingBit) != 0;
+}
+
 /// <summary>An immutable snapshot of local positions and triangle-list indices.</summary>
 public sealed class RenderMesh
 {
@@ -12,15 +22,19 @@ public sealed class RenderMesh
     private readonly uint[] _indices;
     private readonly uint[] _colors;
     private readonly uint[] _normals;
+    private readonly TerrainAppearanceVertex[] _appearance;
 
     internal ReadOnlySpan<uint> PackedNormals => _normals;
+    internal ReadOnlySpan<TerrainAppearanceVertex> TerrainAppearance => _appearance;
 
-    private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors, uint[] normals)
+    private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors, uint[] normals,
+        TerrainAppearanceVertex[] appearance)
     {
         _positions = positions;
         _indices = indices;
         _colors = colors;
         _normals = normals;
+        _appearance = appearance;
     }
 
     public ReadOnlySpan<Vector3> Positions => _positions;
@@ -39,7 +53,7 @@ public sealed class RenderMesh
         CreateWithTerrainNormals(positions, indices, colors, []);
 
     internal static RenderMesh CreateWithTerrainNormals(ReadOnlySpan<Vector3> positions, ReadOnlySpan<uint> indices,
-        ReadOnlySpan<uint> colors, ReadOnlySpan<uint> normals)
+        ReadOnlySpan<uint> colors, ReadOnlySpan<uint> normals, ReadOnlySpan<TerrainAppearanceVertex> appearance = default)
     {
         if (positions.Length > MaximumVertexCount)
         {
@@ -57,6 +71,15 @@ public sealed class RenderMesh
 
         if (!normals.IsEmpty && normals.Length != positions.Length)
             throw new ArgumentException("Terrain requires one packed normal per vertex.", nameof(normals));
+        if (!appearance.IsEmpty && (appearance.Length != positions.Length || normals.IsEmpty))
+            throw new ArgumentException("Terrain appearance requires one mapping and packed normal per vertex.", nameof(appearance));
+
+        foreach (var vertex in appearance)
+        {
+            if (vertex.Material == 0 || vertex.MaterialAndMapping > (TerrainAppearanceVertex.MappingBit | ushort.MaxValue) ||
+                !IsFinite(vertex.Texels) || !vertex.HasMapping && vertex.Texels != Vector3.Zero)
+                throw new ArgumentException("Terrain appearance requires a canonical material and valid mapping.", nameof(appearance));
+        }
 
         foreach (var position in positions)
         {
@@ -74,7 +97,7 @@ public sealed class RenderMesh
             }
         }
 
-        return new RenderMesh(positions.ToArray(), indices.ToArray(), colors.ToArray(), normals.ToArray());
+        return new RenderMesh(positions.ToArray(), indices.ToArray(), colors.ToArray(), normals.ToArray(), appearance.ToArray());
     }
 
     internal static bool IsFinite(Vector3 value) =>

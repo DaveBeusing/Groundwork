@@ -10,12 +10,24 @@ public sealed partial class D3D12Renderer
     // Tests opt in before startup. The callback observes the exact retired back buffer
     // submitted to DXGI, together with the sequence and installed volume generation.
     internal Action<ulong, ulong, OffscreenFrame>? VolumePresentReadbackForTests { private get; init; }
+    internal Action<ulong, ulong, ulong, OffscreenFrame>? AppearancePresentReadbackForTests { private get; init; }
+    internal Action<ulong, ulong, ulong, OffscreenFrame>? PlanetAppearanceReadbackForTests { private get; init; }
     internal Action<D3D12Renderer>? BeforeRetrySelectionForTests { private get; init; }
     internal Func<long>? FirstContentTimestampForTests { private get; init; }
 
     private D3D12PropCells? _props;
     // The render owner sets this only during the synchronous submit attempt for that registration.
     private FirstContentRetry? _submittingFirstContentRetry;
+    private RecordedAppearance? _recordedAppearance;
+    private RecordedPlanetAppearance? _recordedPlanetAppearance;
+    private ulong _nextAppearanceSubmission;
+
+    private readonly record struct AppearanceSubmission(ulong Identity, AcknowledgedVolumeView View, ulong LatestTakenSequence);
+    private readonly record struct RecordedAppearance(AppearanceSubmission Submission, D3D12TextureView TextureView,
+        D3D12TextureTicket? TextureTicket, GpuTerrainMaterialSet? Materials);
+    private readonly record struct PlanetAppearanceSubmission(ulong Identity, RenderFrame Frame, D3D12TextureView View);
+    private readonly record struct RecordedPlanetAppearance(PlanetAppearanceSubmission Submission,
+        D3D12TextureTicket? TextureTicket, GpuTerrainMaterialSet? Materials);
 
     private long FirstContentTimestamp() => FirstContentTimestampForTests?.Invoke() ?? Stopwatch.GetTimestamp();
 
@@ -154,8 +166,11 @@ public sealed partial class D3D12Renderer
         Task? targetChange = null;
         RenderFrame? current = null;
         var redraw = false;
+        var appearancePending = false;
         var pendingRetirement = false;
         RenderFrame? volumePresented = null;
+        (ulong Identity, ulong Sequence, ulong Generation)? planetPresented = null;
+        AppearanceSubmission? appearancePresented = null;
         FirstContentRetry? retry = null;
         var executedFirst = 0UL;
         var occluded = false;
@@ -193,6 +208,23 @@ public sealed partial class D3D12Renderer
                         capture(retired.Sequence, _volumeInstalled!.Info.Generation, gpu.ReadRetiredPresent());
                     volumePresented = null;
                 }
+                if (appearancePresented is { } painted)
+                {
+                    if (AppearancePresentReadbackForTests is not null || VolumePresentReadbackForTests is not null)
+                    {
+                        var pixels = gpu.ReadRetiredPresent();
+                        var sequence = painted.View.Frame.Sequence;
+                        var generation = painted.View.Registration.Info.Generation;
+                        AppearancePresentReadbackForTests?.Invoke(painted.Identity, sequence, generation, pixels);
+                        VolumePresentReadbackForTests?.Invoke(sequence, generation, pixels);
+                    }
+                    appearancePresented = null;
+                }
+                if (planetPresented is { } orbit)
+                {
+                    PlanetAppearanceReadbackForTests?.Invoke(orbit.Identity, orbit.Sequence, orbit.Generation, gpu.ReadRetiredPresent());
+                    planetPresented = null;
+                }
             }
 
             if (_textureOwner is { HasSubmittedCopy: true } textures)
@@ -229,7 +261,7 @@ public sealed partial class D3D12Renderer
             {
                 SetSurface(RenderSurfaceState.Suspended, chain);
                 redraw |= current.HasValue;
-                RefreshTextures(gpu);
+                NoticeTextureChanges();
                 var work = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, null, out _);
                 if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, work, out var spentTurn))
                     break;
@@ -291,8 +323,7 @@ public sealed partial class D3D12Renderer
                 redraw = true;
             }
 
-            if (RefreshTextures(gpu))
-                redraw |= current is { Scene: not null };
+            NoticeTextureChanges();
 
             if (_admission.MeshRegionReplacement is { } meshes && meshes.TryTake(out var candidate))
             {
@@ -321,7 +352,13 @@ public sealed partial class D3D12Renderer
                 }
             }
 
-            if (!redraw || current is not { } frame)
+            var normalFrame = redraw ? current : null;
+            var latestTakenSequence = current?.Sequence ?? 0;
+            var appearanceView = normalFrame is null && appearancePending && !retry.HasValue
+                ? CurrentAcknowledgedAppearanceView(latestTakenSequence) : null;
+            var planetCut = normalFrame is null && appearancePending && _planetTerrain && current is { Scene: not null } &&
+                CanRedrawPlanetAppearance(latestTakenSequence) ? CurrentPlanetTextureView() : default;
+            if ((normalFrame ?? appearanceView?.Frame ?? (planetCut.IsValid ? current : null)) is not { } frame)
             {
                 servicedTextureBeforeFrame = false;
                 var work = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, null, out _);
@@ -334,7 +371,7 @@ public sealed partial class D3D12Renderer
                 continue;
             }
 
-            if (!CanDrawVolume(frame))
+            if (!appearanceView.HasValue && !CanDrawVolume(frame))
             {
                 if (GetUnpresentedRegistration(frame) is { } revoked)
                 {
@@ -372,19 +409,32 @@ public sealed partial class D3D12Renderer
                 }
             }
 
-            frameSequence = frame.Sequence;
+            AppearanceSubmission? appearance = appearanceView is { } acknowledged
+                ? new(checked(++_nextAppearanceSubmission), acknowledged, latestTakenSequence) : null;
+            PlanetAppearanceSubmission? planetAppearance = planetCut.IsValid
+                ? new(checked(++_nextAppearanceSubmission), frame, planetCut) : null;
+            var appearanceOnly = appearance.HasValue || planetAppearance.HasValue;
+            frameSequence = appearanceOnly ? null : frame.Sequence;
             stage = RendererStage.Submit;
             if (!watchdog.Begin(stage, frameSequence, _operationTimeout))
                 break;
 
-            var firstContent = GetUnpresentedRegistration(frame);
+            var firstContent = appearanceOnly ? null : GetUnpresentedRegistration(frame);
             var selectedRetry = retry is { } pending && ReferenceEquals(pending.Frame, firstContent) ? pending : (FirstContentRetry?)null;
             var allowPropUploads = !servicedTextureBeforeFrame || retry.HasValue || HasProtectedTextureCompetition();
-            var submission = TrySubmitFrame(gpu, target, chain, watchdog, frame, selectedRetry, allowPropUploads);
+            var submission = TrySubmitFrame(gpu, target, chain, watchdog, frame, selectedRetry, appearance, planetAppearance, allowPropUploads);
             if (submission != GpuFrameSubmitResult.Submitted)
             {
                 if (!watchdog.Complete())
                     break;
+                if (appearanceOnly)
+                {
+                    // Keep one coalesced invalidation. A native busy result polls
+                    // for GPU availability; a rejected cut waits for producer work.
+                    WaitForFrame(submission == GpuFrameSubmitResult.Busy
+                        ? ProgressPollMilliseconds : Timeout.Infinite);
+                    continue;
+                }
                 _admission.RecordSkipped();
                 if (submission == GpuFrameSubmitResult.Rejected)
                 {
@@ -430,22 +480,42 @@ public sealed partial class D3D12Renderer
                 break;
             if (result == PresentResult.Presented)
             {
-                if (_volume is not null)
+                if (appearance is { } presented)
+                    appearancePresented = presented;
+                else if (planetAppearance is { } planet)
+                {
+                    if (PlanetAppearanceReadbackForTests is not null)
+                        planetPresented = (planet.Identity, frame.Sequence, planet.View.CoverageGeneration);
+                }
+                else if (_volume is not null)
                     volumePresented = frame;
                 else if (frame.Scene.HasValue && _admission.MeshRegionReplacement is { } meshAdmission)
-                    meshAdmission.RecordPresented(frame.Sequence, meshAdmission.ReadMeshReplacement().InstalledGeneration);
+                {
+                    var generation = meshAdmission.ReadMeshReplacement().InstalledGeneration;
+                    meshAdmission.RecordPresented(frame.Sequence, generation);
+                    if (PlanetAppearanceReadbackForTests is not null)
+                        planetPresented = (0, frame.Sequence, generation);
+                }
                 else
                     _admission.RecordPresented(frame.Sequence);
+                if (frame.Scene.HasValue)
+                    appearancePending = false;
                 redraw = false;
             }
             else
             {
-                _admission.RecordSkipped();
+                if (!appearanceOnly)
+                    _admission.RecordSkipped();
                 occluded = result == PresentResult.Occluded;
                 if (occluded)
                     lastProbe = Stopwatch.GetTimestamp();
             }
 
+        }
+
+        void NoticeTextureChanges()
+        {
+            appearancePending |= RefreshTextures(gpu);
         }
 
         void WaitForFrame(int maximum = Timeout.Infinite)
@@ -613,29 +683,78 @@ public sealed partial class D3D12Renderer
     }
 
     private GpuFrameSubmitResult TrySubmitFrame(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,
-        RendererWatchdog watchdog, in RenderFrame frame, FirstContentRetry? retry, bool allowPropUploads)
+        RendererWatchdog watchdog, in RenderFrame frame, FirstContentRetry? retry, AppearanceSubmission? appearance,
+        PlanetAppearanceSubmission? planetAppearance, bool allowPropUploads)
     {
         using var operation = TryBegin(target);
         if (operation is null || !Matches(operation.Snapshot, chain) || !watchdog.TryAdvance(RendererStage.Submit))
             return GpuFrameSubmitResult.Busy;
-        if (!CanDrawVolume(frame))
-            return GpuFrameSubmitResult.Rejected;
+        if (appearance is { } redraw)
+        {
+            lock (_textures!.Gate)
+            lock (_volumeGate)
+            {
+                if (CurrentAcknowledgedAppearanceView(redraw.LatestTakenSequence) != redraw.View)
+                    return GpuFrameSubmitResult.Rejected;
+                var view = CurrentTextureView();
+                if (!view.IsValid)
+                    return GpuFrameSubmitResult.Rejected;
+                CaptureFrameTexture(gpu, frame);
+                _recordedAppearance = new(redraw, view, _textureFrameTicket, _textureFrameMaterials);
+            }
+        }
+        else if (planetAppearance is { } planet)
+        {
+            lock (_textures!.Gate)
+            {
+                if (!CanRedrawPlanetAppearance(frame.Sequence) || CurrentPlanetTextureView() != planet.View)
+                    return GpuFrameSubmitResult.Rejected;
+                CaptureFrameTexture(gpu, frame);
+                _recordedPlanetAppearance = new(planet, _textureFrameTicket, _textureFrameMaterials);
+            }
+        }
+        else
+        {
+            if (!CanDrawVolume(frame))
+                return GpuFrameSubmitResult.Rejected;
+            CaptureFrameTexture(gpu, frame);
+        }
         gpu.PropTerrain = frame.Scene.HasValue ? _volumeInstalled?.Info : null;
-        CaptureFrameTexture(gpu, frame);
         _submittingFirstContentRetry = retry;
+        var hasTerrainMaterials = _textureFrameMaterials is not null;
+        var previousTextureStatistics = hasTerrainMaterials ? gpu.TextureStatistics : default;
         gpu.AllowPropUploads = allowPropUploads;
         try
         {
-            return frame.Scene.HasValue && VolumePresentReadbackForTests is not null
+            return frame.Scene.HasValue && (VolumePresentReadbackForTests is not null ||
+                appearance.HasValue && AppearancePresentReadbackForTests is not null || PlanetAppearanceReadbackForTests is not null)
                 ? gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, frame, this)
                 : gpu.TryRender(chain.CurrentBuffer, frame, this);
         }
         finally
         {
             gpu.AllowPropUploads = true;
+            if (hasTerrainMaterials && gpu.TextureStatistics != previousTextureStatistics)
+                PublishTextureDiagnostics(gpu);
             _submittingFirstContentRetry = null;
+            _recordedAppearance = null;
+            _recordedPlanetAppearance = null;
             ClearFrameTexture(gpu);
         }
+    }
+
+    private bool CanRedrawPlanetAppearance(ulong sequence)
+    {
+        var status = Read();
+        return sequence != 0 && status.LastAcceptedSequence == sequence && status.LastPresentedSequence == sequence;
+    }
+
+    private bool AuthorizeRecordedPlanetAppearance(in RenderFrame frame, in RecordedPlanetAppearance appearance)
+    {
+        lock (_textures!.Gate)
+            return frame == appearance.Submission.Frame && CanRedrawPlanetAppearance(frame.Sequence) &&
+                CurrentPlanetTextureView() == appearance.Submission.View && _textureFrameTicket == appearance.TextureTicket &&
+                ReferenceEquals(_textureFrameMaterials, appearance.Materials) && RecordedTextureIsCurrent();
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,

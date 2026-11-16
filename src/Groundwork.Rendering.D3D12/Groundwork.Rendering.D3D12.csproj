@@ -36,6 +36,9 @@
       <EmbeddedResource Include="$(_ShaderDirectory)/TextureShadowTerrain.ps.dxil" LogicalName="TextureShadowTerrain.ps.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/PbrTerrain.ps.dxil" LogicalName="PbrTerrain.ps.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/PbrShadowTerrain.ps.dxil" LogicalName="PbrShadowTerrain.ps.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/TerrainAppearance.vs.dxil" LogicalName="TerrainAppearance.vs.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/TerrainAppearance.ps.dxil" LogicalName="TerrainAppearance.ps.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/TerrainAppearanceShadow.ps.dxil" LogicalName="TerrainAppearanceShadow.ps.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.ps.dxil" LogicalName="Cube.ps.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Sky.vs.dxil" LogicalName="Sky.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Sky.ps.dxil" LogicalName="Sky.ps.dxil" WithCulture="false" />

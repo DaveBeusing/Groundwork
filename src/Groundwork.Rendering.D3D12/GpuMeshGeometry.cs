@@ -6,6 +6,7 @@ namespace Groundwork.Rendering.D3D12;
 internal sealed unsafe partial class GpuDevice
 {
     internal const long MaximumNativeMeshBytes = 64L * 1024 * 1024;
+    private const uint TerrainAppearanceVertexStride = NormalVertexStride + TerrainAppearanceVertex.SizeInBytes;
     // The render owner exclusively mutates both handles. Tests can observe the count during custody.
     internal MeshGeometry? ActiveMeshGeometry;
     private int _liveMeshBuffers;
@@ -65,7 +66,8 @@ internal sealed unsafe partial class GpuDevice
     private static int MeshBytes(RenderMesh mesh) => checked(
         mesh.Positions.Length * (int)GetVertexStride(mesh) + mesh.Indices.Length * sizeof(uint));
 
-    private static uint GetVertexStride(RenderMesh mesh) => mesh.PackedNormals.IsEmpty ? VertexStride : NormalVertexStride;
+    private static uint GetVertexStride(RenderMesh mesh) => !mesh.TerrainAppearance.IsEmpty ? TerrainAppearanceVertexStride :
+        mesh.PackedNormals.IsEmpty ? VertexStride : NormalVertexStride;
 
     private static PackedMesh PackMesh(in RenderMeshInstance instance, byte* mapped, ulong address, ref int offset)
     {
@@ -76,6 +78,7 @@ internal sealed unsafe partial class GpuDevice
             return default;
 
         var normals = instance.Mesh.PackedNormals;
+        var appearance = instance.Mesh.TerrainAppearance;
         var stride = GetVertexStride(instance.Mesh);
         var vertexBytes = checked(positions.Length * (int)stride);
         var indexBytes = checked(indices.Length * sizeof(uint));
@@ -96,6 +99,12 @@ internal sealed unsafe partial class GpuDevice
             *(GpuVertex*)vertex = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[index]);
             if (!normals.IsEmpty)
                 *(uint*)(vertex + VertexStride) = normals[index];
+            if (!appearance.IsEmpty)
+            {
+                var data = appearance[index];
+                *(System.Numerics.Vector3*)(vertex + NormalVertexStride) = data.Texels;
+                *(uint*)(vertex + NormalVertexStride + 3 * sizeof(float)) = data.MaterialAndMapping;
+            }
         }
         indices.CopyTo(new Span<uint>(mapped + indexOffset, indices.Length));
 
@@ -137,6 +146,7 @@ internal sealed unsafe partial class GpuDevice
         internal ID3D12Resource* Resource => _resource;
         internal int PackedBytes { get; }
         internal bool HasPackedNormals { get; }
+        internal bool HasTerrainAppearance { get; }
 
         internal bool HasLiveBinding(GpuDevice owner) =>
             ReferenceEquals(_owner, owner) && (PackedBytes == 0 || _resource != null);
@@ -155,6 +165,7 @@ internal sealed unsafe partial class GpuDevice
 
             _packed = new PackedMesh[meshes.Length];
             HasPackedNormals = true;
+            HasTerrainAppearance = true;
             var unread = new D3D12_RANGE();
             void* mapped = null;
             Check(resource->Map(0, &unread, &mapped), "Map mesh geometry");
@@ -166,8 +177,11 @@ internal sealed unsafe partial class GpuDevice
                 {
                     var packed = PackMesh(meshes[index], (byte*)mapped, address, ref offset);
                     _packed[index] = packed;
-                    if (packed.IndexCount != 0 && packed.Vertices.StrideInBytes != NormalVertexStride)
-                        HasPackedNormals = false;
+                    if (packed.IndexCount != 0)
+                    {
+                        HasPackedNormals &= packed.Vertices.StrideInBytes >= NormalVertexStride;
+                        HasTerrainAppearance &= packed.Vertices.StrideInBytes == TerrainAppearanceVertexStride;
+                    }
                 }
             }
             finally
@@ -188,7 +202,7 @@ internal sealed unsafe partial class GpuDevice
                 {
                     stride = mesh.Vertices.StrideInBytes;
                     commands->SetPipelineState(materialPipeline != null ? materialPipeline :
-                        _owner.TerrainPipeline(shadows, stride == NormalVertexStride, textured));
+                        _owner.TerrainPipeline(shadows, stride >= NormalVertexStride, textured));
                 }
                 DrawMesh(commands, mesh);
             }

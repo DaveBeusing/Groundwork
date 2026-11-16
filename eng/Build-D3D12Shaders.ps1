@@ -28,6 +28,9 @@ $shaders = @(
     @{ EntryPoint = 'PSShadowTexture'; Profile = 'ps_6_0'; Output = 'TextureShadowTerrain.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'PSPbrTerrain'; Profile = 'ps_6_0'; Output = 'PbrTerrain.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1') },
     @{ EntryPoint = 'PSPbrShadowTerrain'; Profile = 'ps_6_0'; Output = 'PbrShadowTerrain.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1') },
+    @{ EntryPoint = 'VSTerrainAppearance'; Profile = 'vs_6_0'; Output = 'TerrainAppearance.vs.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1', '-D', 'TERRAIN_APPEARANCE=1') },
+    @{ EntryPoint = 'PSPbrTerrain'; Profile = 'ps_6_0'; Output = 'TerrainAppearance.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1', '-D', 'TERRAIN_APPEARANCE=1') },
+    @{ EntryPoint = 'PSPbrShadowTerrain'; Profile = 'ps_6_0'; Output = 'TerrainAppearanceShadow.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1', '-D', 'TERRAIN_APPEARANCE=1') },
     @{ EntryPoint = 'PSMain'; Profile = 'ps_6_0'; Output = 'Cube.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'SkyVS'; Profile = 'vs_6_0'; Output = 'Sky.vs.dxil'; Source = 'Sky.hlsl' },
     @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'Sky.ps.dxil'; Source = 'Sky.hlsl' }
