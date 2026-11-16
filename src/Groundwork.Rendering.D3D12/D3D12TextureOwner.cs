@@ -72,19 +72,29 @@ public sealed partial class D3D12Renderer
     private bool HasProtectedTextureCompetition()
     {
         lock (_volumeGate)
+        {
+            var presented = Read().LastPresentedSequence;
             return _volumeStage is not null || _volumeStaged is not null ||
-                _volumeInstalled is { } installed && Read().LastPresentedSequence < installed.Frame;
+                _volumeMask is { } mask && presented < mask.Sequence ||
+                _volumeInstalled is { } installed && presented < installed.Frame;
+        }
     }
 
+    private bool CanServiceOptionalTextures(GpuDevice gpu, WindowsPresentationTargetLease target,
+        FirstContentRetry? retry) => _textureOwner is not null && !retry.HasValue && !ShouldStop(target) &&
+        gpu.IsIdle && !HasProtectedTextureCompetition();
+
     private bool ServiceOptionalTextures(GpuDevice gpu, WindowsPresentationTargetLease target, RendererWatchdog watchdog,
-        FirstContentRetry? retry, ref RendererStage stage)
+        FirstContentRetry? retry, ref RendererStage stage, OptionalVisualWork work, out bool spentTurn)
     {
-        if (_textureOwner is not { } owner || retry.HasValue || ShouldStop(target) ||
-            HasProtectedTextureCompetition())
+        spentTurn = false;
+        if (work == OptionalVisualWork.None || _textureOwner is not { } owner ||
+            !CanServiceOptionalTextures(gpu, target, retry))
             return true;
 
         var view = CurrentTextureView();
-        if (owner.TryTake(view, out var transfer))
+        var firstUse = work == OptionalVisualWork.FirstUseTexture;
+        if (owner.TryTake(view, firstUse, out var transfer))
         {
             stage = RendererStage.TextureUpload;
             if (!watchdog.Begin(stage, null, _operationTimeout))
@@ -104,7 +114,8 @@ public sealed partial class D3D12Renderer
             try
             {
                 if (owner.TrySubmit(transfer, view, () => !ShouldStop(target) &&
-                    !HasProtectedTextureCompetition() && CurrentTextureView() == view && watchdog.IsWithinDeadline))
+                    !HasProtectedTextureCompetition() && CurrentTextureView() == view && watchdog.IsWithinDeadline,
+                    out spentTurn))
                     return true;
             }
             finally
@@ -157,6 +168,7 @@ public sealed partial class D3D12Renderer
 
         internal bool HasSubmittedCopy => gpu.HasTextureCopy;
         internal bool HasReady(D3D12TextureView view) => stream.HasReady(view);
+        internal bool HasReady(D3D12TextureView view, bool firstUse) => stream.HasReady(view, firstUse);
 
         internal bool TryResolve(D3D12TextureView view, out D3D12TextureTicket ticket, out GpuTextureIdentity binding)
         {
@@ -182,27 +194,35 @@ public sealed partial class D3D12Renderer
             return true;
         }
 
-        internal bool TryTake(D3D12TextureView view, out D3D12TextureTransfer transfer) =>
-            stream.TryTake(view, out transfer);
+        internal bool TryTake(D3D12TextureView view, bool firstUse, out D3D12TextureTransfer transfer) =>
+            stream.TryTake(view, firstUse, out transfer);
 
-        internal bool TrySubmit(in D3D12TextureTransfer transfer, D3D12TextureView view, Func<bool> authorize)
+        internal bool TrySubmit(in D3D12TextureTransfer transfer, D3D12TextureView view, Func<bool> authorize,
+            out bool eligible)
         {
-            if (!gpu.TryGetTextureRequirements(transfer.Texture, out var requirements) ||
-                requirements.PayloadBytes > transfer.Reservation.PayloadBytes ||
-                requirements.StagingAllocationBytes > transfer.Reservation.StagingBytes ||
-                requirements.TextureAllocationBytes > transfer.Reservation.NativeBytes)
+            eligible = false;
+            var ticket = transfer.Ticket;
+            if (!stream.IsCurrent(ticket, view))
             {
-                stream.Release(transfer.Ticket);
+                stream.Release(ticket);
+                return false;
+            }
+            if (!gpu.TryGetTextureTierRequirements(transfer.Texture, transfer.RequestedMip,
+                transfer.Reservation, out var requirements))
+            {
+                stream.RejectUnsubmitted(ticket);
                 return false;
             }
 
+            if (stream.TryKeepResident(ticket, view, requirements.SourceMip))
+                return false;
+
+            eligible = true;
             // Install the custody marker before the first operation that can execute copy
             // work. A thrown or missing Signal leaves the charge here through teardown.
-            var ticket = transfer.Ticket;
             _copy = ticket;
             var couldRetry = false;
-            if (stream.IsCurrent(ticket, view) &&
-                gpu.TrySubmitTexture(transfer.Texture, view.View.RendererEpoch, in requirements, out _, () =>
+            if (gpu.TrySubmitTexture(transfer.Texture, view.View.RendererEpoch, in requirements, out _, () =>
                 {
                     // Seal the transfer's authority and retained ticket. Later
                     // invalidation can prevent installation while the queue owns
@@ -215,11 +235,13 @@ public sealed partial class D3D12Renderer
                     }
                 }))
             {
-                if (!stream.MarkCopySubmitted(ticket))
+                if (!stream.MarkCopySubmitted(ticket, requirements))
                     throw new InvalidOperationException("A submitted texture copy lost its custody ticket.");
                 return true;
             }
-            if (!couldRetry || !stream.TryReturnToReady(ticket, view))
+            if (!couldRetry)
+                stream.RejectUnsubmitted(ticket);
+            else if (!stream.TryReturnToReady(ticket, view))
                 stream.Release(ticket);
             _copy = null;
             return false;

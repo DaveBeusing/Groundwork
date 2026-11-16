@@ -24,6 +24,110 @@ public sealed unsafe class GpuTextureTests
     }
 
     [TestMethod]
+    public void WarpMipTiersShrinkBackingAndChooseLegalBc1SourceMip() =>
+        VerifyPhysicalMipTiers(warp: true);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    public void HardwareMipTiersShrinkBackingAndChooseLegalBc1SourceMip() =>
+        VerifyPhysicalMipTiers(warp: false);
+
+    private static void VerifyPhysicalMipTiers(bool warp)
+    {
+        Action<GpuDevice>? onDrawSignal = null;
+        var hooks = new GpuRetirementTestHooks(SignalFailure: (device, _) =>
+        {
+            if (!device.HasTextureCopy)
+                onDrawSignal?.Invoke(device);
+            return null;
+        });
+        var gpu = new GpuDevice(warp: warp, enableDebugLayer: true, enableDred: true, retirementHooks: hooks);
+        using (gpu)
+        {
+            Assert.IsTrue(gpu.DebugLayerEnabled);
+            Assert.IsTrue(gpu.DredEnabled);
+            Assert.AreEqual(warp, gpu.Adapter.IsSoftware);
+            if (!warp)
+                Assert.AreEqual(0x10deU, gpu.Adapter.VendorId);
+
+            var texture = Rgba(512, 512, TextureColorSpace.Linear, 255, 0, 0, mipCount: 3);
+            Assert.IsTrue(gpu.TryGetTextureRequirements(texture, 0, out var fine));
+            Assert.IsTrue(gpu.TryGetTextureRequirements(texture, 2, out var coarse));
+            Assert.IsLessThan(fine.TextureAllocationBytes, coarse.TextureAllocationBytes);
+            Assert.IsLessThan(fine.PayloadBytes, coarse.PayloadBytes);
+            var predecessor = Upload(gpu, texture);
+            Assert.IsTrue(gpu.SetFrameTexture(predecessor, 1));
+            var heldPredecessor = false;
+            onDrawSignal = device =>
+            {
+                heldPredecessor = true;
+                Assert.IsFalse(device.TryReleaseTexture(predecessor));
+                Assert.IsFalse(device.TrySubmitTexture(texture, 1, coarse, out _));
+                Assert.AreEqual(fine.TextureAllocationBytes, device.TextureStatistics.NativeBytes);
+            };
+            AssertCenter(gpu, 1, 255, 0, 0);
+            onDrawSignal = null;
+            Assert.IsTrue(heldPredecessor);
+
+            Assert.IsTrue(gpu.TrySubmitTexture(texture, 1, coarse, out var replacement));
+            Assert.AreEqual(fine.TextureAllocationBytes + coarse.TextureAllocationBytes, gpu.TextureStatistics.NativeBytes);
+            Assert.AreEqual(replacement, AwaitTexture(gpu));
+            Assert.IsTrue(gpu.SetFrameTexture(replacement, 1));
+            Assert.IsTrue(gpu.TryReleaseTexture(predecessor));
+            Assert.AreEqual(coarse.TextureAllocationBytes, gpu.TextureStatistics.NativeBytes);
+            Assert.AreEqual(0L, gpu.TextureStatistics.StagingBytes);
+            Assert.AreEqual((ulong)(fine.PayloadBytes + coarse.PayloadBytes), gpu.TextureStatistics.UploadedBytes);
+            Assert.AreEqual(fine.TextureAllocationBytes +
+                Math.Max(fine.StagingAllocationBytes, coarse.TextureAllocationBytes + coarse.StagingAllocationBytes),
+                gpu.TextureStatistics.NativePeakBytes);
+            AssertCenter(gpu, 2, 255, 0, 0);
+            Assert.IsTrue(gpu.TryReleaseTexture(replacement));
+
+            gpu.DisableUnalignedBlockTexturesForTests = true;
+            var blocks = new byte[56];
+            for (var index = 0; index < 4; index++)
+                BinaryPrimitives.WriteUInt16LittleEndian(blocks.AsSpan(index * 8), 0xf800);
+            BinaryPrimitives.WriteUInt16LittleEndian(blocks.AsSpan(32), 0x07e0);
+            BinaryPrimitives.WriteUInt16LittleEndian(blocks.AsSpan(40), 0x001f);
+            Assert.AreEqual(TextureCookError.None, TextureCooker.CookBc1(blocks, 8, 8,
+                new(TextureColorSpace.Linear, TextureSemantic.Color, 4), Limits, out var bc1));
+            Assert.IsNotNull(bc1);
+            Assert.IsFalse(gpu.TryGetTextureRequirements(bc1, 2, out _));
+            Assert.IsTrue(gpu.TryGetTextureRequirements(bc1, 1, out var legal));
+            var credit = new D3D12TextureReservation(512, 0, 1024, legal.StagingAllocationBytes, legal.TextureAllocationBytes);
+            Assert.IsFalse(gpu.TryGetTextureTierRequirements(bc1, 2, credit with { NativeBytes = 1 }, out _));
+            Assert.IsTrue(gpu.TryGetTextureTierRequirements(bc1, 2, credit, out var selected));
+            Assert.AreEqual(legal, selected);
+            Assert.IsFalse(gpu.TrySubmitTexture(bc1, 1, selected with { SourceMip = 2 }, out _));
+            var bc1Predecessor = Upload(gpu, bc1);
+            Assert.IsTrue(gpu.SetFrameTexture(bc1Predecessor, 1));
+            heldPredecessor = false;
+            onDrawSignal = device =>
+            {
+                heldPredecessor = true;
+                Assert.IsFalse(device.TryReleaseTexture(bc1Predecessor));
+                Assert.IsFalse(device.TrySubmitTexture(bc1, 1, selected, out _));
+            };
+            AssertCenter(gpu, 3, 255, 0, 0);
+            onDrawSignal = null;
+            Assert.IsTrue(heldPredecessor);
+            Assert.IsTrue(gpu.TrySubmitTexture(bc1, 1, selected, out var bc1Binding));
+            Assert.AreNotEqual(bc1Predecessor.Slot, bc1Binding.Slot);
+            Assert.AreEqual(bc1Binding, AwaitTexture(gpu));
+            Assert.IsTrue(gpu.TryReleaseTexture(bc1Predecessor));
+            Assert.IsTrue(gpu.SetFrameTexture(bc1Binding, 1));
+            AssertCenter(gpu, 4, 0, 255, 0);
+            Assert.IsTrue(gpu.TryReleaseTexture(bc1Binding));
+            Assert.AreEqual(0L, gpu.TextureStatistics.NativeBytes);
+            Assert.AreEqual(0L, gpu.TextureStatistics.StagingBytes);
+            Assert.IsNull(gpu.CaptureDred());
+        }
+        Assert.IsNotNull(gpu.FinalDebugSummary);
+        Assert.AreEqual(0UL, gpu.FinalDebugSummary.Errors);
+        Assert.AreEqual(0, gpu.FinalDebugSummary.LiveChildObjects);
+    }
+
+    [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
     public void HardwareStaticTextureSamplesWithDebugLayerAndDred()
     {
@@ -373,7 +477,8 @@ public sealed unsafe class GpuTextureTests
         Assert.IsLessThan(1f, readback.DepthAt(32, 32));
     }
 
-    private static CookedTexture Rgba(int width, int height, TextureColorSpace colorSpace, byte red, byte green, byte blue)
+    private static CookedTexture Rgba(int width, int height, TextureColorSpace colorSpace, byte red, byte green, byte blue,
+        int mipCount = 1)
     {
         var tga = new byte[18 + width * height * 4];
         tga[2] = 2;
@@ -389,7 +494,7 @@ public sealed unsafe class GpuTextureTests
             tga[offset + 3] = 255;
         }
         Assert.AreEqual(TextureCookError.None, TextureCooker.CookTga32(tga,
-            new(colorSpace, TextureSemantic.Color, 1), Limits, out var texture));
+            new(colorSpace, TextureSemantic.Color, mipCount), Limits, out var texture));
         Assert.IsNotNull(texture);
         return texture;
     }

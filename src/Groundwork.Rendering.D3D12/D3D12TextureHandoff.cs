@@ -1,4 +1,5 @@
 using Groundwork.Rendering.Materials;
+using Groundwork.Rendering.Passes;
 using Groundwork.Rendering.Textures;
 using Groundwork.Voxels;
 
@@ -39,7 +40,19 @@ public readonly record struct D3D12TextureLimits(int Targets, int Requests, long
 public readonly record struct D3D12TextureUsage(int Requests, int Workers, int Handoffs, int Descriptors,
     long SourceBytes, long ScratchBytes, long PayloadBytes, long StagingBytes, long NativeBytes);
 
-public enum D3D12TextureResult { Accepted, Coalesced, Stale, Invalid, Quota, Closed }
+public enum D3D12TextureResult { Accepted, Coalesced, Stale, Invalid, Quota, Closed, Unavailable }
+
+/// <summary>Distance bands for two committed resource sizes from the same immutable mip chain.</summary>
+public readonly record struct D3D12TextureMipPolicy(int FineMip, int CoarseMip, double PromoteWithin, double DemoteBeyond)
+{
+    internal bool IsValid => FineMip >= 0 && CoarseMip > FineMip &&
+        CoarseMip <= System.Numerics.BitOperations.Log2(RenderPlanLimits.TextureDimension) &&
+        double.IsFinite(PromoteWithin) && PromoteWithin >= 0 &&
+        double.IsFinite(DemoteBeyond) && DemoteBeyond > PromoteWithin;
+}
+
+/// <summary>The desired and sampleable asset mip indices. A null resident mip selects the fallback.</summary>
+public readonly record struct D3D12TextureResidency(int RequestedMip, int? ResidentMip, long ResidentBytes);
 
 /// <summary>An opaque request capability scoped to one stream and one occupation of an entry.</summary>
 public readonly record struct D3D12TextureTicket
@@ -53,9 +66,9 @@ public readonly record struct D3D12TextureTicket
 }
 
 internal readonly record struct D3D12TextureTransfer(D3D12TextureTicket Ticket, D3D12TextureView View,
-    D3D12TextureTarget Target, CookedTexture Texture, D3D12TextureReservation Reservation);
+    D3D12TextureTarget Target, CookedTexture Texture, D3D12TextureReservation Reservation, int RequestedMip);
 
-/// <summary>Bounded producer-to-render-owner handoff for static cooked textures.</summary>
+/// <summary>Bounded producer-to-render-owner handoff for cooked textures and mip replacements.</summary>
 /// <remarks>
 /// Reserve before starting a worker or allocating source, scratch, or payload. The worker reads and validates
 /// cooked data within that credit off the render thread. One reservation includes a handoff and a descriptor,
@@ -77,6 +90,17 @@ public sealed class D3D12TextureHandoff
         internal D3D12TextureTarget Target;
         internal D3D12TextureReservation Reservation;
         internal CookedTexture? Texture;
+        internal int RequestedMip;
+        internal int SourceMip;
+    }
+
+    private struct Demand
+    {
+        internal D3D12TextureTarget Target;
+        internal D3D12TextureMipPolicy Policy;
+        internal int RequestedMip;
+        internal bool Near;
+        internal bool Failed;
     }
 
     private static long _nextStream;
@@ -85,6 +109,7 @@ public sealed class D3D12TextureHandoff
     private readonly D3D12TextureTarget[] _targets;
     private readonly D3D12TextureTarget[] _publicationScratch;
     private readonly Entry[] _entries;
+    private readonly Demand[] _demands;
     private Guid _ownerWorld;
     private D3D12TextureView _view;
     private ulong _paletteRevision;
@@ -106,6 +131,7 @@ public sealed class D3D12TextureHandoff
         _targets = new D3D12TextureTarget[limits.Targets];
         _publicationScratch = new D3D12TextureTarget[limits.Targets];
         _entries = new Entry[limits.Descriptors];
+        _demands = new Demand[limits.Targets];
     }
 
     /// <summary>Declare a complete palette cut, carrying forward only exact per-slot targets.</summary>
@@ -162,6 +188,9 @@ public sealed class D3D12TextureHandoff
                 foreach (ref var entry in _entries.AsSpan())
                     if (entry.State != State.Free && (entry.View != view || FindTarget(entry.Target.Slot) != entry.Target))
                         Invalidate(ref entry);
+                foreach (ref var demand in _demands.AsSpan())
+                    if (demand.Target.Sequence != 0 && (!sameView || FindTarget(demand.Target.Slot) != demand.Target))
+                        demand = default;
 
                 wake = _wake;
             }
@@ -202,43 +231,156 @@ public sealed class D3D12TextureHandoff
             if (!view.IsValid || view != _view || FindTarget(target.Slot) != target)
                 return D3D12TextureResult.Stale;
 
-            var free = -1;
-            for (var i = 0; i < _entries.Length; i++)
+            return Reserve(view, target, null, reservation, out ticket);
+        }
+    }
+
+    /// <summary>Evaluate demand and reserve a worker for the selected tier, if one is needed.</summary>
+    /// <remarks>Start at the coarse tier and refine only after the first resident mip. Distances in the
+    /// hysteresis band retain the previous request. A source or native preparation failure is retryable
+    /// after demand changes. Quota denial can be retried after the corresponding credit settles.</remarks>
+    public D3D12TextureResult TryRequestTier(D3D12TextureView view, D3D12TextureTarget target,
+        D3D12TextureMipPolicy policy, double distance, D3D12TextureReservation fine, D3D12TextureReservation coarse,
+        out D3D12TextureTicket ticket)
+    {
+        ticket = default;
+        if (Closed)
+            return D3D12TextureResult.Closed;
+        if (!policy.IsValid || !double.IsFinite(distance) || distance < 0 || !fine.IsValid || !coarse.IsValid)
+            return D3D12TextureResult.Invalid;
+
+        Action? wake = null;
+        D3D12TextureResult result;
+        lock (Gate)
+        {
+            if (Closed)
+                return D3D12TextureResult.Closed;
+            if (!view.IsValid || view != _view || FindTarget(target.Slot) != target)
+                return D3D12TextureResult.Stale;
+
+            var resident = FindResident(view, target.Slot);
+            var index = FindDemand(target, out var free);
+            if (index < 0)
+                _demands[index = free] = new Demand { Target = target, Policy = policy, RequestedMip = policy.CoarseMip };
+            ref var demand = ref _demands[index];
+            if (demand.Policy != policy)
+                return D3D12TextureResult.Invalid;
+
+            var near = distance <= policy.PromoteWithin || distance < policy.DemoteBeyond && demand.Near;
+            if (near != demand.Near)
             {
-                ref var entry = ref _entries[i];
-                if (entry.State == State.Free)
-                {
-                    if (free < 0)
-                        free = i;
-                }
-                else if (MatchesCurrent(in entry, view) && entry.Target == target && entry.State != State.Retiring)
-                {
-                    return D3D12TextureResult.Coalesced;
-                }
+                demand.Near = near;
+                demand.Failed = false;
+            }
+            var requestedMip = near && resident >= 0 ? policy.FineMip : policy.CoarseMip;
+            if (requestedMip != demand.RequestedMip)
+            {
+                demand.RequestedMip = requestedMip;
+                demand.Failed = false;
+                foreach (ref var entry in _entries.AsSpan())
+                    if (entry.State is State.Worker or State.Ready or State.Taken or State.Copy &&
+                        MatchesCurrent(in entry, view) && entry.Target == target && entry.RequestedMip != requestedMip)
+                        Invalidate(ref entry);
             }
 
-            var used = CountUsage();
-            if (free < 0 || used.Requests == _limits.Requests ||
-                reservation.SourceBytes > _limits.SourceBytes - used.SourceBytes ||
-                reservation.ScratchBytes > _limits.ScratchBytes - used.ScratchBytes ||
-                reservation.PayloadBytes > _limits.PayloadBytes - used.PayloadBytes ||
-                reservation.StagingBytes > _limits.StagingBytes - used.StagingBytes ||
-                reservation.NativeBytes > _limits.NativeBytes - used.NativeBytes)
-                return D3D12TextureResult.Quota;
-
-            var generation = checked(++_generation);
-            _entries[free] = new Entry
+            if (demand.Failed)
+                return D3D12TextureResult.Unavailable;
+            var reservation = requestedMip == policy.FineMip ? fine : coarse;
+            result = Reserve(view, target, requestedMip, reservation, out ticket);
+            if (result == D3D12TextureResult.Quota && resident >= 0 && _entries[resident].SourceMip < requestedMip &&
+                FitsAfterRetirement(in _entries[resident], reservation))
             {
-                State = State.Worker,
-                View = view,
-                Target = target,
-                Reservation = reservation,
-                Generation = generation
-            };
-            ticket = new(_identity, free, generation);
-            RecordPeak(CountUsage());
-            return D3D12TextureResult.Accepted;
+                // A demotion that cannot overlap drops to the allocated fallback. Credit remains
+                // with the predecessor until its allocation and descriptor physically retire.
+                Invalidate(ref _entries[resident]);
+                wake = _wake;
+            }
         }
+        wake?.Invoke();
+        return result;
+    }
+
+    public bool TryReadResidency(D3D12TextureView view, D3D12TextureTarget target, out D3D12TextureResidency residency)
+    {
+        residency = default;
+        lock (Gate)
+        {
+            if (Closed || !view.IsValid || view != _view || FindTarget(target.Slot) != target)
+                return false;
+            var resident = FindResident(view, target.Slot);
+            var demand = FindDemand(target, out _);
+            residency = new(demand < 0 ? 0 : _demands[demand].RequestedMip,
+                resident < 0 ? null : _entries[resident].SourceMip,
+                resident < 0 ? 0 : _entries[resident].Reservation.NativeBytes);
+            return true;
+        }
+    }
+
+    private int FindDemand(D3D12TextureTarget target, out int free)
+    {
+        free = -1;
+        for (var i = 0; i < _demands.Length; i++)
+        {
+            if (_demands[i].Target == target)
+                return i;
+            if (free < 0 && _demands[i].Target.Sequence == 0)
+                free = i;
+        }
+        return -1;
+    }
+
+    private D3D12TextureResult Reserve(D3D12TextureView view, D3D12TextureTarget target, int? requestedMip,
+        D3D12TextureReservation reservation, out D3D12TextureTicket ticket)
+    {
+        ticket = default;
+        var free = -1;
+        for (var i = 0; i < _entries.Length; i++)
+        {
+            ref readonly var entry = ref _entries[i];
+            if (entry.State == State.Free)
+            {
+                if (free < 0)
+                    free = i;
+            }
+            else if (entry.State != State.Retiring && MatchesCurrent(in entry, view) && entry.Target == target &&
+                (requestedMip is null || entry.RequestedMip == requestedMip ||
+                    entry.State == State.Resident && entry.SourceMip == requestedMip))
+            {
+                return D3D12TextureResult.Coalesced;
+            }
+        }
+
+        if (free < 0 || !Fits(CountUsage(), reservation))
+            return D3D12TextureResult.Quota;
+
+        var generation = checked(++_generation);
+        _entries[free] = new Entry
+        {
+            State = State.Worker,
+            View = view,
+            Target = target,
+            Reservation = reservation,
+            Generation = generation,
+            RequestedMip = requestedMip ?? 0
+        };
+        ticket = new(_identity, free, generation);
+        RecordPeak(CountUsage());
+        return D3D12TextureResult.Accepted;
+    }
+
+    private bool Fits(in D3D12TextureUsage used, in D3D12TextureReservation reservation) =>
+        used.Descriptors < _limits.Descriptors && used.Requests < _limits.Requests &&
+        reservation.SourceBytes <= _limits.SourceBytes - used.SourceBytes &&
+        reservation.ScratchBytes <= _limits.ScratchBytes - used.ScratchBytes &&
+        reservation.PayloadBytes <= _limits.PayloadBytes - used.PayloadBytes &&
+        reservation.StagingBytes <= _limits.StagingBytes - used.StagingBytes &&
+        reservation.NativeBytes <= _limits.NativeBytes - used.NativeBytes;
+
+    private bool FitsAfterRetirement(in Entry predecessor, D3D12TextureReservation reservation)
+    {
+        var used = CountUsage();
+        return Fits(used with { Descriptors = used.Descriptors - 1, NativeBytes = used.NativeBytes - predecessor.Reservation.NativeBytes },
+            reservation);
     }
 
     /// <summary>Transfer a validated cooked payload after the worker has drained its source and scratch storage.</summary>
@@ -261,6 +403,7 @@ public sealed class D3D12TextureHandoff
             if (texture.CanonicalBytes.Length > entry.Reservation.PayloadBytes ||
                 !MatchesBinding(entry.Target.Reference, texture))
             {
+                MarkDemandFailed(in entry);
                 entry = default;
                 return D3D12TextureResult.Invalid;
             }
@@ -281,7 +424,9 @@ public sealed class D3D12TextureHandoff
         {
             if (!FindEntry(ticket) || _entries[ticket.Index].State != State.Worker)
                 return false;
-            _entries[ticket.Index] = default;
+            ref var entry = ref _entries[ticket.Index];
+            MarkDemandFailed(in entry);
+            entry = default;
             return true;
         }
     }
@@ -346,17 +491,27 @@ public sealed class D3D12TextureHandoff
         }
     }
 
-    internal bool HasReady(D3D12TextureView view)
+    internal bool HasReady(D3D12TextureView view) => HasReady(view, null);
+
+    internal bool HasReady(D3D12TextureView view, bool firstUse) => HasReady(view, (bool?)firstUse);
+
+    private bool HasReady(D3D12TextureView view, bool? firstUse)
     {
         lock (Gate)
-            return FindReady(view) >= 0;
+            return FindReady(view, firstUse) >= 0;
     }
 
-    internal bool TryTake(D3D12TextureView view, out D3D12TextureTransfer transfer)
+    internal bool TryTake(D3D12TextureView view, out D3D12TextureTransfer transfer) =>
+        TryTake(view, null, out transfer);
+
+    internal bool TryTake(D3D12TextureView view, bool firstUse, out D3D12TextureTransfer transfer) =>
+        TryTake(view, (bool?)firstUse, out transfer);
+
+    private bool TryTake(D3D12TextureView view, bool? firstUse, out D3D12TextureTransfer transfer)
     {
         lock (Gate)
         {
-            var index = FindReady(view);
+            var index = FindReady(view, firstUse);
             if (index < 0)
             {
                 transfer = default;
@@ -365,7 +520,7 @@ public sealed class D3D12TextureHandoff
 
             ref var entry = ref _entries[index];
             entry.State = State.Taken;
-            transfer = new(Ticket(index), view, entry.Target, entry.Texture!, entry.Reservation);
+            transfer = new(Ticket(index), view, entry.Target, entry.Texture!, entry.Reservation, entry.RequestedMip);
             return true;
         }
     }
@@ -385,7 +540,37 @@ public sealed class D3D12TextureHandoff
         }
     }
 
-    internal bool MarkCopySubmitted(D3D12TextureTicket ticket)
+    internal bool TryKeepResident(D3D12TextureTicket ticket, D3D12TextureView view, int sourceMip)
+    {
+        lock (Gate)
+        {
+            if (!FindEntry(ticket))
+                return false;
+            ref var entry = ref _entries[ticket.Index];
+            if (entry.State != State.Taken || !MatchesCurrent(in entry, view))
+                return false;
+            var resident = FindResident(view, entry.Target.Slot);
+            if (resident < 0 || _entries[resident].SourceMip != sourceMip)
+                return false;
+            _entries[resident].RequestedMip = entry.RequestedMip;
+            entry = default;
+            return true;
+        }
+    }
+
+    internal void RejectUnsubmitted(D3D12TextureTicket ticket)
+    {
+        lock (Gate)
+        {
+            if (!FindEntry(ticket) || _entries[ticket.Index].State != State.Taken)
+                return;
+            ref var entry = ref _entries[ticket.Index];
+            MarkDemandFailed(in entry);
+            entry = default;
+        }
+    }
+
+    internal bool MarkCopySubmitted(D3D12TextureTicket ticket, GpuTextureRequirements? requirements = null)
     {
         lock (Gate)
         {
@@ -393,6 +578,18 @@ public sealed class D3D12TextureHandoff
                 return false;
 
             ref var entry = ref _entries[ticket.Index];
+            entry.SourceMip = requirements?.SourceMip ?? entry.RequestedMip;
+            if (requirements is { } actual)
+            {
+                if (actual.StagingAllocationBytes <= 0 || actual.StagingAllocationBytes > entry.Reservation.StagingBytes ||
+                    actual.TextureAllocationBytes <= 0 || actual.TextureAllocationBytes > entry.Reservation.NativeBytes)
+                    return false;
+                entry.Reservation = entry.Reservation with
+                {
+                    StagingBytes = actual.StagingAllocationBytes,
+                    NativeBytes = actual.TextureAllocationBytes
+                };
+            }
             entry.State = State.Copy;
             entry.Texture = null;
             return true;
@@ -450,19 +647,21 @@ public sealed class D3D12TextureHandoff
     {
         lock (Gate)
         {
-            for (var i = 0; i < _entries.Length; i++)
-            {
-                ref readonly var entry = ref _entries[i];
-                if (entry.State == State.Resident && entry.Target.Slot == slot && MatchesCurrent(in entry, view))
-                {
-                    ticket = Ticket(i);
-                    return true;
-                }
-            }
-
-            ticket = default;
-            return false;
+            var resident = FindResident(view, slot);
+            ticket = resident < 0 ? default : Ticket(resident);
+            return resident >= 0;
         }
+    }
+
+    private int FindResident(D3D12TextureView view, D3D12TextureSlot slot)
+    {
+        for (var i = 0; i < _entries.Length; i++)
+        {
+            ref readonly var entry = ref _entries[i];
+            if (entry.State == State.Resident && entry.Target.Slot == slot && MatchesCurrent(in entry, view))
+                return i;
+        }
+        return -1;
     }
 
     /// <summary>Static reference route selects the lowest currently targeted base-color material.</summary>
@@ -483,18 +682,33 @@ public sealed class D3D12TextureHandoff
         }
     }
 
-    private int FindReady(D3D12TextureView view)
+    private int FindReady(D3D12TextureView view, bool? firstUse)
     {
-        var oldest = -1;
+        var oldestFirst = -1;
+        var oldestReplacement = -1;
         for (var i = 0; i < _entries.Length; i++)
         {
             ref readonly var entry = ref _entries[i];
-            if (entry.State == State.Ready && MatchesCurrent(in entry, view) &&
-                (oldest < 0 || entry.Generation < _entries[oldest].Generation))
+            if (entry.State != State.Ready || !MatchesCurrent(in entry, view))
+                continue;
+            var first = FindResident(view, entry.Target.Slot) < 0;
+            if (firstUse is { } selectedClass && first != selectedClass)
+                continue;
+            ref var oldest = ref (first ? ref oldestFirst : ref oldestReplacement);
+            if (oldest < 0 || entry.Generation < _entries[oldest].Generation)
                 oldest = i;
         }
 
-        return oldest;
+        return oldestFirst >= 0 ? oldestFirst : oldestReplacement;
+    }
+
+    private void MarkDemandFailed(in Entry entry)
+    {
+        if (!MatchesCurrent(in entry, _view))
+            return;
+        var demand = FindDemand(entry.Target, out _);
+        if (demand >= 0 && _demands[demand].RequestedMip == entry.RequestedMip)
+            _demands[demand].Failed = true;
     }
 
     private static void Invalidate(ref Entry entry)

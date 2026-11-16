@@ -10,6 +10,143 @@ public sealed class TextureStreamTests
     private static readonly D3D12TextureReservation Credit = new(1024, 512, 4096, 65_536, 65_536);
     private static readonly D3D12TextureUsage ResidentCredit = new(0, 0, 0, 1, 0, 0, 0, 0, 65_536);
     private static readonly D3D12TextureUsage WorkerCredit = new(1, 1, 1, 1, 1024, 512, 4096, 65_536, 65_536);
+    private static readonly D3D12TextureMipPolicy MipPolicy = new(FineMip: 0, CoarseMip: 2, PromoteWithin: 10, DemoteBeyond: 20);
+
+    [TestMethod]
+    public void TierRequestsKeepHysteresisAndServiceFirstUseAheadOfOlderRefinements()
+    {
+        var view = View();
+        var stream = Stream(descriptors: 4);
+        var texture = Cook(TextureSemantic.Color);
+        var first = Target(1, MaterialTextureSemantic.BaseColor, texture);
+        var second = Target(2, MaterialTextureSemantic.BaseColor, texture);
+        var third = Target(3, MaterialTextureSemantic.BaseColor, texture);
+        Assert.IsTrue(stream.Publish(view, 1, [first, second, third]));
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(first, 30, out var coarse));
+        Ready(coarse);
+        Assert.AreEqual(2, Take(stream, view).RequestedMip);
+        Install(stream, view, coarse);
+        Assert.AreEqual(D3D12TextureResult.Coalesced, Demand(first, 15, out _));
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(first, 5, out var refine));
+        Assert.AreEqual(D3D12TextureResult.Coalesced, Demand(first, 15, out _));
+        Ready(refine);
+        Assert.IsFalse(stream.HasReady(view, firstUse: true));
+        Assert.IsTrue(stream.HasReady(view, firstUse: false));
+
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(second, 1, out var secondFirst));
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(third, 1, out var thirdFirst));
+        Ready(thirdFirst);
+        Ready(secondFirst);
+        Assert.AreEqual(secondFirst, Take(stream, view).Ticket);
+        Install(stream, view, secondFirst);
+        Assert.IsTrue(stream.TryTake(view, firstUse: true, out var transfer));
+        Assert.AreEqual(thirdFirst, transfer.Ticket);
+        Install(stream, view, thirdFirst);
+
+        Assert.IsFalse(stream.TryTake(view, firstUse: true, out _));
+        Assert.IsTrue(stream.TryTake(view, firstUse: false, out transfer));
+        Assert.AreEqual(refine, transfer.Ticket);
+        Assert.AreEqual(0, transfer.RequestedMip);
+        Assert.IsTrue(stream.MarkCopySubmitted(refine, new(8, 8, 32_768, 32_768, 0)));
+        Assert.IsTrue(stream.TryInstall(refine, view, out var predecessor));
+        Assert.AreEqual(coarse, predecessor);
+        Assert.AreEqual(3 * Credit.NativeBytes + 32_768, stream.ReadUsage().NativeBytes);
+        Assert.IsTrue(stream.Release(predecessor));
+        Assert.IsTrue(stream.TryReadResidency(view, first, out var residency));
+        Assert.AreEqual(new D3D12TextureResidency(0, 0, 32_768), residency);
+        Assert.AreEqual(0L, stream.ReadUsage().StagingBytes);
+
+        D3D12TextureResult Demand(D3D12TextureTarget target, double distance, out D3D12TextureTicket ticket) =>
+            stream.TryRequestTier(view, target, MipPolicy, distance, Credit, Credit, out ticket);
+        void Ready(D3D12TextureTicket ticket) =>
+            Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(ticket, texture));
+    }
+
+    [TestMethod]
+    public void DemotionOverCapUsesFallbackAndRetriesOnlyWithSettledCreditOrNewDemand()
+    {
+        var view = View();
+        var fine = Credit with { NativeBytes = 131_072 };
+        var stream = new D3D12TextureHandoff(new(1, 2, 2048, 1024, 8192, 131_072, fine.NativeBytes, 2));
+        var texture = Cook(TextureSemantic.Color);
+        var target = Target(1, MaterialTextureSemantic.BaseColor, texture);
+        Assert.IsTrue(stream.Publish(view, 1, [target]));
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryRequest(view, target, fine, out var predecessor));
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(predecessor, texture));
+        Assert.AreEqual(predecessor, Take(stream, view).Ticket);
+        Install(stream, view, predecessor);
+
+        var wakes = 0;
+        stream.BindOwner(view.World, () => wakes++);
+        Assert.AreEqual(D3D12TextureResult.Quota, Demand(21, out _));
+        Assert.AreEqual(1, wakes);
+        Assert.IsTrue(stream.TryReadResidency(view, target, out var fallback));
+        Assert.AreEqual(new D3D12TextureResidency(2, null, 0), fallback);
+        Assert.AreEqual(fine.NativeBytes, stream.ReadUsage().NativeBytes);
+        Assert.AreEqual(D3D12TextureResult.Quota, Demand(21, out _));
+        Assert.AreEqual(1, wakes);
+        Assert.IsTrue(stream.Release(predecessor));
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(21, out var missing));
+        Assert.IsTrue(stream.CompleteWorker(missing));
+        Assert.AreEqual(D3D12TextureResult.Unavailable, Demand(21, out _));
+        Assert.AreEqual(D3D12TextureResult.Unavailable, Demand(15, out _));
+        Assert.AreEqual(default, stream.ReadUsage());
+
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(5, out var coarse));
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(coarse, texture));
+        Assert.AreEqual(2, Take(stream, view).RequestedMip);
+        Install(stream, view, coarse);
+        Assert.AreEqual(D3D12TextureResult.Quota, Demand(5, out _));
+        Assert.IsTrue(stream.TryReadResidency(view, target, out var retained));
+        Assert.AreEqual(new D3D12TextureResidency(0, 2, Credit.NativeBytes), retained);
+        Assert.AreEqual(Credit.NativeBytes, stream.ReadUsage().NativeBytes);
+
+        D3D12TextureResult Demand(double distance, out D3D12TextureTicket ticket) =>
+            stream.TryRequestTier(view, target, MipPolicy, distance, fine, Credit, out ticket);
+    }
+
+    [TestMethod]
+    public void RapidTierChangesKeepAnObsoleteCopyChargedAcrossRemovalAndEpochChange()
+    {
+        var view = View();
+        var stream = Stream();
+        var texture = Cook(TextureSemantic.Color);
+        var target = Target(1, MaterialTextureSemantic.BaseColor, texture);
+        Assert.IsTrue(stream.Publish(view, 1, [target]));
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(view, 30, out var predecessor));
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(predecessor, texture));
+        Take(stream, view);
+        Install(stream, view, predecessor);
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(view, 5, out var pending));
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(pending, texture));
+        Assert.AreEqual(pending, Take(stream, view).Ticket);
+        Assert.IsTrue(stream.MarkCopySubmitted(pending));
+
+        Assert.AreEqual(D3D12TextureResult.Coalesced, Demand(view, 25, out _));
+        Assert.AreEqual(D3D12TextureResult.Coalesced, Demand(view, 15, out _));
+        Assert.IsFalse(stream.TryInstall(pending, view, out _));
+        Assert.IsTrue(stream.TryGetResident(view, target.Slot, out var drawable));
+        Assert.AreEqual(predecessor, drawable);
+        var retained = stream.ReadUsage();
+        Assert.AreEqual(Credit.StagingBytes, retained.StagingBytes);
+        Assert.AreEqual(2 * Credit.NativeBytes, retained.NativeBytes);
+
+        Assert.IsTrue(stream.Publish(view, 2, []));
+        var next = view with { View = view.View with { RendererEpoch = 2 } };
+        Assert.IsTrue(stream.Publish(next, 1, [target]));
+        Assert.AreEqual(retained, stream.ReadUsage());
+        Assert.IsFalse(stream.TryGetResident(next, target.Slot, out _));
+        Assert.IsFalse(stream.TryInstall(pending, next, out _));
+        Assert.IsTrue(stream.Release(pending));
+        Assert.IsTrue(stream.Release(predecessor));
+        Assert.AreEqual(default, stream.ReadUsage());
+        Assert.AreEqual(D3D12TextureResult.Accepted, Demand(next, 5, out var fresh));
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(fresh, texture));
+        Assert.AreEqual(2, Take(stream, next).RequestedMip);
+
+        D3D12TextureResult Demand(D3D12TextureView cut, double distance, out D3D12TextureTicket ticket) =>
+            stream.TryRequestTier(cut, target, MipPolicy, distance, Credit, Credit, out ticket);
+    }
 
     [TestMethod]
     public void IndependentTargetsCompleteInReverseAcrossAFullPaletteOnlyChange()

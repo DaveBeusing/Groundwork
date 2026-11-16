@@ -9,6 +9,7 @@ internal sealed unsafe partial class GpuDevice
 {
     internal D3D12PropCells? PropStream;
     internal VolumePublicationInfo? PropTerrain;
+    internal bool AllowPropUploads = true;
     private ID3D12RootSignature* _propRoot;
     private ID3D12PipelineState* _propPipeline;
     private ID3D12Resource* _propData;
@@ -55,6 +56,31 @@ internal sealed unsafe partial class GpuDevice
         internal int Written;
     }
 
+    internal bool HasReadyPropUploads(in RenderScene scene, in VolumePublicationInfo terrain)
+    {
+        if (_propUnavailable || PropStream is not { } stream || scene.PropOrigin is not { IsValid: true } ||
+            !scene.PropEye.IsValid)
+            return false;
+
+        lock (stream.Gate)
+        {
+            if (!CanDrawProps(stream, terrain))
+                return false;
+            foreach (var candidate in stream.Ready)
+            {
+                if (candidate.Request.Generation != 0 &&
+                    stream.Admission.ReadStagedLength(candidate.Request, out _, out _) == PropCellResult.Accepted)
+                    return true;
+            }
+            return false;
+        }
+    }
+
+    private static bool CanDrawProps(D3D12PropCells stream, in VolumePublicationInfo terrain) =>
+        !stream.Closed && stream.Publication.RendererEpoch == terrain.View.RendererEpoch &&
+        stream.Publication.TerrainRevision == terrain.TerrainRevision &&
+        stream.Publication.CoverageGeneration == terrain.Generation;
+
     private void DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ulong sequence)
     {
         if (PropStream is not { } stream || PropTerrain is not { } terrain || scene.PropOrigin is not { } origin)
@@ -73,19 +99,31 @@ internal sealed unsafe partial class GpuDevice
                 ResetPropUploadBudget();
                 _propUploadSequence = sequence;
             }
-            if (stream.Closed || stream.Publication.RendererEpoch != terrain.View.RendererEpoch ||
-                stream.Publication.TerrainRevision != terrain.TerrainRevision ||
-                stream.Publication.CoverageGeneration != terrain.Generation || !origin.IsValid || !scene.PropEye.IsValid)
+            if (!CanDrawProps(stream, terrain) || !origin.IsValid || !scene.PropEye.IsValid)
             {
                 RecordPropStatistics(0, 0);
                 return;
             }
 
+            if (!AllowPropUploads && (_propMeshes is null || _propMeshCursor != _propMeshes.Length))
+            {
+                _propReportPendingWorkers = true;
+                RecordPropStatistics(0, 0);
+                return;
+            }
             if (!TryInitializeProps(stream))
                 return;
             stream.Admission.BeginFrame();
             _propAdmissionPrepared = true;
-            PreparePropUploads(stream);
+            if (AllowPropUploads)
+                PreparePropUploads(stream);
+            else
+            {
+                // The texture copy spent this turn's payload allowance; already
+                // resident props can still be drawn with current frame references.
+                _propNextReady = _nextPropRequest;
+                Array.Fill(_propCandidateBySlot, -1);
+            }
             if (_propMeshCursor != _propMeshes!.Length)
             {
                 _propReportPendingWorkers = true;
