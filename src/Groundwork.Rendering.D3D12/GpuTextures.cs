@@ -7,7 +7,7 @@ using static TerraFX.Interop.Windows.Windows;
 namespace Groundwork.Rendering.D3D12;
 
 internal readonly record struct GpuTextureRequirements(int PayloadBytes, int StagingBytes,
-    long TextureAllocationBytes, long StagingAllocationBytes);
+    long TextureAllocationBytes, long StagingAllocationBytes, int SourceMip);
 
 internal readonly record struct GpuTextureIdentity(long Device, ulong RendererEpoch, int Slot, ulong Generation);
 
@@ -45,11 +45,33 @@ internal sealed unsafe partial class GpuDevice
     internal GpuTextureStatistics TextureStatistics { get; private set; }
     internal bool HasTextureCopy => _pendingTextureSlot >= 0;
     internal Func<GpuTexturePreparationStep, int?>? TexturePreparationFailureForTests;
+    internal bool DisableUnalignedBlockTexturesForTests;
 
     internal bool TryGetTextureRequirements(CookedTexture texture, out GpuTextureRequirements requirements) =>
-        TryDescribeTexture(texture, out requirements, out _, out _, out _, out _);
+        TryGetTextureRequirements(texture, 0, out requirements);
 
-    private bool TryDescribeTexture(CookedTexture texture, out GpuTextureRequirements requirements,
+    internal bool TryGetTextureRequirements(CookedTexture texture, int sourceMip, out GpuTextureRequirements requirements) =>
+        TryDescribeTexture(texture, sourceMip, out requirements, out _, out _, out _, out _);
+
+    internal bool TryGetTextureTierRequirements(CookedTexture texture, int requestedMip,
+        in D3D12TextureReservation reservation, out GpuTextureRequirements requirements)
+    {
+        // A smaller cooked BC1 mip can be illegal as a native resource's top level.
+        // Search toward finer tiers and accept only one that fits the issued credit.
+        for (var mip = Math.Min(requestedMip, texture.Mips.Length - 1); mip >= 0; mip--)
+        {
+            if (TryGetTextureRequirements(texture, mip, out requirements) &&
+                requirements.PayloadBytes <= reservation.PayloadBytes &&
+                requirements.StagingAllocationBytes <= reservation.StagingBytes &&
+                requirements.TextureAllocationBytes <= reservation.NativeBytes)
+                return true;
+        }
+
+        requirements = default;
+        return false;
+    }
+
+    private bool TryDescribeTexture(CookedTexture texture, int sourceMip, out GpuTextureRequirements requirements,
         out D3D12_RESOURCE_DESC description, out D3D12_PLACED_SUBRESOURCE_FOOTPRINT footprint,
         out uint rows, out GpuFrameTextureImport import)
     {
@@ -59,7 +81,7 @@ internal sealed unsafe partial class GpuDevice
         footprint = default;
         rows = 0;
         import = default;
-        if (_device == null || texture.Mips.IsEmpty)
+        if (_device == null || (uint)sourceMip >= (uint)texture.Mips.Length)
             return false;
 
         var (format, portableFormat) = (texture.Format, texture.ColorSpace) switch
@@ -70,9 +92,9 @@ internal sealed unsafe partial class GpuDevice
             (TextureFormat.Bc1, TextureColorSpace.Srgb) => (DXGI_FORMAT.DXGI_FORMAT_BC1_UNORM_SRGB, RenderResourceFormat.Bc1UnormSrgb),
             _ => default,
         };
-        var mip = texture.Mips[0];
+        var mip = texture.Mips[sourceMip];
         if (format == DXGI_FORMAT.DXGI_FORMAT_UNKNOWN || mip.Width is < 1 or > RenderPlanLimits.TextureDimension ||
-            mip.Height is < 1 or > RenderPlanLimits.TextureDimension || mip.Offset != 0 ||
+            mip.Height is < 1 or > RenderPlanLimits.TextureDimension || mip.Offset < 0 ||
             texture.Semantic is not (TextureSemantic.Color or TextureSemantic.Data or TextureSemantic.Normal) ||
             texture.ColorSpace == TextureColorSpace.Srgb && texture.Semantic != TextureSemantic.Color)
             return false;
@@ -82,7 +104,7 @@ internal sealed unsafe partial class GpuDevice
         var expectedRows = bc1 ? (mip.Height + 3) / 4 : mip.Height;
         var expectedRowBytes = bc1 ? ((mip.Width + 3) / 4) * 8 : mip.Width * 4;
         if (mip.RowBytes != expectedRowBytes || mip.ByteLength != (long)expectedRows * expectedRowBytes ||
-            mip.ByteLength > texture.Payload.Length || mip.ByteLength > MaxTextureCopyBytes)
+            mip.ByteLength > texture.Payload.Length - mip.Offset || mip.ByteLength > MaxTextureCopyBytes)
             return false;
 
         var support = new D3D12_FEATURE_DATA_FORMAT_SUPPORT { Format = format };
@@ -109,7 +131,7 @@ internal sealed unsafe partial class GpuDevice
         if (textureAllocation is 0 or > long.MaxValue || stagingAllocation is 0 or > long.MaxValue)
             return false;
 
-        requirements = new(mip.ByteLength, (int)stagingBytes, (long)textureAllocation, (long)stagingAllocation);
+        requirements = new(mip.ByteLength, (int)stagingBytes, (long)textureAllocation, (long)stagingAllocation, sourceMip);
         footprint = layout;
         description = desc;
         rows = rowCount;
@@ -119,6 +141,8 @@ internal sealed unsafe partial class GpuDevice
 
     private bool SupportsUnalignedBlockTexture()
     {
+        if (DisableUnalignedBlockTexturesForTests)
+            return false;
         var options = new D3D12_FEATURE_DATA_D3D12_OPTIONS8();
         return _device->CheckFeatureSupport(D3D12_FEATURE.D3D12_FEATURE_D3D12_OPTIONS8,
             &options, (uint)sizeof(D3D12_FEATURE_DATA_D3D12_OPTIONS8)).Value >= 0 &&
@@ -133,7 +157,8 @@ internal sealed unsafe partial class GpuDevice
     {
         identity = default;
         if (rendererEpoch == 0 || HasTextureCopy || !IsIdle ||
-            !TryDescribeTexture(texture, out var actual, out var description, out var footprint, out var rows, out var import) ||
+            !TryDescribeTexture(texture, reserved.SourceMip, out var actual, out var description, out var footprint,
+                out var rows, out var import) ||
             reserved != actual)
             return false;
 
@@ -164,7 +189,7 @@ internal sealed unsafe partial class GpuDevice
                     D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
                 ObserveResource(destination, D3D12ResourceOwner.Texture, (ulong)actual.TextureAllocationBytes);
                 ObserveTextureAllocationPeak(actual.StagingAllocationBytes + actual.TextureAllocationBytes);
-                FillTextureUpload(staging, texture, footprint.Footprint.RowPitch, rows);
+                FillTextureUpload(staging, texture, actual.SourceMip, footprint.Footprint.RowPitch, rows);
             }
             catch (GpuNativeException error) when (error.HResult is (TextureOutOfMemory or TextureUnsupported) &&
                 !IsRemoved && IsIdle)
@@ -268,16 +293,16 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private static void FillTextureUpload(ID3D12Resource* staging, CookedTexture texture, uint rowPitch, uint rows)
+    private static void FillTextureUpload(ID3D12Resource* staging, CookedTexture texture, int sourceMip, uint rowPitch, uint rows)
     {
         void* mapped = null;
         var unread = default(D3D12_RANGE);
         Check(staging->Map(0, &unread, &mapped), "Map texture upload");
-        var mip = texture.Mips[0];
+        var mip = texture.Mips[sourceMip];
         try
         {
             for (var row = 0; row < rows; row++)
-                texture.Payload.Slice(row * mip.RowBytes, mip.RowBytes)
+                texture.Payload.Slice(mip.Offset + row * mip.RowBytes, mip.RowBytes)
                     .CopyTo(new Span<byte>((byte*)mapped + row * rowPitch, mip.RowBytes));
         }
         finally

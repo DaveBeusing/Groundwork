@@ -38,6 +38,38 @@ public sealed partial class D3D12Renderer
     private const int ProgressPollMilliseconds = 10;
     private static readonly TimeSpan OcclusionInterval = TimeSpan.FromMilliseconds(100);
 
+    private enum OptionalVisualWork { None, FirstUseTexture, TextureRefinement, Props }
+
+    private struct OptionalVisualArbitration
+    {
+        private bool _propsDue;
+        private int _firstUseTurns;
+        private const int FirstUseWeight = 2;
+
+        internal readonly OptionalVisualWork Select(bool firstUse, bool refinement, bool props)
+        {
+            if (props && (_propsDue || (!firstUse && !refinement)))
+                return OptionalVisualWork.Props;
+            if (firstUse && (!refinement || _firstUseTurns < FirstUseWeight))
+                return OptionalVisualWork.FirstUseTexture;
+            return refinement ? OptionalVisualWork.TextureRefinement : OptionalVisualWork.None;
+        }
+
+        internal void Consume(OptionalVisualWork work, bool propsEligible)
+        {
+            if (work == OptionalVisualWork.Props)
+            {
+                _propsDue = false;
+                return;
+            }
+
+            // Texture-only or suspended turns cannot erase a prop's next compatible turn.
+            _propsDue |= propsEligible;
+            _firstUseTurns = work == OptionalVisualWork.FirstUseTexture
+                ? Math.Min(_firstUseTurns + 1, FirstUseWeight) : 0;
+        }
+    }
+
     private void RunOwner(RendererWatchdog watchdog)
     {
         IRuntimeWorkLease? lifetime = null;
@@ -128,6 +160,8 @@ public sealed partial class D3D12Renderer
         var executedFirst = 0UL;
         var occluded = false;
         var lastProbe = 0L;
+        var visualArbitration = new OptionalVisualArbitration();
+        var servicedTextureBeforeFrame = false;
 
         while (!ShouldStop(target))
         {
@@ -196,8 +230,11 @@ public sealed partial class D3D12Renderer
                 SetSurface(RenderSurfaceState.Suspended, chain);
                 redraw |= current.HasValue;
                 RefreshTextures(gpu);
-                if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage))
+                var work = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, null, out _);
+                if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, work, out var spentTurn))
                     break;
+                if (spentTurn)
+                    visualArbitration.Consume(work, propsEligible: false);
                 WaitForFrame(_textureOwner is { HasSubmittedCopy: true }
                     ? ProgressPollMilliseconds : Timeout.Infinite);
                 continue;
@@ -286,8 +323,12 @@ public sealed partial class D3D12Renderer
 
             if (!redraw || current is not { } frame)
             {
-                if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage))
+                servicedTextureBeforeFrame = false;
+                var work = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, null, out _);
+                if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, work, out var spentTurn))
                     break;
+                if (spentTurn)
+                    visualArbitration.Consume(work, propsEligible: false);
                 WaitForFrame(_textureOwner is { HasSubmittedCopy: true }
                     ? ProgressPollMilliseconds : Timeout.Infinite);
                 continue;
@@ -301,6 +342,7 @@ public sealed partial class D3D12Renderer
                     ClearRetry(revoked);
                 }
                 redraw = false;
+                servicedTextureBeforeFrame = false;
                 continue;
             }
 
@@ -310,6 +352,26 @@ public sealed partial class D3D12Renderer
                 continue;
             }
 
+            var visualWork = OptionalVisualWork.None;
+            if (!servicedTextureBeforeFrame && frame.Scene is { } scene)
+            {
+                visualWork = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, scene, out var propsEligible);
+                if (visualWork is OptionalVisualWork.FirstUseTexture or OptionalVisualWork.TextureRefinement)
+                {
+                    if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, visualWork, out var spentTurn))
+                        break;
+                    if (spentTurn)
+                    {
+                        visualArbitration.Consume(visualWork, propsEligible);
+                        servicedTextureBeforeFrame = true;
+                        // Retirement, terrain staging, and newest-frame selection all run
+                        // again before recording the draw that follows this copy.
+                        continue;
+                    }
+                    visualWork = propsEligible ? OptionalVisualWork.Props : OptionalVisualWork.None;
+                }
+            }
+
             frameSequence = frame.Sequence;
             stage = RendererStage.Submit;
             if (!watchdog.Begin(stage, frameSequence, _operationTimeout))
@@ -317,7 +379,8 @@ public sealed partial class D3D12Renderer
 
             var firstContent = GetUnpresentedRegistration(frame);
             var selectedRetry = retry is { } pending && ReferenceEquals(pending.Frame, firstContent) ? pending : (FirstContentRetry?)null;
-            var submission = TrySubmitFrame(gpu, target, chain, watchdog, frame, selectedRetry);
+            var allowPropUploads = !servicedTextureBeforeFrame || retry.HasValue || HasProtectedTextureCompetition();
+            var submission = TrySubmitFrame(gpu, target, chain, watchdog, frame, selectedRetry, allowPropUploads);
             if (submission != GpuFrameSubmitResult.Submitted)
             {
                 if (!watchdog.Complete())
@@ -350,6 +413,10 @@ public sealed partial class D3D12Renderer
                     WaitForFrame(ProgressPollMilliseconds);
                 continue;
             }
+
+            servicedTextureBeforeFrame = false;
+            if (visualWork == OptionalVisualWork.Props)
+                visualArbitration.Consume(visualWork, propsEligible: true);
 
             if (firstContent is not null)
             {
@@ -530,8 +597,23 @@ public sealed partial class D3D12Renderer
 
     private enum SurfaceApplication { Denied, Suspended, Applied }
 
+    private OptionalVisualWork SelectOptionalVisualWork(OptionalVisualArbitration arbitration, GpuDevice gpu,
+        WindowsPresentationTargetLease target, FirstContentRetry? retry, RenderScene? scene, out bool propsEligible)
+    {
+        propsEligible = false;
+        if (!CanServiceOptionalTextures(gpu, target, retry) || _textureOwner is not { } textures)
+            return OptionalVisualWork.None;
+
+        var view = CurrentTextureView();
+        var firstUse = textures.HasReady(view, firstUse: true);
+        var refinement = textures.HasReady(view, firstUse: false);
+        propsEligible = scene is { } drawable && _volumeInstalled is { } installed &&
+            gpu.HasReadyPropUploads(drawable, installed.Info);
+        return arbitration.Select(firstUse, refinement, propsEligible);
+    }
+
     private GpuFrameSubmitResult TrySubmitFrame(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,
-        RendererWatchdog watchdog, in RenderFrame frame, FirstContentRetry? retry)
+        RendererWatchdog watchdog, in RenderFrame frame, FirstContentRetry? retry, bool allowPropUploads)
     {
         using var operation = TryBegin(target);
         if (operation is null || !Matches(operation.Snapshot, chain) || !watchdog.TryAdvance(RendererStage.Submit))
@@ -541,6 +623,7 @@ public sealed partial class D3D12Renderer
         gpu.PropTerrain = frame.Scene.HasValue ? _volumeInstalled?.Info : null;
         CaptureFrameTexture(gpu, frame);
         _submittingFirstContentRetry = retry;
+        gpu.AllowPropUploads = allowPropUploads;
         try
         {
             return frame.Scene.HasValue && VolumePresentReadbackForTests is not null
@@ -549,6 +632,7 @@ public sealed partial class D3D12Renderer
         }
         finally
         {
+            gpu.AllowPropUploads = true;
             _submittingFirstContentRetry = null;
             ClearFrameTexture(gpu);
         }
