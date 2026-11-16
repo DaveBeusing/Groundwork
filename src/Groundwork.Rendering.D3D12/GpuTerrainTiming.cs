@@ -4,56 +4,86 @@ using static TerraFX.Interop.Windows.Windows;
 
 namespace Groundwork.Rendering.D3D12;
 
+internal readonly record struct ShadowGpuTiming(double FrameMicroseconds, double TerrainMicroseconds,
+    double NearShadowMicroseconds, double FarShadowMicroseconds, int ShadowPassCount);
+
 internal sealed unsafe partial class GpuDevice
 {
     private TerrainTiming? _terrainTiming;
 
-    // An opt-in offscreen measurement uses one query pair and waits for retirement
-    // before reusing it. The normal renderer never allocates these resources.
-    internal void EnableTerrainTimingForTests()
+    // An opt-in measurement waits for retirement before reusing its query heap.
+    // The normal renderer never allocates these resources.
+    internal void EnableTerrainTimingForTests() => EnableTiming(measureShadows: false);
+
+    internal void EnableShadowTimingForTests() => EnableTiming(measureShadows: true);
+
+    private void EnableTiming(bool measureShadows)
     {
         if (_device == null || _queue == null || !IsIdle || _terrainTiming is not null)
-            throw new InvalidOperationException("Terrain timing requires an idle device without an active query heap.");
+            throw new InvalidOperationException("Timing requires an idle device without an active query heap.");
 
-        _terrainTiming = new(_device, _queue);
+        _terrainTiming = new(_device, _queue, measureShadows);
     }
 
     internal double ReadTerrainTimingForTests(ulong sequence)
     {
-        if (sequence == 0 || _terrainTiming is not { } timing || timing.Sequence != sequence || !IsIdle)
+        if (sequence == 0 || _terrainTiming is not { MeasuresShadows: false } timing || timing.Sequence != sequence || !IsIdle)
             throw new InvalidOperationException("No retired terrain measurement matches this frame.");
 
-        return timing.ReadMicroseconds();
+        return timing.ReadTerrainMicroseconds();
+    }
+
+    internal ShadowGpuTiming ReadShadowTimingForTests(ulong sequence)
+    {
+        if (sequence == 0 || _terrainTiming is not { MeasuresShadows: true } timing || timing.Sequence != sequence || !IsIdle)
+            throw new InvalidOperationException("No retired shadow measurement matches this frame.");
+
+        return timing.ReadShadowMicroseconds();
+    }
+
+    // Query zero always starts the frame in shadow timing mode. Other zero offsets mean
+    // the corresponding pass was absent. Only the layout of a submitted attempt is published.
+    private struct ShadowTimingLayout
+    {
+        internal uint QueryCount;
+        internal uint FrameEnd;
+        internal uint TerrainStart;
+        internal uint NearStart;
+        internal uint FarStart;
     }
 
     private sealed class TerrainTiming : IDisposable
     {
-        private const uint QueryCount = 2;
-        private const int ByteCount = (int)QueryCount * sizeof(ulong);
+        private const uint TerrainQueryCount = 2;
+        private const uint ShadowQueryCount = 8;
+        private const D3D12_QUERY_TYPE Timestamp = D3D12_QUERY_TYPE.D3D12_QUERY_TYPE_TIMESTAMP;
         private readonly ulong _frequency;
         private ID3D12QueryHeap* _heap;
         private ID3D12Resource* _results;
+        private ShadowTimingLayout _submitted;
 
-        internal TerrainTiming(ID3D12Device* device, ID3D12CommandQueue* queue)
+        internal TerrainTiming(ID3D12Device* device, ID3D12CommandQueue* queue, bool measureShadows)
         {
             ulong frequency = 0;
             Check(queue->GetTimestampFrequency(&frequency), "Get direct queue timestamp frequency");
             if (frequency == 0)
                 throw new InvalidOperationException("The direct queue returned a zero timestamp frequency.");
             _frequency = frequency;
+            MeasuresShadows = measureShadows;
 
+            var queryCount = measureShadows ? ShadowQueryCount : TerrainQueryCount;
             var description = new D3D12_QUERY_HEAP_DESC
             {
                 Type = D3D12_QUERY_HEAP_TYPE.D3D12_QUERY_HEAP_TYPE_TIMESTAMP,
-                Count = QueryCount,
+                Count = queryCount,
             };
             ID3D12QueryHeap* heap = null;
-            Check(device->CreateQueryHeap(&description, __uuidof<ID3D12QueryHeap>(), (void**)&heap), "Create terrain timestamp heap");
+            Check(device->CreateQueryHeap(&description, __uuidof<ID3D12QueryHeap>(), (void**)&heap), "Create GPU timestamp heap");
             _heap = heap;
             try
             {
                 _results = CreateResource(device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_READBACK,
-                    Buffer(ByteCount), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
+                    Buffer(queryCount * sizeof(ulong)), D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_COPY_DEST);
             }
             catch
             {
@@ -62,35 +92,102 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal ulong Sequence { get; set; }
+        internal bool MeasuresShadows { get; }
+        internal ulong Sequence { get; private set; }
 
-        internal void Begin(ID3D12GraphicsCommandList* commands) =>
-            commands->EndQuery(_heap, D3D12_QUERY_TYPE.D3D12_QUERY_TYPE_TIMESTAMP, 0);
-
-        internal void End(ID3D12GraphicsCommandList* commands)
+        internal uint Stamp(ID3D12GraphicsCommandList* commands, ref ShadowTimingLayout layout)
         {
-            const D3D12_QUERY_TYPE type = D3D12_QUERY_TYPE.D3D12_QUERY_TYPE_TIMESTAMP;
-            commands->EndQuery(_heap, type, 1);
-            commands->ResolveQueryData(_heap, type, 0, QueryCount, _results, 0);
+            var index = layout.QueryCount++;
+            commands->EndQuery(_heap, Timestamp, index);
+            return index;
         }
 
-        internal double ReadMicroseconds()
+        internal void BeginTerrain(ID3D12GraphicsCommandList* commands, ref ShadowTimingLayout layout)
         {
-            var range = new D3D12_RANGE { End = ByteCount };
-            void* mapped = null;
-            Check(_results->Map(0, &range, &mapped), "Map terrain timestamp results");
+            if (MeasuresShadows)
+                layout.TerrainStart = Stamp(commands, ref layout);
+            else
+                commands->EndQuery(_heap, Timestamp, 0);
+        }
+
+        internal void EndTerrain(ID3D12GraphicsCommandList* commands, ref ShadowTimingLayout layout)
+        {
+            if (MeasuresShadows)
+                Stamp(commands, ref layout);
+            else
+            {
+                commands->EndQuery(_heap, Timestamp, 1);
+                Resolve(commands, TerrainQueryCount);
+            }
+        }
+
+        internal void EndFrame(ID3D12GraphicsCommandList* commands, ref ShadowTimingLayout layout)
+        {
+            layout.FrameEnd = Stamp(commands, ref layout);
+            Resolve(commands, layout.QueryCount);
+        }
+
+        internal void Publish(ulong sequence, bool hasTerrain, in ShadowTimingLayout layout)
+        {
+            _submitted = layout;
+            Sequence = MeasuresShadows || hasTerrain ? sequence : 0;
+        }
+
+        internal double ReadTerrainMicroseconds()
+        {
+            var ticks = Map(TerrainQueryCount);
             try
             {
-                var ticks = (ulong*)mapped;
-                if (ticks[1] < ticks[0])
-                    throw new InvalidOperationException("Terrain timestamps were recorded out of order.");
-                return (ticks[1] - ticks[0]) * 1_000_000d / _frequency;
+                return Microseconds(ticks, 0, 1);
             }
             finally
             {
-                D3D12_RANGE written = default;
-                _results->Unmap(0, &written);
+                Unmap();
             }
+        }
+
+        internal ShadowGpuTiming ReadShadowMicroseconds()
+        {
+            var layout = _submitted;
+            var ticks = Map(layout.QueryCount);
+            try
+            {
+                var shadowPasses = (layout.NearStart == 0 ? 0 : 1) + (layout.FarStart == 0 ? 0 : 1);
+                return new(Microseconds(ticks, 0, layout.FrameEnd), OptionalPassMicroseconds(ticks, layout.TerrainStart),
+                    OptionalPassMicroseconds(ticks, layout.NearStart), OptionalPassMicroseconds(ticks, layout.FarStart),
+                    shadowPasses);
+            }
+            finally
+            {
+                Unmap();
+            }
+        }
+
+        private void Resolve(ID3D12GraphicsCommandList* commands, uint count) =>
+            commands->ResolveQueryData(_heap, Timestamp, 0, count, _results, 0);
+
+        private ulong* Map(uint count)
+        {
+            var range = new D3D12_RANGE { End = count * sizeof(ulong) };
+            void* mapped = null;
+            Check(_results->Map(0, &range, &mapped), "Map GPU timestamp results");
+            return (ulong*)mapped;
+        }
+
+        private void Unmap()
+        {
+            D3D12_RANGE written = default;
+            _results->Unmap(0, &written);
+        }
+
+        private double OptionalPassMicroseconds(ulong* ticks, uint start) =>
+            start == 0 ? 0 : Microseconds(ticks, start, start + 1);
+
+        private double Microseconds(ulong* ticks, uint start, uint end)
+        {
+            if (ticks[end] < ticks[start])
+                throw new InvalidOperationException("GPU timestamps were recorded out of order.");
+            return (ticks[end] - ticks[start]) * 1_000_000d / _frequency;
         }
 
         public void Dispose()

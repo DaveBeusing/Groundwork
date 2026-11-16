@@ -379,8 +379,11 @@ internal sealed unsafe partial class GpuDevice
 
     private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
         RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan,
-        bool terrainPbr, bool terrainAppearance)
+        bool terrainPbr, bool terrainAppearance, out ShadowTimingLayout timingLayout)
     {
+        timingLayout = default;
+        var shadowTiming = _terrainTiming is { MeasuresShadows: true } timing ? timing : null;
+        shadowTiming?.Stamp(commands, ref timingLayout);
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
         _resourceDiagnostics?.BeginRecording();
@@ -398,7 +401,19 @@ internal sealed unsafe partial class GpuDevice
                 commands->ClearDepthStencilView(dsv, D3D12_CLEAR_FLAGS.D3D12_CLEAR_FLAG_DEPTH, 1, 0, 0, null);
             }
             else if (pass.Id == GpuPassPlan.NearShadow || pass.Id == GpuPassPlan.FarShadow)
-                RecordShadowCascade(commands, shadows, pass.Id == GpuPassPlan.NearShadow ? 0U : 1U);
+            {
+                var near = pass.Id == GpuPassPlan.NearShadow;
+                if (shadowTiming is not null)
+                {
+                    var start = shadowTiming.Stamp(commands, ref timingLayout);
+                    if (near)
+                        timingLayout.NearStart = start;
+                    else
+                        timingLayout.FarStart = start;
+                }
+                RecordShadowCascade(commands, shadows, near ? 0U : 1U);
+                shadowTiming?.Stamp(commands, ref timingLayout);
+            }
             else if (pass.Id == GpuPassPlan.Sky)
             {
                 ObserveUse(target.Buffer);
@@ -409,16 +424,20 @@ internal sealed unsafe partial class GpuDevice
             {
                 if (!frame.Sky.HasValue)
                     BindFrameTargets(commands, target, rtv, dsv);
-                _terrainTiming?.Begin(commands);
+                _terrainTiming?.BeginTerrain(commands, ref timingLayout);
                 RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr, terrainAppearance);
-                _terrainTiming?.End(commands);
+                _terrainTiming?.EndTerrain(commands, ref timingLayout);
             }
             else if (pass.Id == GpuPassPlan.Props)
                 DrawProps(commands, target, frame.Scene!.Value, frame.Sequence);
             else if (pass.Id == GpuPassPlan.FollowOn)
                 Draw(commands, target, subsequent!.Value);
             else if (pass.Id == GpuPassPlan.Copy)
+            {
+                // End the frame sample before the color/depth transfer for CPU readback.
+                shadowTiming?.EndFrame(commands, ref timingLayout);
                 readback!.Record(commands, target.Buffer, _depth);
+            }
             else if (pass.Id == GpuPassPlan.Present)
             {
                 ObserveUse(target.Buffer);
@@ -430,6 +449,8 @@ internal sealed unsafe partial class GpuDevice
                 throw new InvalidOperationException("The validated pass has no fixed-route recorder.");
             // DXGI Present is issued by the owner. CPU readback consumes only retired work.
         }
+        if (shadowTiming is not null && timingLayout.FrameEnd == 0)
+            shadowTiming.EndFrame(commands, ref timingLayout);
     }
 
     private static void BindFrameTargets(ID3D12GraphicsCommandList* commands, GpuTarget target,
