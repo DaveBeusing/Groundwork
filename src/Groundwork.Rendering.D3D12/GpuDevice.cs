@@ -202,7 +202,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (completed == ulong.MaxValue)
             throw new GpuNativeException("Read GPU retirement fence after device removal", RemovedReason);
         var context = _frames[_nextFrame];
-        if (!_retirement.CanReuse(completed, context.Retirement))
+        if (!_retirement.CanReuse(completed, context.Retirement)
+            || _terrainTiming is not null && !_retirement.IsIdle(completed))
             return GpuFrameSubmitResult.Busy;
 
         if (_device == null || _queue == null || _depth == null || !target.IsCurrent(this, _depthGeneration)
@@ -259,6 +260,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             _retirementHooks?.BeforeExecute?.Invoke(frame.Sequence);
                             _queue->ExecuteCommandLists(1, &commands);
                             Check(SignalQueueWork(next), "Signal queue");
+                            if (_terrainTiming is { } timing)
+                                timing.Sequence = frame.Scene.HasValue ? frame.Sequence : 0;
                             _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;
                             _nextFrame = (_nextFrame + 1) % _frames.Length;
@@ -430,6 +433,9 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         ReleaseShadows();
         Release(_normalPipeline);
         _normalPipeline = null;
+        ReleasePbrPipeline();
+        _terrainTiming?.Dispose();
+        _terrainTiming = null;
         Release(_pipeline);
         Release(_root);
         Release(_fence);

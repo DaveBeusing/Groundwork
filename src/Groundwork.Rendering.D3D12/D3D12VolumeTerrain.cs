@@ -2,6 +2,7 @@ using System.Collections.Immutable;
 using System.Numerics;
 using Groundwork.Core;
 using Groundwork.Platform.Windows;
+using Groundwork.Rendering.Materials;
 using Groundwork.Voxels;
 
 namespace Groundwork.Rendering.D3D12;
@@ -15,6 +16,9 @@ public readonly record struct VolumeCamera(VolumeViewIdentity View, PlanetVector
 
     /// <summary>Optional directional sunlight for volume terrain.</summary>
     public RenderSunlight? Sunlight { get; init; }
+
+    /// <summary>Optional untextured PBR inputs for this camera submission.</summary>
+    public PbrMaterialDescriptor? TerrainMaterial { get; init; }
 
     /// <summary>Enables near terrain shadow maps for this sunlit camera.</summary>
     public bool TerrainShadows { get; init; }
@@ -280,6 +284,7 @@ public sealed partial class D3D12Renderer
             PropEye = new(camera.Position.X, camera.Position.Y, camera.Position.Z),
             Fog = camera.Fog,
             Sunlight = camera.Sunlight,
+            TerrainMaterial = camera.TerrainMaterial,
             ShadowOrigin = camera.TerrainShadows ? new(camera.View.Frame.Origin.X,
                 camera.View.Frame.Origin.Y, camera.View.Frame.Origin.Z) : null,
         }) { Sky = camera.Sky };

@@ -1,6 +1,26 @@
 cbuffer Frame : register(b0)
 {
     row_major float4x4 WorldViewProjection;
+#if defined(TERRAIN_PBR)
+    float3 PbrBaseColor;
+    float PbrMetallic;
+    float4 FogColorOpacity;
+    float3 FogDepth;
+    float PbrOcclusion;
+    float3 SunDirection;
+    float PbrRoughness;
+    float3 SunDirect;
+    float PbrEmissiveRed;
+    float3 SunAmbient;
+    float PbrEmissiveGreen;
+    float4 LightX;
+    float4 LightY;
+    float3 LightZ;
+    float PbrEmissiveBlue;
+    float4 NearShadow;
+    float4 FarShadow;
+    float3 PbrHalfEye;
+#else
     float4 Tint;
     float4 FogColorOpacity;
     float4 FogDepth;
@@ -12,6 +32,7 @@ cbuffer Frame : register(b0)
     float4 LightZ;
     float4 NearShadow;
     float4 FarShadow;
+#endif
 };
 
 struct VertexOutput
@@ -45,6 +66,7 @@ VertexOutput VSNormals(float3 position : POSITION, float4 color : COLOR, uint pa
     return output;
 }
 
+#if !defined(TERRAIN_PBR)
 float4 Shade(VertexOutput input, float visibility, float4 albedo)
 {
     float4 color = Tint * input.Color * albedo;
@@ -64,6 +86,7 @@ float4 Shade(VertexOutput input, float visibility, float4 albedo)
     }
     return color;
 }
+#endif
 
 Texture2D<float> NearDepth : register(t0);
 Texture2D<float> FarDepth : register(t1);
@@ -126,6 +149,80 @@ float ShadowVisibility(VertexOutput input)
     return visibility;
 }
 
+#if defined(TERRAIN_PBR)
+
+float3 UnitOrZero(float3 vector)
+{
+    float scale = max(max(abs(vector.x), abs(vector.y)), abs(vector.z));
+    if (scale == 0)
+        return 0;
+    return normalize(vector / scale);
+}
+
+float3 DirectBrdf(float3 normal, float3 view, float normalLight, float normalView)
+{
+    const float Pi = 3.141592653589793;
+    const float DielectricF0 = 0.04;
+    const float MinimumRoughness = 0.08;
+    float3 halfway = UnitOrZero(view + SunDirection);
+    float normalHalf = saturate(dot(normal, halfway));
+    float viewHalf = saturate(dot(view, halfway));
+
+    // Perceptual roughness is squared to give alpha. This expansion stays nonzero at N.H = 1.
+    float roughness = max(PbrRoughness, MinimumRoughness);
+    float alpha = roughness * roughness;
+    float alphaSquared = alpha * alpha;
+    float normalHalfSquared = normalHalf * normalHalf;
+    float denominator = (1 - normalHalfSquared) + alphaSquared * normalHalfSquared;
+    float distribution = alphaSquared / (Pi * denominator * denominator);
+
+    // Exact, separable Smith GGX. Evaluate G/(4 N.L N.V) with the cosines cancelled.
+    float viewTerm = normalView + sqrt(alphaSquared + (1 - alphaSquared) * normalView * normalView);
+    float lightTerm = normalLight + sqrt(alphaSquared + (1 - alphaSquared) * normalLight * normalLight);
+    float visibility = 1 / (viewTerm * lightTerm);
+
+    float3 f0 = lerp(DielectricF0, PbrBaseColor, PbrMetallic);
+    float edge = 1 - viewHalf;
+    float edgeSquared = edge * edge;
+    float3 fresnel = f0 + (1 - f0) * edgeSquared * edgeSquared * edge;
+    float3 diffuse = (1 - fresnel) * (1 - PbrMetallic) * PbrBaseColor / Pi;
+    return diffuse + distribution * visibility * fresnel;
+}
+
+float4 ShadeTerrainPbr(VertexOutput input, float shadow)
+{
+    // Ambient is a diffuse approximation. AO acts here only. The specular
+    // lobe comes from the directional light; there is no environment specular input.
+    float3 color = PbrBaseColor * (1 - PbrMetallic) * PbrOcclusion * SunAmbient +
+        float3(PbrEmissiveRed, PbrEmissiveGreen, PbrEmissiveBlue);
+    float3 normal = UnitOrZero(input.Normal);
+    float3 view = UnitOrZero(PbrHalfEye - 0.5 * input.Local);
+    float normalLight = saturate(dot(normal, SunDirection));
+    float normalView = saturate(dot(normal, view));
+    // The terrain keeps its two-sided rasterization. Direct reflection uses the hemisphere
+    // of the packed normal, while diffuse ambient and emissive remain visible from either side.
+    if (normalLight > 0 && normalView > 0)
+        color += DirectBrdf(normal, view, normalLight, normalView) * SunDirect * (normalLight * shadow);
+    if (FogColorOpacity.a > 0)
+    {
+        float amount = FogColorOpacity.a * saturate((input.ViewDepth * FogDepth.z - FogDepth.x) * FogDepth.y);
+        color = lerp(color, FogColorOpacity.rgb, amount);
+    }
+    return float4(color, 1);
+}
+
+float4 PSPbrTerrain(VertexOutput input) : SV_Target
+{
+    return ShadeTerrainPbr(input, 1);
+}
+
+float4 PSPbrShadowTerrain(VertexOutput input) : SV_Target
+{
+    return ShadeTerrainPbr(input, ShadowVisibility(input));
+}
+
+#else
+
 float4 PSShadow(VertexOutput input) : SV_Target
 {
     return Shade(input, ShadowVisibility(input), 1);
@@ -151,6 +248,8 @@ float4 PSShadowTexture(VertexOutput input) : SV_Target
 {
     return Shade(input, ShadowVisibility(input), SampleMaterial(input));
 }
+
+#endif
 
 struct PropReference
 {

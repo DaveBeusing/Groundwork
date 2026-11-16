@@ -136,6 +136,7 @@ internal sealed unsafe partial class GpuDevice
         private ID3D12Resource* _resource;
         internal ID3D12Resource* Resource => _resource;
         internal int PackedBytes { get; }
+        internal bool HasPackedNormals { get; }
 
         internal bool HasLiveBinding(GpuDevice owner) =>
             ReferenceEquals(_owner, owner) && (PackedBytes == 0 || _resource != null);
@@ -153,6 +154,7 @@ internal sealed unsafe partial class GpuDevice
             }
 
             _packed = new PackedMesh[meshes.Length];
+            HasPackedNormals = true;
             var unread = new D3D12_RANGE();
             void* mapped = null;
             Check(resource->Map(0, &unread, &mapped), "Map mesh geometry");
@@ -161,7 +163,12 @@ internal sealed unsafe partial class GpuDevice
                 var address = resource->GetGPUVirtualAddress();
                 var offset = 0;
                 for (var index = 0; index < meshes.Length; index++)
-                    _packed[index] = PackMesh(meshes[index], (byte*)mapped, address, ref offset);
+                {
+                    var packed = PackMesh(meshes[index], (byte*)mapped, address, ref offset);
+                    _packed[index] = packed;
+                    if (packed.IndexCount != 0 && packed.Vertices.StrideInBytes != NormalVertexStride)
+                        HasPackedNormals = false;
+                }
             }
             finally
             {
@@ -169,7 +176,8 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows, bool textured)
+        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows, bool textured,
+            ID3D12PipelineState* materialPipeline)
         {
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
@@ -179,7 +187,8 @@ internal sealed unsafe partial class GpuDevice
                 if (stride != mesh.Vertices.StrideInBytes)
                 {
                     stride = mesh.Vertices.StrideInBytes;
-                    commands->SetPipelineState(_owner.TerrainPipeline(shadows, stride == NormalVertexStride, textured));
+                    commands->SetPipelineState(materialPipeline != null ? materialPipeline :
+                        _owner.TerrainPipeline(shadows, stride == NormalVertexStride, textured));
                 }
                 DrawMesh(commands, mesh);
             }
