@@ -55,6 +55,8 @@ public readonly record struct D3D12TextureTicket
 internal readonly record struct D3D12TextureTransfer(D3D12TextureTicket Ticket, D3D12TextureView View,
     D3D12TextureTarget Target, CookedTexture Texture, D3D12TextureReservation Reservation);
 
+internal readonly record struct D3D12TerrainTextureBinding(D3D12TextureTarget Target, D3D12TextureTicket? Resident);
+
 /// <summary>Bounded producer-to-render-owner handoff for static cooked textures.</summary>
 /// <remarks>
 /// Reserve before starting a worker or allocating source, scratch, or payload. The worker reads and validates
@@ -88,6 +90,7 @@ public sealed class D3D12TextureHandoff
     private Guid _ownerWorld;
     private D3D12TextureView _view;
     private ulong _paletteRevision;
+    private MaterialPalette? _terrainPalette;
     private int _targetCount;
     private ulong _generation;
     private D3D12TextureUsage _peak;
@@ -110,7 +113,18 @@ public sealed class D3D12TextureHandoff
 
     /// <summary>Declare a complete palette cut, carrying forward only exact per-slot targets.</summary>
     /// <remarks>Target order is immaterial. A changed slot in the same cut needs a strictly higher sequence.</remarks>
-    public bool Publish(D3D12TextureView view, ulong paletteRevision, ReadOnlySpan<D3D12TextureTarget> targets)
+    public bool Publish(D3D12TextureView view, ulong paletteRevision, ReadOnlySpan<D3D12TextureTarget> targets) =>
+        Publish(view, paletteRevision, targets, null);
+
+    /// <summary>Publishes an immutable terrain palette with its exact cooked sampler targets.</summary>
+    /// <remarks>The renderer uses numeric material inputs until the matching targets are resident.</remarks>
+    public bool PublishTerrainAppearance(D3D12TextureView view, MaterialPalette palette, ReadOnlySpan<D3D12TextureTarget> targets)
+    {
+        ArgumentNullException.ThrowIfNull(palette);
+        return palette.Entries.Length <= MaximumSlots && Publish(view, palette.VisualRevision, targets, palette);
+    }
+
+    private bool Publish(D3D12TextureView view, ulong paletteRevision, ReadOnlySpan<D3D12TextureTarget> targets, MaterialPalette? terrainPalette)
     {
         if (Closed)
             return false;
@@ -133,7 +147,8 @@ public sealed class D3D12TextureHandoff
                 {
                     var target = stableTargets[i];
                     if (target.Slot.Material == 0 || target.Sequence == 0 || target.Reference is null ||
-                        target.Reference.Semantic != target.Slot.Semantic)
+                        target.Reference.Semantic != target.Slot.Semantic ||
+                        terrainPalette is not null && GetMap(terrainPalette.Resolve(target.Slot.Material), target.Slot.Semantic) != target.Reference)
                         return false;
                     for (var j = 0; j < i; j++)
                         if (stableTargets[j].Slot == target.Slot)
@@ -146,7 +161,7 @@ public sealed class D3D12TextureHandoff
 
                 if (sameView && paletteRevision == _paletteRevision)
                 {
-                    if (stableTargets.Length != _targetCount)
+                    if (stableTargets.Length != _targetCount || _terrainPalette != terrainPalette)
                         return false;
                     foreach (var target in stableTargets)
                         if (FindTarget(target.Slot) != target)
@@ -156,6 +171,7 @@ public sealed class D3D12TextureHandoff
 
                 _view = view;
                 _paletteRevision = paletteRevision;
+                _terrainPalette = terrainPalette;
                 Array.Clear(_targets);
                 stableTargets.CopyTo(_targets);
                 _targetCount = stableTargets.Length;
@@ -174,6 +190,36 @@ public sealed class D3D12TextureHandoff
         wake?.Invoke();
         return true;
     }
+
+    internal bool TryCaptureTerrainAppearance(D3D12TextureView view, Span<D3D12TerrainTextureBinding> bindings,
+        out MaterialPalette? palette, out int count)
+    {
+        palette = null;
+        count = 0;
+        lock (Gate)
+        {
+            if (Closed || view != _view || _terrainPalette is null || bindings.Length < _targetCount)
+                return false;
+
+            palette = _terrainPalette;
+            count = _targetCount;
+            for (var i = 0; i < count; i++)
+            {
+                var target = _targets[i];
+                bindings[i] = new(target, TryGetResident(view, target.Slot, out var ticket) ? ticket : null);
+            }
+            return true;
+        }
+    }
+
+    private static MaterialTextureReference? GetMap(PbrMaterialDescriptor descriptor, MaterialTextureSemantic semantic) => semantic switch
+    {
+        MaterialTextureSemantic.BaseColor => descriptor.Textures.BaseColor,
+        MaterialTextureSemantic.Normal => descriptor.Textures.Normal,
+        MaterialTextureSemantic.Roughness => descriptor.Textures.Roughness,
+        MaterialTextureSemantic.Metallic => descriptor.Textures.Metallic,
+        _ => null,
+    };
 
     private bool CanAdvanceView(D3D12TextureView view)
     {

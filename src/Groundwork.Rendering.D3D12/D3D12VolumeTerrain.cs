@@ -36,6 +36,7 @@ public sealed partial class D3D12Renderer
     private readonly VolumeStreamingCoordinator? _volume;
     private readonly ulong _volumeEpoch;
     private readonly VolumeTerrainColorEvaluator? _volumeColors;
+    private readonly bool _volumeAppearanceGeometry;
     private readonly VolumeRendererAuthority? _volumeAuthority;
     private readonly Lock _volumeGate = new();
     private bool _volumePacking;
@@ -82,7 +83,7 @@ public sealed partial class D3D12Renderer
     internal D3D12Renderer(WindowsHostModule window, IRuntimeOwnership ownership,
         VolumeStreamingCoordinator terrain, ulong rendererEpoch, D3D12DiagnosticsOptions diagnostics,
         bool useWarp, TimeSpan? startupTimeout, TimeSpan? operationTimeout, GpuRetirementTestHooks? hooks,
-        VolumeTerrainColorEvaluator? colorEvaluator = null)
+        VolumeTerrainColorEvaluator? colorEvaluator = null, bool includeTerrainAppearance = false)
         : this(diagnostics, window, ownership, useWarp, startupTimeout, operationTimeout)
     {
         ArgumentNullException.ThrowIfNull(terrain);
@@ -92,6 +93,7 @@ public sealed partial class D3D12Renderer
         _volume = terrain;
         _volumeEpoch = rendererEpoch;
         _volumeColors = colorEvaluator;
+        _volumeAppearanceGeometry = includeTerrainAppearance;
         _retirementHooks = hooks;
         _admission = RendererFrameAdmission.CreateWithPairedRegionFrames();
         _initialGeometry = new RenderMeshRegion([new(RenderMesh.Create([], []), Vector3.Zero)]);
@@ -149,7 +151,8 @@ public sealed partial class D3D12Renderer
                 return MeshReplacementSubmissionResult.StaleGeneration;
 
             var nativeLimit = NativeLimit(credits);
-            var region = PackVolumeTerrain(lease.Meshes, lease.Info.View.Frame, nativeLimit, packingBytes, _volumeColors, out var colorRejected);
+            var region = PackVolumeTerrain(lease.Meshes, lease.Info.View.Frame, nativeLimit, packingBytes, _volumeColors,
+                out var colorRejected, _volumeAppearanceGeometry);
             if (region is null)
                 return colorRejected ? MeshReplacementSubmissionResult.InvalidRegion : MeshReplacementSubmissionResult.Backpressure;
             lock (_volumeGate)
@@ -301,10 +304,10 @@ public sealed partial class D3D12Renderer
     private const int VolumeTrianglesPerMesh = RenderMesh.MaximumVertexCount / 3;
     private const int MaximumVolumeTriangles = VolumeTrianglesPerMesh * RenderMeshRegion.MaximumInstanceCount;
 
-    private static bool FitsVolumeGeometry(int triangles, long nativeLimit)
+    private static bool FitsVolumeGeometry(int triangles, long nativeLimit, int appearanceBytes = 0)
     {
         // D3D12's default buffer alignment. The native allocator also checks the actual charge.
-        var payload = (long)triangles * 3 * (20 + sizeof(uint));
+        var payload = (long)triangles * 3 * (20 + sizeof(uint) + appearanceBytes);
         var aligned = (payload + 65535) & ~65535L;
         return triangles <= MaximumVolumeTriangles && aligned <= nativeLimit;
     }
@@ -315,7 +318,7 @@ public sealed partial class D3D12Renderer
 
     internal static RenderMeshRegion? PackVolumeTerrain(ReadOnlySpan<PlanetVolumeMesh> meshes,
         PlanetLocalFrame origin, long nativeLimit, long packingBytes, VolumeTerrainColorEvaluator? colorEvaluator,
-        out bool colorRejected)
+        out bool colorRejected, bool includeTerrainAppearance = false)
     {
         colorRejected = false;
         var count = 0;
@@ -326,11 +329,13 @@ public sealed partial class D3D12Renderer
             count += mesh.Triangles.Length;
         }
 
-        // Immutable positions, indices, colors and normals plus peak scratch for a batch.
-        var packedBytes = (long)count * 3 * (12 + sizeof(uint) * 3);
-        var scratchBytes = (long)Math.Min(count, VolumeTrianglesPerMesh) * 3 * (12 + sizeof(uint) * 3);
-        if (!FitsVolumeGeometry(count, nativeLimit) || packedBytes + scratchBytes > packingBytes)
+        // Charge both the immutable vertex/indices and the largest batch copied into them.
+        const int legacyBytes = 12 + sizeof(uint) * 3;
+        var liveVertices = (long)(count + Math.Min(count, VolumeTrianglesPerMesh)) * 3;
+        if (!FitsVolumeGeometry(count, nativeLimit) || liveVertices * legacyBytes > packingBytes)
             return null;
+        includeTerrainAppearance &= FitsVolumeGeometry(count, nativeLimit, TerrainAppearanceVertex.SizeInBytes) &&
+            liveVertices * (legacyBytes + TerrainAppearanceVertex.SizeInBytes) <= packingBytes;
 
         var instances = new RenderMeshInstance[Math.Max(1, (count + VolumeTrianglesPerMesh - 1) / VolumeTrianglesPerMesh)];
         var meshIndex = 0;
@@ -342,6 +347,7 @@ public sealed partial class D3D12Renderer
             var indices = new uint[vertices];
             var colors = new uint[vertices];
             var normals = new uint[vertices];
+            var appearance = includeTerrainAppearance ? new TerrainAppearanceVertex[vertices] : [];
             for (var vertex = 0; vertex < vertices; vertex += 3)
             {
                 while (triangleIndex == meshes[meshIndex].Triangles.Length)
@@ -358,6 +364,14 @@ public sealed partial class D3D12Renderer
                 {
                     colorRejected = true;
                     return null;
+                }
+                if (includeTerrainAppearance)
+                {
+                    WriteTerrainAppearance(appearance.AsSpan(vertex, 3),
+                        PlanetTriplanarMapping.FromVolume(mesh.Descriptor, mesh.Origin, triangle.A.Position),
+                        PlanetTriplanarMapping.FromVolume(mesh.Descriptor, mesh.Origin, triangle.B.Position),
+                        PlanetTriplanarMapping.FromVolume(mesh.Descriptor, mesh.Origin, triangle.C.Position),
+                        triangle.A.Material, triangle.B.Material, triangle.C.Material);
                 }
 
                 bool WriteVertex(VolumeVertex source, int index)
@@ -389,10 +403,26 @@ public sealed partial class D3D12Renderer
                 }
             }
 
-            instances[batch] = new(RenderMesh.CreateWithTerrainNormals(positions, indices, colors, normals), Vector3.Zero);
+            instances[batch] = new(RenderMesh.CreateWithTerrainNormals(positions, indices, colors, normals, appearance), Vector3.Zero);
             count -= vertices / 3;
         }
         return new RenderMeshRegion(instances);
+    }
+
+    private static void WriteTerrainAppearance(Span<TerrainAppearanceVertex> output,
+        PlanetTriplanarPoint a, PlanetTriplanarPoint b, PlanetTriplanarPoint c, ushort first, ushort second, ushort third)
+    {
+        if (PlanetTriplanarMapping.TryGetTriangleAnchor(a, b, c, out var anchor))
+        {
+            output[0] = new(PlanetTriplanarMapping.ToLocalTexels(a, anchor), first | TerrainAppearanceVertex.MappingBit);
+            output[1] = new(PlanetTriplanarMapping.ToLocalTexels(b, anchor), second | TerrainAppearanceVertex.MappingBit);
+            output[2] = new(PlanetTriplanarMapping.ToLocalTexels(c, anchor), third | TerrainAppearanceVertex.MappingBit);
+            return;
+        }
+
+        output[0] = new(Vector3.Zero, first);
+        output[1] = new(Vector3.Zero, second);
+        output[2] = new(Vector3.Zero, third);
     }
 
     private static uint? EvaluateVolumeColor(VolumeTerrainColorEvaluator evaluator, PlanetVector position, ushort material)

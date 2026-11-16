@@ -52,7 +52,9 @@ public sealed partial class D3D12Renderer
 
     private MeshReplacementSubmissionResult SubmitPlanetTerrain(PlanetTerrainLease lease, ulong sequence,
         Vector3 forward, Vector3 up, float verticalFieldOfView, float nearPlane, float farPlane,
-        Vector4 tint, Vector4 clearColor, Func<PlanetSampleKey, uint>? sampleColor)
+        Vector4 tint, Vector4 clearColor, Func<PlanetSampleKey, uint>? sampleColor,
+        PlanetDescriptor? descriptor = null, ReadOnlySpan<PlanetSurfaceMaterialSample> controls = default,
+        ushort proxyMaterial = 0)
     {
         ArgumentNullException.ThrowIfNull(lease);
         if (!_planetTerrain)
@@ -64,7 +66,8 @@ public sealed partial class D3D12Renderer
         if (!frame.IsValid)
             return MeshReplacementSubmissionResult.InvalidRegion;
 
-        var region = PackPlanetTerrain(lease, sampleColor);
+        var region = descriptor is null ? PackPlanetTerrain(lease, sampleColor) :
+            PackPlanetTerrainWithAppearance(lease, descriptor, controls, proxyMaterial, sampleColor);
         if (!lease.TryPinPresentation())
             return MeshReplacementSubmissionResult.InvalidRegion;
 
@@ -77,6 +80,15 @@ public sealed partial class D3D12Renderer
         }
         return result;
     }
+
+    // Controls belong to the caller's retained shared surface snapshot. For an unshared
+    // orbit proxy, callers pass an empty span and the declared proxy material.
+    internal MeshReplacementSubmissionResult TrySubmitPlanetTerrainWithAppearance(PlanetTerrainLease lease, ulong sequence,
+        Vector3 forward, Vector3 up, float verticalFieldOfView, float nearPlane, float farPlane,
+        Vector4 tint, Vector4 clearColor, PlanetDescriptor descriptor, ReadOnlySpan<PlanetSurfaceMaterialSample> controls,
+        ushort proxyMaterial, Func<PlanetSampleKey, uint>? sampleColor = null) =>
+        SubmitPlanetTerrain(lease, sequence, forward, up, verticalFieldOfView, nearPlane, farPlane, tint, clearColor,
+            sampleColor, descriptor, controls, proxyMaterial);
 
     /// <summary>Checks a submitted lease and sequence before its owner acknowledges collision publication.</summary>
     public bool WasPlanetTerrainPresented(PlanetTerrainLease lease, ulong sequence) =>
@@ -158,4 +170,80 @@ public sealed partial class D3D12Renderer
 
         return new RenderMeshRegion(instances);
     }
+
+    internal static RenderMeshRegion PackPlanetTerrainWithAppearance(PlanetTerrainLease lease, PlanetDescriptor descriptor,
+        ReadOnlySpan<PlanetSurfaceMaterialSample> controls, ushort proxyMaterial, Func<PlanetSampleKey, uint>? sampleColor = null)
+    {
+        ArgumentNullException.ThrowIfNull(lease);
+        ArgumentNullException.ThrowIfNull(descriptor);
+        ArgumentOutOfRangeException.ThrowIfZero(proxyMaterial);
+        ArgumentOutOfRangeException.ThrowIfGreaterThan(controls.Length, PlanetOrbitMaterialSelector.MaximumSamples);
+
+        // Each primitive needs its own unwrapped anchor; duplicating its vertices keeps
+        // that interpolation independent of an adjacent primitive's selected repeat.
+        const int intervals = PlanetCoordinates.IntervalsPerPatch;
+        const int patchesPerMesh = RenderMesh.MaximumVertexCount / (intervals * intervals * 6);
+        var count = 0;
+        for (var patch = 0; patch < lease.MeshCount; patch++)
+            count += lease.GetIndices(patch).Length;
+        var instanceCount = (lease.MeshCount + patchesPerMesh - 1) / patchesPerMesh;
+        if (instanceCount > RenderMeshRegion.MaximumInstanceCount || !FitsVolumeGeometry(count / 3,
+            GpuDevice.MaximumNativeMeshBytes / 2, TerrainAppearanceVertex.SizeInBytes))
+            return PackPlanetTerrain(lease, sampleColor);
+
+        var instances = new RenderMeshInstance[instanceCount];
+        Span<OrbitAppearanceSample> samples = stackalloc OrbitAppearanceSample[(intervals + 1) * (intervals + 1)];
+        for (var batch = 0; batch < instances.Length; batch++)
+        {
+            var first = batch * patchesPerMesh;
+            var end = Math.Min(first + patchesPerMesh, lease.MeshCount);
+            var vertices = 0;
+            for (var patch = first; patch < end; patch++)
+                vertices += lease.GetIndices(patch).Length;
+
+            var positions = new Vector3[vertices];
+            var indices = new uint[vertices];
+            var normals = new uint[vertices];
+            var colors = sampleColor is null ? [] : new uint[vertices];
+            var appearance = new TerrainAppearanceVertex[vertices];
+            var offset = 0;
+            for (var patch = first; patch < end; patch++)
+            {
+                var local = lease.GetPositions(patch);
+                var canonical = lease.GetCanonicalPositions(patch);
+                var keys = lease.GetSamples(patch);
+                var triangles = lease.GetIndices(patch);
+                for (var vertex = 0; vertex < keys.Length; vertex++)
+                {
+                    var outward = PlanetCoordinates.Direction(keys[vertex]);
+                    samples[vertex] = new(PlanetTriplanarMapping.FromCanonical(canonical[vertex]),
+                        PlanetOrbitMaterialSelector.Select(descriptor.SampleAt(canonical[vertex]), controls, proxyMaterial),
+                        PackedTerrainNormal.Encode(new((float)outward.X, (float)outward.Y, (float)outward.Z)),
+                        sampleColor?.Invoke(keys[vertex]) ?? uint.MaxValue);
+                }
+
+                for (var triangle = 0; triangle < triangles.Length; triangle += 3)
+                {
+                    var a = samples[(int)triangles[triangle]];
+                    var b = samples[(int)triangles[triangle + 1]];
+                    var c = samples[(int)triangles[triangle + 2]];
+                    WriteTerrainAppearance(appearance.AsSpan(offset, 3), a.Point, b.Point, c.Point, a.Material, b.Material, c.Material);
+                    for (var corner = 0; corner < 3; corner++, offset++)
+                    {
+                        var index = (int)triangles[triangle + corner];
+                        positions[offset] = local[index];
+                        indices[offset] = (uint)offset;
+                        normals[offset] = samples[index].Normal;
+                        if (!colors.AsSpan().IsEmpty)
+                            colors[offset] = samples[index].Color;
+                    }
+                }
+            }
+
+            instances[batch] = new(RenderMesh.CreateWithTerrainNormals(positions, indices, colors, normals, appearance), Vector3.Zero);
+        }
+        return new RenderMeshRegion(instances);
+    }
+
+    private readonly record struct OrbitAppearanceSample(PlanetTriplanarPoint Point, ushort Material, uint Normal, uint Color);
 }
