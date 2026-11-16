@@ -42,12 +42,15 @@ public sealed partial class D3D12Renderer
     private VolumeStage? _volumeStage;
     private VolumeFrameRegistration? _volumeStaged;
     private VolumeFrameRegistration? _volumeInstalled;
+    private AcknowledgedVolumeView? _acknowledgedVolumeView;
     private VolumeMask? _volumeMask;
     private VolumeMask? _volumeConfirmedMask;
     private int _volumeClosed;
     private bool VolumeAdmissionOpen => Volatile.Read(ref _volumeClosed) == 0 && _meshRuntimeFence is { IsOpen: true };
 
     private sealed record VolumeMask(VolumeViewIdentity View, ulong Sequence);
+
+    private readonly record struct AcknowledgedVolumeView(VolumeFrameRegistration Registration, RenderFrame Frame);
 
     private sealed class VolumeStage(VolumeStreamingLease lease, RenderMeshRegion region, long nativeLimit)
     {
@@ -500,6 +503,7 @@ public sealed partial class D3D12Renderer
                 {
                     _volumeInstalled?.Dispose();
                     _volumeInstalled = staged;
+                    _acknowledgedVolumeView = null;
                 }
                 else if (released is null)
                     staged.Dispose();
@@ -510,6 +514,8 @@ public sealed partial class D3D12Renderer
 
     internal bool AuthorizeRecordedFrame(in RenderFrame frame)
     {
+        if (_recordedAppearance is { } appearance)
+            return AuthorizeRecordedAppearance(frame, appearance);
         if (_volume is null)
             return true;
         lock (_volumeGate)
@@ -518,6 +524,39 @@ public sealed partial class D3D12Renderer
                 frame.Sequence == _volumeInstalled!.Frame || _volume.AuthorizeCameraFrame(_volumeInstalled, frame.Sequence)) &&
                 (_submittingFirstContentRetry is not { } retry || ReferenceEquals(_volumeInstalled, retry.Frame) &&
                     !retry.IsExpired(FirstContentTimestamp(), _operationTimeout));
+        }
+    }
+
+    private AcknowledgedVolumeView? CurrentAcknowledgedAppearanceView(ulong latestTakenSequence)
+    {
+        lock (_volumeGate)
+        {
+            var admission = Read();
+            if (!VolumeAdmissionOpen || _volumeStage is not null || _volumeStaged is not null ||
+                _volumeMask is { } mask && mask.Sequence > admission.LastPresentedSequence ||
+                _acknowledgedVolumeView is not { } acknowledged ||
+                !ReferenceEquals(_volumeInstalled, acknowledged.Registration) ||
+                acknowledged.Frame.Sequence != admission.LastPresentedSequence ||
+                admission.LastAcceptedSequence != latestTakenSequence ||
+                !_volume!.IsCurrentFrame(acknowledged.Registration))
+                return null;
+
+            return acknowledged;
+        }
+    }
+
+    private bool AuthorizeRecordedAppearance(in RenderFrame frame, in RecordedAppearance appearance)
+    {
+        lock (_textures!.Gate)
+        lock (_volumeGate)
+        {
+            if (frame != appearance.Submission.View.Frame || _textureFrameTicket != appearance.TextureTicket ||
+                CurrentAcknowledgedAppearanceView(appearance.Submission.LatestTakenSequence) != appearance.Submission.View ||
+                CurrentTextureView() != appearance.TextureView)
+                return false;
+
+            return _textures.TryGetDrawableResident(appearance.TextureView, out var current)
+                ? current == appearance.TextureTicket : !appearance.TextureTicket.HasValue;
         }
     }
 
@@ -552,6 +591,7 @@ public sealed partial class D3D12Renderer
             // view never loses authority because a previously rejected frame settled.
             _volume!.TryRequestFrameRecovery(_volumeAuthority!, registration);
             _volumeInstalled = null;
+            _acknowledgedVolumeView = null;
             registration.Dispose();
         }
     }
@@ -580,6 +620,8 @@ public sealed partial class D3D12Renderer
                 if (frame.Sequence == installed.Frame && !_volume!.AcknowledgeFrame(installed))
                     return;
                 _admission.MeshRegionReplacement!.RecordPresented(frame.Sequence, installed.Info.Generation);
+                if (_textures is not null)
+                    _acknowledgedVolumeView = new(installed, frame);
             }
             else
             {
@@ -587,6 +629,7 @@ public sealed partial class D3D12Renderer
                 if (_volume!.ConfirmMask(mask.View, _volumeAuthority, mask.Sequence))
                 {
                     _volumeConfirmedMask = mask;
+                    _acknowledgedVolumeView = null;
                     _admission.RecordPresented(frame.Sequence);
                 }
             }
@@ -620,6 +663,7 @@ public sealed partial class D3D12Renderer
             _volumeStaged = null;
             _volumeInstalled?.Dispose();
             _volumeInstalled = null;
+            _acknowledgedVolumeView = null;
         }
     }
 }
