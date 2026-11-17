@@ -113,22 +113,27 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         var (y, dy) = Grid(vertex.Y, scale);
         var (z, dz) = Grid(vertex.Z, scale);
         var seed = Mix(Descriptor.Seed ^ stream);
+        // Share hash prefixes within this sample, preserving the version 1 corner values.
+        var left = Mix(seed ^ unchecked((ulong)x));
+        var right = Mix(seed ^ unchecked((ulong)(x + 1)));
+        var lowerLeft = Mix(left ^ unchecked((ulong)y));
+        var lowerRight = Mix(right ^ unchecked((ulong)y));
+        var upperLeft = Mix(left ^ unchecked((ulong)(y + 1)));
+        var upperRight = Mix(right ^ unchecked((ulong)(y + 1)));
         var low = Plane(z);
         var high = Plane(z + 1);
         return (int)Interpolate(low, high, dz, scale);
 
         long Plane(long plane)
         {
-            var a = Interpolate(Corner(x, y, plane), Corner(x + 1, y, plane), dx, scale);
-            var b = Interpolate(Corner(x, y + 1, plane), Corner(x + 1, y + 1, plane), dx, scale);
+            var a = Interpolate(Corner(lowerLeft, plane), Corner(lowerRight, plane), dx, scale);
+            var b = Interpolate(Corner(upperLeft, plane), Corner(upperRight, plane), dx, scale);
             return Interpolate(a, b, dy, scale);
         }
 
-        int Corner(long i, long j, long k)
+        static int Corner(ulong prefix, long k)
         {
-            var h = Mix(seed ^ unchecked((ulong)i));
-            h = Mix(h ^ unchecked((ulong)j));
-            h = Mix(h ^ unchecked((ulong)k));
+            var h = Mix(prefix ^ unchecked((ulong)k));
             return (int)(h >> 48) - NoiseHalfRange;
         }
     }
@@ -170,12 +175,28 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         if (squared == 0)
             return 0;
 
+        // Ordinary terrain coordinates fit here; retain the full-width path for the domain extremes.
+        if (squared <= ulong.MaxValue)
+            return NearestSquareRoot64((ulong)squared);
+
         var root = UInt128.One << (((int)UInt128.Log2(squared) + 2) / 2);
         while (true)
         {
             var next = (root + squared / root) >> 1;
             if (next >= root)
                 return checked((long)(squared - root * root > root ? root + 1 : root));
+            root = next;
+        }
+    }
+
+    private static long NearestSquareRoot64(ulong squared)
+    {
+        var root = 1UL << (((int)ulong.Log2(squared) + 2) / 2);
+        while (true)
+        {
+            var next = (root + squared / root) >> 1;
+            if (next >= root)
+                return (long)(squared - root * root > root ? root + 1 : root);
             root = next;
         }
     }
