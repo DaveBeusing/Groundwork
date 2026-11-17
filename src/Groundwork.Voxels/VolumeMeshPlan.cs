@@ -17,13 +17,14 @@ public sealed class VolumeMeshPlan : IDisposable
     public const int MaximumBricksPerAxis = 8;
     private readonly object _gate = new();
     private readonly VolumeMeshInput[] _inputs;
+    private readonly int[]? _triangleCounts;
     private readonly bool _ownsLeases;
     private readonly byte[]? _editDigest;
     private int _readers;
     private bool _disposed;
 
     private VolumeMeshPlan(VolumeMeshInput[] inputs, LatticeBrick minimum, int width, int height, int depth,
-        ulong terrainRevision, bool ownsLeases, byte[]? editDigest = null)
+        ulong terrainRevision, bool ownsLeases, int[]? triangleCounts = null, byte[]? editDigest = null)
     {
         _inputs = inputs;
         Minimum = minimum;
@@ -33,6 +34,7 @@ public sealed class VolumeMeshPlan : IDisposable
         TerrainRevision = terrainRevision;
         Descriptor = inputs[0].Brick.Descriptor;
         _ownsLeases = ownsLeases;
+        _triangleCounts = triangleCounts;
         _editDigest = editDigest;
     }
 
@@ -43,11 +45,17 @@ public sealed class VolumeMeshPlan : IDisposable
     public int Depth { get; }
     public ulong TerrainRevision { get; }
     public string Identity { get; private set; } = string.Empty;
-    public long MetadataPayloadBytes => (long)_inputs.Length * Unsafe.SizeOf<VolumeMeshInput>();
+    public long MetadataPayloadBytes => MetadataBytes(_inputs.Length, _triangleCounts?.Length ?? 0);
+
+    internal static long RequiredMetadataBytes(int brickCount) => MetadataBytes(brickCount, brickCount / 8);
+
+    private static long MetadataBytes(int brickCount, int regionCount) =>
+        (long)brickCount * Unsafe.SizeOf<VolumeMeshInput>() + (long)regionCount * sizeof(int);
 
     /// <summary>
     /// Takes leases on a complete rectangular window, with an even brick count on each axis.
     /// Returns null for insufficient metadata bytes, unavailable bricks or exhausted lease quota.
+    /// Validated triangle counts are retained when the metadata limit covers them.
     /// Input order does not affect plan identity or output order.
     /// </summary>
     public static VolumeMeshPlan? TryCreate(PlanetBrickStore store, ReadOnlySpan<VolumeMeshRequest> requests,
@@ -61,7 +69,7 @@ public sealed class VolumeMeshPlan : IDisposable
         ArgumentOutOfRangeException.ThrowIfZero(terrainRevision);
         ArgumentOutOfRangeException.ThrowIfNegative(metadataByteLimit);
         var (min, width, height, depth) = Validate(requests);
-        if ((long)requests.Length * Unsafe.SizeOf<VolumeMeshInput>() > metadataByteLimit)
+        if (MetadataBytes(requests.Length, 0) > metadataByteLimit)
             return null;
 
         var inputs = new VolumeMeshInput[requests.Length];
@@ -77,7 +85,8 @@ public sealed class VolumeMeshPlan : IDisposable
                 inputs[index] = new VolumeMeshInput(lease, request.Stride);
             }
 
-            result = new VolumeMeshPlan(inputs, min, width, height, depth, terrainRevision, ownsLeases: true, editDigest);
+            var counts = RequiredMetadataBytes(requests.Length) <= metadataByteLimit ? new int[requests.Length / 8] : null;
+            result = new VolumeMeshPlan(inputs, min, width, height, depth, terrainRevision, ownsLeases: true, counts, editDigest);
             result.Prepare();
             return result;
         }
@@ -85,6 +94,38 @@ public sealed class VolumeMeshPlan : IDisposable
         {
             result?.Dispose();
             throw;
+        }
+        finally
+        {
+            if (result is null)
+                foreach (var input in inputs)
+                    input.Brick?.Dispose();
+        }
+    }
+
+    // The caller holds the donor lease and has proved identical effective requests and brick payloads.
+    internal VolumeMeshPlan? TryRebind(PlanetBrickStore store, ulong terrainRevision, long metadataByteLimit)
+    {
+        if (store.Descriptor != Descriptor || terrainRevision != TerrainRevision || MetadataPayloadBytes > metadataByteLimit)
+            return null;
+
+        var inputs = new VolumeMeshInput[_inputs.Length];
+        VolumeMeshPlan? result = null;
+        try
+        {
+            for (var index = 0; index < _inputs.Length; index++)
+            {
+                var source = _inputs[index];
+                var lease = store.TryAcquire(source.Brick.Key);
+                if (lease is null)
+                    return null;
+                inputs[index] = new VolumeMeshInput(lease, source.Stride);
+            }
+
+            // Validated counts are immutable. The new plan owns and accounts for its own leases and metadata.
+            result = new VolumeMeshPlan(inputs, Minimum, Width, Height, Depth, terrainRevision,
+                ownsLeases: true, _triangleCounts, _editDigest) { Identity = Identity };
+            return result;
         }
         finally
         {
@@ -139,11 +180,11 @@ public sealed class VolumeMeshPlan : IDisposable
                 _inputs[i] = _inputs[i] with { Stride = 1 };
         }
 
-        if (PlanetVolumeMesher.HasInvertedTriangles(this))
+        if (!PlanetVolumeMesher.TryValidateTriangleCounts(this, _triangleCounts))
         {
             for (var i = 0; i < _inputs.Length; i++)
                 _inputs[i] = _inputs[i] with { Stride = 1 };
-            if (PlanetVolumeMesher.HasInvertedTriangles(this))
+            if (!PlanetVolumeMesher.TryValidateTriangleCounts(this, _triangleCounts))
                 throw new InvalidOperationException("The field cannot produce outward triangles at this resolution.");
         }
         Identity = ComputeIdentity();
@@ -191,6 +232,48 @@ public sealed class VolumeMeshPlan : IDisposable
         index % Width * 32, index / Width % Height * 32, index / (Width * Height) * 32);
 
     internal int Stride(int index) => _inputs[index].Stride;
+
+    internal bool TryGetValidatedTriangleCount(int region, out int count)
+    {
+        // Standalone builds and tight plan budgets use the on-demand count pass.
+        if (_triangleCounts is null)
+        {
+            count = 0;
+            return false;
+        }
+
+        var x = region % Width / 2;
+        var y = region / Width % Height / 2;
+        var z = region / (Width * Height) / 2;
+        count = _triangleCounts[(z * (Height / 2) + y) * (Width / 2) + x];
+        return true;
+    }
+
+    // Same window preserves gradient and material clamping. Compare final LODs, including
+    // the face neighbors that control transition cells and fine vertex positions.
+    internal bool HasSameMeshLayout(VolumeMeshPlan donor, LatticeBrick minimum)
+    {
+        if (Minimum != donor.Minimum || Width != donor.Width || Height != donor.Height || Depth != donor.Depth)
+            return false;
+
+        var region = RegionIndex(minimum);
+        for (var z = 0; z < 2; z++)
+        for (var y = 0; y < 2; y++)
+        for (var x = 0; x < 2; x++)
+        {
+            var index = region + (z * Height + y) * Width + x;
+            if (Stride(index) != donor.Stride(index))
+                return false;
+            for (var axis = 0; axis < 3; axis++)
+            for (var direction = -1; direction <= 1; direction += 2)
+            {
+                var neighbor = Neighbor(index, axis, direction);
+                if (neighbor >= 0 && Stride(neighbor) != donor.Stride(neighbor))
+                    return false;
+            }
+        }
+        return true;
+    }
 
     internal int Neighbor(int index, int axis, int direction)
     {

@@ -15,8 +15,18 @@ The coordinator builds the portable 3D window at B01 strides 1 and 2. Renderer s
 
 ## Accounting and evidence
 
-CPU credits include brick arrays, plan/request metadata, mesh references and the reserved mesh payload. Native/upload/retirement amounts are admission credits for later provider ownership. They are not measured physical GPU usage. Q01/Q02 establish production limits and reference-hardware qualification.
+CPU credits include brick arrays, plan/request metadata, one validated triangle count per mesh region, mesh references and the reserved mesh payload. Plan validation records counts for the layout that passes the winding check, including recalculation on the all-fine fallback. Native/upload/retirement amounts are admission credits for later provider ownership. They are not measured physical GPU usage. Q01/Q02 establish production limits and reference-hardware qualification.
 
 A bounded event FIFO stores view identities, generation, terrain revision and frame identity. Its reserved commit cell resolves from Core's atomic permit outcome. A full FIFO closes the journal epoch and retains terminal evidence. Consume events to return journal capacity. This is independent of diagnostic logging.
 
 Late or canceled workers cannot publish and return credits only after disposing prepared artifacts. A committed root remains the authoritative save cut even while its view is held. Retained mesh and density readers stay valid until disposal.
+
+## Reuse from a private build
+
+When the host already needs a private build, it can admit it with `TryStagePrivate` and explicitly pass the completed work to the publishing job's `ExecuteReusing`. Dispose private work after its last use, including successful execution. The donor stays under its own reservation and cannot enter publication or native preparation. The recipient keeps its complete reservation and falls back to sampling and meshing if no compatible donor can be borrowed.
+
+Reuse requires the same coordinator, view, source instance and base overlay. A staged edit invalidates any brick whose density vertices or material cells intersect its writes. Mesh reuse also checks the final LODs of the region and its face neighbors, the plan window used for clamping, and the gradient halo. Each recipient prepares its own plan and binds reused triangles to that plan and revision. The detailed execution profile reports adoption separately from output equality.
+
+A private build can call `ExecuteDetailedProfiledReusingPublishedBricks` when rebuilding coverage from the committed terrain. The committed root can supply immutable bricks after a view or renderer switch if the sampler instance, overlay and terrain revision match. The donor is borrowed through a bounded reader lease. An unavailable donor or a missing brick falls back to sampling. The private build keeps its full reservation and builds its own mesh plan and meshes. This does not grant the private build publication authority.
+
+`ExecuteDetailedProfiledReusingPublishedTerrain` can also reuse the committed plan and meshes. It requires identical ordered requests and complete brick hits under the same overlay. Identical requests fix the window used to refine the overlay and clamp gradients and materials. The recipient binds the validated final strides, counts and immutable triangles to its own brick leases, and still charges its own mesh and metadata budgets. A changed window or stride, a missing brick, or an unavailable reusable plan uses regular planning and meshing. The detailed profile records plan reuse alongside per-brick and per-mesh reuse.

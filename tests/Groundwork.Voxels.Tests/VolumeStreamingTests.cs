@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using Groundwork.Core;
 using Groundwork.Core.Tests;
 using Groundwork.Jobs;
@@ -89,6 +90,83 @@ public sealed partial class VolumeStreamingTests
     }
 
     [TestMethod]
+    public async Task ProfiledWorkerReportsOrderedPhasesAndStillPublishesThroughCore()
+    {
+        using var run = new Run();
+        using var work = run.Stage(VolumeWorkClass.Movement, 0, 1);
+
+        var beforeExecute = Stopwatch.GetTimestamp();
+        Assert.IsTrue(work.ExecuteProfiled(out var profile));
+        var afterExecute = Stopwatch.GetTimestamp();
+        Assert.IsTrue(beforeExecute <= profile.Started && profile.Started <= profile.OverlayPrepared &&
+            profile.OverlayPrepared <= profile.BricksGenerated && profile.BricksGenerated <= profile.PlanCreated &&
+            profile.PlanCreated <= profile.MeshBuilt && profile.MeshBuilt <= profile.Completed &&
+            profile.Completed <= afterExecute);
+        Assert.IsFalse(work.ExecuteProfiled(out var repeatedProfile));
+        Assert.AreEqual(default(VolumeStreamingWorkProfile), repeatedProfile);
+        Assert.IsNull(run.Coordinator.TryRead());
+
+        await run.Publish(work);
+        using var reader = run.Coordinator.TryRead();
+        Assert.IsNotNull(reader);
+        Assert.AreEqual(work.Generation, reader.Info.Generation);
+        Assert.IsTrue(reader.Meshes.ToArray().All(mesh => mesh.PlanIdentity == reader.Info.PlanIdentity));
+    }
+
+    [TestMethod]
+    public void DetailedWorkerReportsDetachedFingerprintsForMatchingAndChangedOutput()
+    {
+        using var run = new Run();
+        using var first = run.Stage(VolumeWorkClass.Movement, 0, 1);
+        using var repeated = run.Stage(VolumeWorkClass.Recovery, 0, 2);
+        using var changed = run.Stage(VolumeWorkClass.Speculative, 0, 3, new Source(threshold: 307));
+
+        Assert.IsTrue(first.ExecuteDetailedProfiled(out var profile));
+        var timing = profile.Timing;
+        Assert.IsTrue(timing.Started <= timing.OverlayPrepared && timing.OverlayPrepared <= timing.BricksGenerated &&
+            timing.BricksGenerated <= timing.PlanCreated && timing.PlanCreated <= timing.MeshBuilt &&
+            timing.MeshBuilt <= profile.EvidenceFinished && profile.EvidenceFinished <= timing.Completed);
+        Assert.IsGreaterThan(0L, profile.BrickTiming.DensityTicks);
+        Assert.IsGreaterThan(0L, profile.BrickTiming.MaterialTicks);
+        Assert.AreEqual(run.Selection.Requests.Length, profile.Bricks.Length);
+        Assert.AreEqual(run.Selection.MeshCount, profile.Meshes.Length);
+        var bricks = profile.Bricks.ToArray();
+        var meshes = profile.Meshes.ToArray();
+        var brickTiming = profile.BrickTiming;
+        var attributed = brickTiming.ReservationTicks + brickTiming.AllocationTicks + brickTiming.DensityTicks +
+            brickTiming.MaterialTicks + brickTiming.SharedVertexTicks + brickTiming.PublishTicks;
+        var brickElapsed = bricks.Sum(brick => brick.ElapsedTicks);
+        Assert.IsLessThanOrEqualTo(brickElapsed, attributed);
+        Assert.IsLessThanOrEqualTo(timing.BricksGenerated - timing.OverlayPrepared, brickElapsed);
+        Assert.IsLessThanOrEqualTo(timing.MeshBuilt - timing.PlanCreated, meshes.Sum(mesh => mesh.ElapsedTicks));
+        Assert.IsTrue(bricks.All(brick => IsSha256(brick.DensitySha256) && IsSha256(brick.MaterialSha256) && brick.ElapsedTicks > 0));
+        Assert.IsTrue(meshes.All(mesh => IsSha256(mesh.GeometrySha256) && mesh.ElapsedTicks > 0));
+        Assert.IsTrue(meshes.Any(mesh => mesh.TriangleCount > 0));
+
+        Assert.IsTrue(repeated.ExecuteDetailedProfiled(out var matching));
+        CollectionAssert.AreEqual(bricks.Select(brick => brick with { ElapsedTicks = 0 }).ToArray(),
+            matching.Bricks.ToArray().Select(brick => brick with { ElapsedTicks = 0 }).ToArray());
+        CollectionAssert.AreEqual(meshes.Select(mesh => mesh with { ElapsedTicks = 0 }).ToArray(),
+            matching.Meshes.ToArray().Select(mesh => mesh with { ElapsedTicks = 0 }).ToArray());
+        Assert.IsTrue(changed.ExecuteDetailedProfiled(out var different));
+        var differentBricks = different.Bricks.ToArray();
+        var differentMeshes = different.Meshes.ToArray();
+        CollectionAssert.AreEqual(bricks.Select(brick => brick.Key).ToArray(),
+            differentBricks.Select(brick => brick.Key).ToArray());
+        CollectionAssert.AreEqual(bricks.Select(brick => brick.MaterialSha256).ToArray(),
+            differentBricks.Select(brick => brick.MaterialSha256).ToArray());
+        Assert.IsTrue(bricks.Zip(differentBricks).Any(pair => pair.First.DensitySha256 != pair.Second.DensitySha256));
+        CollectionAssert.AreEqual(meshes.Select(mesh => mesh.Origin).ToArray(),
+            differentMeshes.Select(mesh => mesh.Origin).ToArray());
+        Assert.IsTrue(meshes.Zip(differentMeshes).Any(pair => pair.First.GeometrySha256 != pair.Second.GeometrySha256));
+        Assert.IsFalse(first.ExecuteDetailedProfiled(out var consumed));
+        Assert.AreEqual(default(VolumeStreamingWorkDetailedProfile), consumed);
+        Assert.IsNull(run.Coordinator.TryRead());
+
+        static bool IsSha256(string digest) => digest.Length == 64 && digest.All(char.IsAsciiHexDigitLower);
+    }
+
+    [TestMethod]
     public async Task JobsDispatchPreparesPrivatelyAndCoreCommitsOneCompleteRoot()
     {
         using var run = new Run();
@@ -151,7 +229,8 @@ public sealed partial class VolumeStreamingTests
             run.Coordinator.ChangeView(nextFrame, 2);
             Assert.IsFalse(run.Coordinator.AcknowledgeFrame(registration));
             Assert.IsTrue(superseded.IsCancellationRequested);
-            Assert.IsFalse(superseded.Execute());
+            Assert.IsFalse(superseded.ExecuteDetailedProfiled(out var supersededProfile));
+            Assert.AreEqual(default(VolumeStreamingWorkDetailedProfile), supersededProfile);
             Assert.AreEqual(0, run.Coordinator.Statistics.Used.DensityJobs);
             Assert.AreEqual(oldWork.Generation, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Terrain.Generation);
             Assert.IsFalse(run.Coordinator.HasAdmittedCoverage(default));

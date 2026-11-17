@@ -36,6 +36,9 @@ public sealed class PlanetVolumeMesh
     public byte LodMask { get; }
     public string PlanIdentity { get; }
     public ReadOnlySpan<VolumeTriangle> Triangles => _triangles;
+
+    internal PlanetVolumeMesh ForPlan(VolumeMeshPlan plan) =>
+        new(plan.Descriptor, Origin, plan.TerrainRevision, LodMask, plan.Identity, _triangles);
 }
 
 /// <summary>
@@ -72,14 +75,17 @@ public static class PlanetVolumeMesher
         try
         {
             var region = plan.RegionIndex(minimum);
-            var count = Extract(plan, region, null, out var inverted);
-            if (inverted)
-                throw new InvalidOperationException("Plan geometry no longer matches its sealed layout.");
+            if (!plan.TryGetValidatedTriangleCount(region, out var count))
+            {
+                count = Extract(plan, region, null, out var borrowedInverted);
+                if (borrowedInverted)
+                    throw new InvalidOperationException("Plan geometry no longer matches its sealed layout.");
+            }
             if (checked((long)count * TrianglePayloadBytes) > payloadLimit)
                 return null;
 
             var triangles = new VolumeTriangle[count];
-            var written = Extract(plan, region, triangles, out inverted);
+            var written = Extract(plan, region, triangles, out var inverted);
             if (written != count || inverted)
                 throw new InvalidOperationException("Input changed between mesh passes.");
 
@@ -100,17 +106,20 @@ public static class PlanetVolumeMesher
         }
     }
 
-    internal static bool HasInvertedTriangles(VolumeMeshPlan plan)
+    internal static bool TryValidateTriangleCounts(VolumeMeshPlan plan, Span<int> counts)
     {
+        var regionIndex = 0;
         for (var z = 0; z < plan.Depth; z += 2)
         for (var y = 0; y < plan.Height; y += 2)
         for (var x = 0; x < plan.Width; x += 2)
         {
-            _ = Extract(plan, (z * plan.Height + y) * plan.Width + x, null, out var inverted);
+            var count = Extract(plan, (z * plan.Height + y) * plan.Width + x, null, out var inverted);
             if (inverted)
-                return true;
+                return false;
+            if (!counts.IsEmpty)
+                counts[regionIndex++] = count;
         }
-        return false;
+        return true;
     }
 
     private static int Extract(VolumeMeshPlan plan, int region, VolumeTriangle[]? output, out bool inverted)
@@ -130,22 +139,34 @@ public static class PlanetVolumeMesher
             var step = plan.Stride(brickIndex);
             for (var z = 0; z < 32; z += step)
             for (var y = 0; y < 32; y += step)
-            for (var x = 0; x < 32; x += step)
             {
-                var code = 0;
-                for (var i = 0; i < 8; i++)
+                // Adjacent cells share a face. Carry its samples and sign bits along the row.
+                var row = origin + new Vector3(0, y, z);
+                var left = ReadRegularFace(plan, row, step, density);
+                for (var x = 0; x < 32; x += step)
                 {
-                    var point = origin + new Vector3(x, y, z) + Corner(i) * step;
-                    samplePositions[i] = point;
-                    positions[i] = step == 1 ? FinePosition(point, brickIndex, plan) : point;
-                    density[i] = plan.Read(point);
-                    if (density[i] < 0)
-                        code |= 1 << i;
-                }
+                    var right = ReadRegularFace(plan, row + new Vector3(x + step, 0, 0), step, density[1..]);
+                    var code = left | (right << 1);
+                    if (code != 0 && code != 255)
+                    {
+                        for (var i = 0; i < 8; i++)
+                        {
+                            var point = origin + new Vector3(x, y, z) + Corner(i) * step;
+                            samplePositions[i] = point;
+                            positions[i] = step == 1 ? FinePosition(point, brickIndex, plan) : point;
+                        }
 
-                count = Emit(TransvoxelTables.RegularCells[TransvoxelTables.RegularClass[code]],
-                    TransvoxelTables.RegularVertices[code], density, positions, samplePositions,
-                    false, vertices, plan, anchor, output, count, ref inverted);
+                        count = Emit(TransvoxelTables.RegularCells[TransvoxelTables.RegularClass[code]],
+                            TransvoxelTables.RegularVertices[code], density, positions, samplePositions,
+                            false, vertices, plan, anchor, output, count, ref inverted);
+                    }
+
+                    density[0] = density[1];
+                    density[2] = density[3];
+                    density[4] = density[5];
+                    density[6] = density[7];
+                    left = right;
+                }
             }
 
             if (step != 1)
@@ -188,6 +209,18 @@ public static class PlanetVolumeMesher
             }
         }
         return count;
+    }
+
+    // Bit positions and sample slots use the even (left) corners of a regular cube.
+    // Slicing by one and shifting the mask gives the matching odd (right) corners.
+    private static int ReadRegularFace(VolumeMeshPlan plan, Vector3 corner, int step, Span<long> density)
+    {
+        density[0] = plan.Read(corner);
+        density[2] = plan.Read(corner + new Vector3(0, step, 0));
+        density[4] = plan.Read(corner + new Vector3(0, 0, step));
+        density[6] = plan.Read(corner + new Vector3(0, step, step));
+        return (density[0] < 0 ? 1 : 0) | (density[2] < 0 ? 4 : 0) |
+            (density[4] < 0 ? 16 : 0) | (density[6] < 0 ? 64 : 0);
     }
 
     private static int Emit(byte[] cell, byte[] edges, ReadOnlySpan<long> density,
