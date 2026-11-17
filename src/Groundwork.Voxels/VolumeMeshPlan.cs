@@ -103,6 +103,38 @@ public sealed class VolumeMeshPlan : IDisposable
         }
     }
 
+    // The caller holds the donor lease and has proved identical effective requests and brick payloads.
+    internal VolumeMeshPlan? TryRebind(PlanetBrickStore store, ulong terrainRevision, long metadataByteLimit)
+    {
+        if (store.Descriptor != Descriptor || terrainRevision != TerrainRevision || MetadataPayloadBytes > metadataByteLimit)
+            return null;
+
+        var inputs = new VolumeMeshInput[_inputs.Length];
+        VolumeMeshPlan? result = null;
+        try
+        {
+            for (var index = 0; index < _inputs.Length; index++)
+            {
+                var source = _inputs[index];
+                var lease = store.TryAcquire(source.Brick.Key);
+                if (lease is null)
+                    return null;
+                inputs[index] = new VolumeMeshInput(lease, source.Stride);
+            }
+
+            // Validated counts are immutable. The new plan owns and accounts for its own leases and metadata.
+            result = new VolumeMeshPlan(inputs, Minimum, Width, Height, Depth, terrainRevision,
+                ownsLeases: true, _triangleCounts, _editDigest) { Identity = Identity };
+            return result;
+        }
+        finally
+        {
+            if (result is null)
+                foreach (var input in inputs)
+                    input.Brick?.Dispose();
+        }
+    }
+
     internal static VolumeMeshPlan Borrow(ReadOnlySpan<VolumeMeshInput> inputs, ulong terrainRevision)
     {
         Span<VolumeMeshRequest> requests = stackalloc VolumeMeshRequest[8];

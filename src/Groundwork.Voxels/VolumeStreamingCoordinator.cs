@@ -274,12 +274,14 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
-    internal VolumeStreamingLease? TryBorrowPublishedBricks(VolumeGeneration target, out PlanetBrickStore? store)
+    internal VolumeStreamingLease? TryBorrowPublished(VolumeGeneration target, out VolumeArtifacts? result,
+        out VolumeStreamingSelection? selection)
     {
         lock (_gate)
         {
             Refresh();
-            store = null;
+            result = null;
+            selection = null;
             if (_stopped || !PresentationEpochOpen || !target.IsPrivate || target.AheadBaseRevision is not null ||
                 target.Edit is not null || !target.Outstanding || target.Cancelled || target.Released || target.Retired ||
                 target.View != _view || Array.IndexOf(_entries, target) < 0 ||
@@ -289,10 +291,13 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
                 !ReferenceEquals(target.Source, active.Source) || !ReferenceEquals(target.Overlay, active.Overlay))
                 return null;
 
-            // A renderer replacement invalidates presentation authority, but the committed root still owns its bricks.
+            // A renderer replacement invalidates presentation authority, but the committed root still owns its terrain.
             var lease = Acquire(active);
             if (lease is not null)
-                store = artifacts.Store;
+            {
+                result = artifacts;
+                selection = active.Selection;
+            }
             return lease;
         }
     }

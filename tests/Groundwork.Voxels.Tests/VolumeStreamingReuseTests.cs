@@ -204,6 +204,55 @@ public sealed partial class VolumeStreamingTests
     }
 
     [TestMethod]
+    [DataRow("exact")]
+    [DataRow("shifted window")]
+    [DataRow("changed strides")]
+    public async Task PrivateBuildReusesPublishedMeshesOnlyForAnExactRequestWindow(string change)
+    {
+        using var run = new Run();
+        var sampler = new Source();
+        using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1, sampler);
+        Assert.IsTrue(initial.Execute());
+        await run.Publish(initial);
+        var selection = change switch
+        {
+            "shifted window" => VolumeStreamingSelection.Select(Descriptor, new(64, 0, 0), new(1, 0, 0)),
+            "changed strides" => VolumeStreamingSelection.Select(Descriptor, default, new(1, 0, 0), supportCells: 32),
+            _ => VolumeStreamingSelection.Select(Descriptor, default, new(1, 0, 0))
+        };
+        var exact = change == "exact";
+        Assert.AreEqual(exact, selection.Requests.SequenceEqual(run.Selection.Requests));
+        Assert.AreEqual(change != "shifted window", selection.Minimum == run.Selection.Minimum);
+        var view = run.Coordinator.View;
+        Assert.IsTrue(view.Frame.TryRebase(new(48, 0, 0), out var nextFrame));
+        run.Coordinator.ChangeView(nextFrame, view.RendererEpoch + 1);
+
+        using var target = StagePrivateRecipient(run, VolumeWorkClass.Recovery, selection, sampler, 1);
+        using var cold = StagePrivateRecipient(run, VolumeWorkClass.Speculative, selection, sampler, 1);
+        Assert.IsTrue(target.ExecuteDetailedProfiledReusingPublishedTerrain(out var profile));
+        Assert.IsTrue(cold.ExecuteDetailedProfiled(out var expected));
+        Assert.AreEqual(initial.Generation, profile.ReuseSourceGeneration);
+        Assert.AreEqual(exact, profile.ReusedMeshPlan);
+        Assert.AreEqual(change == "shifted window" ? 32 : 64, profile.Bricks.ToArray().Count(brick => brick.Reused));
+        Assert.IsTrue(profile.Meshes.ToArray().All(mesh => mesh.Reused == exact));
+        VolumeReuseAssertions.SameGeometry(expected, profile);
+        Assert.AreEqual(0, run.Coordinator.Statistics.Readers);
+
+        // Releasing the private plan must leave the committed plan's brick leases live.
+        target.Dispose();
+        using (var retained = run.Coordinator.TryRead())
+        {
+            Assert.IsNotNull(retained);
+            Assert.AreEqual(initial.Generation, retained.Info.Generation);
+            var vertex = new LatticeCoordinate(0, 0, 0);
+            Assert.IsTrue(retained.TryReadDensity(new(Descriptor.WorldId, Descriptor.PlanetId, vertex), out var density));
+            Assert.AreEqual(sampler.SampleDensity(vertex), density);
+        }
+        run.Coordinator.Stop();
+        Assert.AreEqual(default, run.Coordinator.Statistics.Used);
+    }
+
+    [TestMethod]
     [DataRow("no published terrain")]
     [DataRow("different sampler")]
     [DataRow("reader limit")]
@@ -237,9 +286,10 @@ public sealed partial class VolumeStreamingTests
             var revision = hasPublished ? 1UL : 0UL;
             using var target = StagePrivateRecipient(run, VolumeWorkClass.Recovery, run.Selection, replacement, revision);
             using var cold = StagePrivateRecipient(run, VolumeWorkClass.Speculative, run.Selection, replacement, revision);
-            Assert.IsTrue(target.ExecuteDetailedProfiledReusingPublishedBricks(out var profile));
+            Assert.IsTrue(target.ExecuteDetailedProfiledReusingPublishedTerrain(out var profile));
             Assert.IsTrue(cold.ExecuteDetailedProfiled(out var expected));
             Assert.AreEqual(0UL, profile.ReuseSourceGeneration);
+            Assert.IsFalse(profile.ReusedMeshPlan);
             Assert.IsFalse(profile.Bricks.ToArray().Any(brick => brick.Reused));
             Assert.IsFalse(profile.Meshes.ToArray().Any(mesh => mesh.Reused));
             VolumeReuseAssertions.SameGeometry(expected, profile);
@@ -250,6 +300,30 @@ public sealed partial class VolumeStreamingTests
             foreach (var reader in readers)
                 reader.Dispose();
         }
+        run.Coordinator.Stop();
+        Assert.AreEqual(default, run.Coordinator.Statistics.Used);
+    }
+
+    [TestMethod]
+    public async Task PrivateBuildCannotReusePublishedMeshesBeyondItsPayloadLimit()
+    {
+        using var run = new Run();
+        var sampler = new Source();
+        using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1, sampler);
+        Assert.IsTrue(initial.Execute());
+        await run.Publish(initial);
+        var view = run.Coordinator.View;
+        run.Coordinator.ChangeView(view.Frame, view.RendererEpoch + 1);
+        Assert.AreEqual(VolumeAdmission.Accepted, run.Coordinator.TryStagePrivate(VolumeWorkClass.Recovery,
+            run.Selection, 1, 1, 0, run.Unit, sampler, out var work));
+        Assert.IsNotNull(work);
+        using (work)
+        {
+            Assert.ThrowsExactly<InvalidOperationException>(() =>
+                work.ExecuteDetailedProfiledReusingPublishedTerrain(out _));
+        }
+        Assert.AreEqual(0, run.Coordinator.Statistics.Readers);
+        Assert.AreEqual(run.Unit.Retained, run.Coordinator.Statistics.Used);
         run.Coordinator.Stop();
         Assert.AreEqual(default, run.Coordinator.Statistics.Used);
     }

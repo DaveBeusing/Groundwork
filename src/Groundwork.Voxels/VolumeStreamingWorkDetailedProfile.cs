@@ -11,8 +11,11 @@ public readonly record struct VolumeStreamingWorkDetailedProfile(VolumeStreaming
     VolumeBrickGenerationTiming BrickTiming, long EvidenceFinished, ReadOnlyMemory<VolumeBrickWorkFingerprint> Bricks,
     ReadOnlyMemory<VolumeMeshWorkFingerprint> Meshes)
 {
-    /// <summary>The private generation borrowed by this job, or zero if no donor was available.</summary>
+    /// <summary>The generation borrowed by this job, or zero if no donor was available.</summary>
     public ulong ReuseSourceGeneration { get; init; }
+
+    /// <summary>True when the job reused the committed generation's validated mesh plan.</summary>
+    public bool ReusedMeshPlan { get; init; }
 }
 
 /// <summary>Sampled brick payload, requested stride and elapsed Stopwatch ticks to generate or import the brick.</summary>

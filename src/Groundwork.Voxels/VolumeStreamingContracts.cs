@@ -152,11 +152,20 @@ public sealed class VolumeStreamingWork : IDisposable
     /// <remarks>Unavailable bricks are sampled. The build prepares its own mesh plan and meshes.</remarks>
     public bool ExecuteDetailedProfiledReusingPublishedBricks(out VolumeStreamingWorkDetailedProfile profile,
         CancellationToken cancellationToken = default) =>
-        ExecuteCore(true, true, null, out profile, cancellationToken, reusePublishedBricks: true);
+        ExecuteCore(true, true, null, out profile, cancellationToken, PublishedReuse.Bricks);
+
+    /// <summary>Executes and profiles a private build using compatible committed terrain when available.</summary>
+    /// <remarks>An exact request window and complete brick reuse permit reuse of the validated mesh plan and meshes.
+    /// Other windows build their own plan and meshes. Missing bricks are sampled.</remarks>
+    public bool ExecuteDetailedProfiledReusingPublishedTerrain(out VolumeStreamingWorkDetailedProfile profile,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCore(true, true, null, out profile, cancellationToken, PublishedReuse.Terrain);
+
+    private enum PublishedReuse { None, Bricks, Terrain }
 
     private bool ExecuteCore(bool measure, bool captureDetails, VolumeStreamingWork? privateWork,
         out VolumeStreamingWorkDetailedProfile profile,
-        CancellationToken cancellationToken, bool reusePublishedBricks = false)
+        CancellationToken cancellationToken, PublishedReuse publishedReuse = PublishedReuse.None)
     {
         profile = default;
         if (Interlocked.CompareExchange(ref _state, 1, 0) != 0)
@@ -167,13 +176,17 @@ public sealed class VolumeStreamingWork : IDisposable
             var started = measure ? Stopwatch.GetTimestamp() : 0;
             Check(cancellationToken);
             VolumeArtifacts? donor = null;
-            PlanetBrickStore? publishedBricks = null;
-            using var borrow = reusePublishedBricks
-                ? _owner.TryBorrowPublishedBricks(_generation, out publishedBricks)
+            VolumeArtifacts? published = null;
+            VolumeStreamingSelection? publishedSelection = null;
+            using var borrow = publishedReuse != PublishedReuse.None
+                ? _owner.TryBorrowPublished(_generation, out published, out publishedSelection)
                 : privateWork is not null && ReferenceEquals(_owner, privateWork._owner)
                     ? _owner.TryBorrowPrivate(_generation, privateWork._generation, out donor)
                     : null;
-            var brickDonor = publishedBricks ?? donor?.Store;
+            var brickDonor = published?.Store ?? donor?.Store;
+            // Matching canonical requests also fix the window bounds used by the shared overlay's Refine.
+            var canReusePublishedPlan = publishedReuse == PublishedReuse.Terrain && publishedSelection is not null &&
+                _generation.Selection.Requests.SequenceEqual(publishedSelection.Requests);
             var overlay = _generation.Overlay;
             VolumeOreDepletion depletion = default;
             void CheckEditCancellation()
@@ -202,7 +215,9 @@ public sealed class VolumeStreamingWork : IDisposable
             var brickElapsed = captureDetails ? new long[requests.Length] : null;
             var meshElapsed = captureDetails ? new long[_generation.Selection.MeshCount] : null;
             var brickHits = captureDetails && brickDonor is not null ? new bool[requests.Length] : null;
-            var meshHits = captureDetails && donor is not null ? new bool[_generation.Selection.MeshCount] : null;
+            var meshHits = captureDetails && (donor is not null || canReusePublishedPlan)
+                ? new bool[_generation.Selection.MeshCount] : null;
+            var reusedMeshPlan = false;
             try
             {
                 for (var requestIndex = 0; requestIndex < requests.Length; requestIndex++)
@@ -221,6 +236,7 @@ public sealed class VolumeStreamingWork : IDisposable
                         continue;
                     }
 
+                    canReusePublishedPlan = false;
                     if (brickElapsed is not null)
                     {
                         if (!store.TryGenerateProfiled(request.Brick, out var timing, cancellationToken))
@@ -232,7 +248,10 @@ public sealed class VolumeStreamingWork : IDisposable
                         throw new InvalidOperationException("Reserved brick quota is insufficient.");
                 }
                 bricksGenerated = measure ? Stopwatch.GetTimestamp() : 0;
-                plan = VolumeMeshPlan.TryCreate(store, requests, _generation.TargetRevision, long.MaxValue, overlay?.Digest)
+                if (canReusePublishedPlan)
+                    plan = published!.Plan.TryRebind(store, _generation.TargetRevision, long.MaxValue);
+                reusedMeshPlan = plan is not null;
+                plan ??= VolumeMeshPlan.TryCreate(store, requests, _generation.TargetRevision, long.MaxValue, overlay?.Digest)
                     ?? throw new InvalidOperationException("Reserved plan leases are unavailable.");
                 planCreated = measure ? Stopwatch.GetTimestamp() : 0;
                 var meshes = new PlanetVolumeMesh[_generation.Selection.MeshCount];
@@ -246,10 +265,11 @@ public sealed class VolumeStreamingWork : IDisposable
                             var minimum = new LatticeBrick(plan.Minimum.X + x, plan.Minimum.Y + y, plan.Minimum.Z + z);
                             var meshStart = meshElapsed is not null ? Stopwatch.GetTimestamp() : 0;
                             PlanetVolumeMesh mesh;
-                            if (donor is not null && !AffectedByEdit(_generation.Edit, minimum.Vertex(0, 0, 0), mesh: true) &&
-                                plan.HasSameMeshLayout(donor.Plan, minimum))
+                            if (reusedMeshPlan || (donor is not null &&
+                                !AffectedByEdit(_generation.Edit, minimum.Vertex(0, 0, 0), mesh: true) &&
+                                plan.HasSameMeshLayout(donor.Plan, minimum)))
                             {
-                                var reused = donor.Meshes[index];
+                                var reused = (reusedMeshPlan ? published! : donor!).Meshes[index];
                                 if ((long)reused.Triangles.Length * PlanetVolumeMesher.TrianglePayloadBytes > remaining)
                                     throw new InvalidOperationException("Mesh exceeds the reserved payload.");
                                 mesh = reused.ForPlan(plan);
@@ -292,7 +312,8 @@ public sealed class VolumeStreamingWork : IDisposable
                     planCreated, meshBuilt, Stopwatch.GetTimestamp());
                 profile = new(timing, brickTiming, evidenceFinished, brickFingerprints, meshFingerprints)
                 {
-                    ReuseSourceGeneration = borrow is null ? 0 : privateWork?.Generation ?? borrow.Info.Generation
+                    ReuseSourceGeneration = borrow?.Info.Generation ?? 0,
+                    ReusedMeshPlan = reusedMeshPlan
                 };
             }
             return accepted;
