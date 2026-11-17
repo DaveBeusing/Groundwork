@@ -375,12 +375,17 @@ public sealed class PlanetBrickStore
         public int Readers { get; set; }
     }
 
-    /// <summary>An immutable brick reader. Dispose to return the lease slot and allow retirement.</summary>
+    /// <summary>
+    /// An immutable brick reader. Disposal revokes public access immediately; active plan read
+    /// sessions defer returning its existing lease slot and allowing retirement until they finish.
+    /// </summary>
     public sealed class BrickLease : IDisposable
     {
         private readonly object _gate = new();
         private readonly PlanetBrickStore _store;
         private Entry? _entry;
+        private int _readSessions;
+        private bool _disposed;
 
         internal BrickLease(PlanetBrickStore store, Entry entry)
         {
@@ -397,8 +402,8 @@ public sealed class PlanetBrickStore
         {
             lock (_gate)
             {
-                ObjectDisposedException.ThrowIf(_entry is null, this);
-                return _entry.Density![CheckedIndex(x, y, z, VertexEdge)];
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _entry!.Density![CheckedIndex(x, y, z, VertexEdge)];
             }
         }
 
@@ -407,21 +412,76 @@ public sealed class PlanetBrickStore
         {
             lock (_gate)
             {
-                ObjectDisposedException.ThrowIf(_entry is null, this);
-                return _entry.Materials![CheckedIndex(x, y, z, CellEdge)];
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                return _entry!.Materials![CheckedIndex(x, y, z, CellEdge)];
             }
+        }
+
+        // A plan pairs these calls for its lifetime. Its Enter/Exit guard keeps every
+        // in-flight extraction inside that lifetime, including concurrent plan disposal.
+        // Sessions retain this lease's existing charged store reader and quota slot;
+        // they do not acquire another reader, copy payloads or keep uncharged arrays.
+        internal void EnterReadSession()
+        {
+            lock (_gate)
+            {
+                ObjectDisposedException.ThrowIf(_disposed, this);
+                _readSessions = checked(_readSessions + 1);
+            }
+        }
+
+        internal void ExitReadSession()
+        {
+            lock (_gate)
+            {
+                if (_readSessions == 0)
+                    throw new InvalidOperationException("The brick has no active read session.");
+                _readSessions--;
+                if (_disposed && _readSessions == 0)
+                    ReleaseReader();
+            }
+        }
+
+        // Only callers holding their own session and preventing its concurrent exit
+        // may use these accessors. VolumeMeshPlan supplies that guard once per build,
+        // rather than taking a monitor for each immutable density or material value.
+        internal long ReadDensityInSession(int x, int y, int z)
+        {
+            EnsureReadSession();
+            return _entry!.Density![CheckedIndex(x, y, z, VertexEdge)];
+        }
+
+        internal ushort ReadMaterialInSession(int x, int y, int z)
+        {
+            EnsureReadSession();
+            return _entry!.Materials![CheckedIndex(x, y, z, CellEdge)];
+        }
+
+        private void EnsureReadSession()
+        {
+            if (Volatile.Read(ref _readSessions) == 0)
+                throw new InvalidOperationException("A brick read requires an active read session.");
         }
 
         public void Dispose()
         {
             lock (_gate)
             {
-                if (_entry is not { } entry)
+                if (_disposed)
                     return;
-
-                _entry = null;
-                _store.ReleaseReader(entry);
+                _disposed = true;
+                if (_readSessions == 0)
+                    ReleaseReader();
             }
+        }
+
+        // Called under the lease gate only after public access is revoked and all
+        // sessions finish. No accessor may retain a payload past this quota release.
+        private void ReleaseReader()
+        {
+            var entry = _entry!;
+            _entry = null;
+            _store.ReleaseReader(entry);
         }
     }
 }
