@@ -6,6 +6,67 @@ namespace Groundwork.Voxels.Tests;
 [TestClass]
 public sealed class PlanetDensityFieldParityTests
 {
+    private delegate void DensityRowSampler(LatticeCoordinate origin, Span<long> values);
+    private delegate void MaterialRowSampler(LatticeCoordinate origin, Span<ushort> values);
+
+    [TestMethod]
+    public void FreshRowsMatchScalarSamplesAcrossGridCrossingsDisabledLayersAndDomainEdges()
+    {
+        PlanetLandformRecipe[] recipes =
+        [
+            new(1024, -6144, 8192, new(192, 6144), new(96, 3072), new(24, 512), 48, 1, 2),
+            new(61, -512, 1280, new(17, 1536), new(11, 1024), new(5, 192), 13, 7, 19),
+            new(1, 0, 0, new(3, 0), new(5, 0), new(7, 0), 1, 7, 19),
+            new(13, -256, 512, new(17, 0), new(11, 1024), new(5, 0), 3, 7, 19)
+        ];
+        var maximum = PlanetDensityField.MaximumCoordinate;
+        long[] starts = [-maximum, -193, -97, -25, -1, 0, 23, 95, 191, maximum - 64];
+        foreach (var seed in new ulong[] { 0, 42, ulong.MaxValue })
+        foreach (var recipe in recipes)
+        {
+            var field = new PlanetDensityField(new(new("00112233-4455-6677-8899-aabbccddeeff"),
+                new("10213243-5465-7687-98a9-bacbdcedfe0f"), seed, 1, 1, 1, recipe.ParameterSha256, 4096), recipe);
+            var densityRow = typeof(PlanetDensityField).GetMethod("SampleDensityRow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .CreateDelegate<DensityRowSampler>(field);
+            var materialRow = typeof(PlanetDensityField).GetMethod("SampleMaterialRow", BindingFlags.Instance | BindingFlags.NonPublic)!
+                .CreateDelegate<MaterialRowSampler>(field);
+            foreach (var start in starts)
+            foreach (var length in new[] { 0, 1, 32, 33, 65 })
+            {
+                var origin = new LatticeCoordinate(start, start < -1000 ? -maximum : 4096, start > 1000 ? maximum : -17);
+                var densities = new long[length];
+                var materials = new ushort[length];
+                densityRow(origin, densities);
+                materialRow(origin, materials);
+                for (var index = 0; index < length; index++)
+                {
+                    var vertex = origin with { X = start + index };
+                    Assert.AreEqual(field.SampleDensity(vertex), densities[index], $"Density seed={seed}, vertex={vertex}");
+                    Assert.AreEqual(field.SampleMaterial(vertex), materials[index], $"Material seed={seed}, vertex={vertex}");
+                }
+            }
+        }
+    }
+
+    [TestMethod]
+    public void RowsRejectOutOfDomainEndBeforeWritingAnySample()
+    {
+        var recipe = new PlanetLandformRecipe(61, 0, 0, new(17, 0), new(11, 0), new(5, 0), 13, 7, 19);
+        var field = new PlanetDensityField(new(new("00112233-4455-6677-8899-aabbccddeeff"),
+            new("10213243-5465-7687-98a9-bacbdcedfe0f"), 42, 1, 1, 1, recipe.ParameterSha256, 4096), recipe);
+        var densityRow = typeof(PlanetDensityField).GetMethod("SampleDensityRow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .CreateDelegate<DensityRowSampler>(field);
+        var materialRow = typeof(PlanetDensityField).GetMethod("SampleMaterialRow", BindingFlags.Instance | BindingFlags.NonPublic)!
+            .CreateDelegate<MaterialRowSampler>(field);
+        long[] densities = [-7, -7];
+        ushort[] materials = [23, 23];
+        var origin = new LatticeCoordinate(PlanetDensityField.MaximumCoordinate, 0, 0);
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => densityRow(origin, densities));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() => materialRow(origin, materials));
+        CollectionAssert.AreEqual(new long[] { -7, -7 }, densities);
+        CollectionAssert.AreEqual(new ushort[] { 23, 23 }, materials);
+    }
+
     [TestMethod]
     public void NoiseMatchesOriginalCornerEvaluationAcrossStreamsScalesAndSignedBoundaries()
     {

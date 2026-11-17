@@ -87,6 +87,104 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
     }
 
+    // Every row starts from the immutable recipe, without a previous brick or persistent cache.
+    internal void SampleDensityRow(LatticeCoordinate origin, Span<long> values)
+    {
+        if (values.IsEmpty)
+            return;
+        ValidateRow(origin, values.Length);
+        var continent = new NoiseRow(Descriptor.Seed, origin, _recipe.ContinentScaleCells, ContinentStream);
+        var mountains = _recipe.Mountains.Amplitude == 0 ? default :
+            new NoiseRow(Descriptor.Seed, origin, _recipe.Mountains.ScaleCells, MountainStream);
+        var valleys = _recipe.Valleys.Amplitude == 0 ? default :
+            new NoiseRow(Descriptor.Seed, origin, _recipe.Valleys.ScaleCells, ValleyStream);
+        var detail = _recipe.Detail.Amplitude == 0 ? default :
+            new NoiseRow(Descriptor.Seed, origin, _recipe.Detail.ScaleCells, DetailStream);
+        var squaredYZ = Square(origin.Y) + Square(origin.Z);
+        for (var index = 0; index < values.Length; index++)
+        {
+            var x = origin.X + index;
+            var mask = continent.Sample(x) + NoiseHalfRange;
+            var elevation = Interpolate(_recipe.LowElevation, _recipe.HighElevation, mask, 2 * NoiseHalfRange - 1);
+            var mountain = _recipe.Mountains.Amplitude == 0 ? 0 :
+                RoundDivide((long)_recipe.Mountains.Amplitude * (NoiseHalfRange - Math.Abs(mountains.Sample(x))), NoiseHalfRange);
+            var valley = _recipe.Valleys.Amplitude == 0 ? 0 :
+                -RoundDivide((long)_recipe.Valleys.Amplitude * (NoiseHalfRange - Math.Abs(valleys.Sample(x))), NoiseHalfRange);
+            var fine = _recipe.Detail.Amplitude == 0 ? 0 :
+                RoundDivide((long)_recipe.Detail.Amplitude * detail.Sample(x), NoiseHalfRange);
+            var landform = checked(elevation + mountain + valley + fine);
+            values[index] = checked(NearestSquareRoot((Square(x) + squaredYZ) << 16) - _radius - landform);
+        }
+    }
+
+    internal void SampleMaterialRow(LatticeCoordinate origin, Span<ushort> values)
+    {
+        if (values.IsEmpty)
+            return;
+        ValidateRow(origin, values.Length);
+        var material = new NoiseRow(Descriptor.Seed, origin, _recipe.MaterialScaleCells, MaterialStream);
+        for (var index = 0; index < values.Length; index++)
+            values[index] = material.Sample(origin.X + index) < 0 ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
+    }
+
+    private static void ValidateRow(LatticeCoordinate origin, int length)
+    {
+        ValidateCoordinate(origin);
+        ValidateCoordinate(origin with { X = checked(origin.X + length - 1L) });
+    }
+
+    // Eight scalar corners are local to this row and refreshed whenever X crosses a grid plane.
+    // Interpolation and rounding retain the scalar X, then Y, then Z order exactly.
+    private struct NoiseRow
+    {
+        private readonly int _scale;
+        private readonly ulong _seed;
+        private readonly long _y, _z, _dy, _dz;
+        private long _gridX;
+        private int _low00, _low10, _low01, _low11, _high00, _high10, _high01, _high11;
+
+        internal NoiseRow(ulong seed, LatticeCoordinate origin, int scale, ulong stream)
+        {
+            _scale = scale;
+            _seed = Mix(seed ^ stream);
+            (_y, _dy) = Grid(origin.Y, scale);
+            (_z, _dz) = Grid(origin.Z, scale);
+            _gridX = long.MinValue;
+            _low00 = _low10 = _low01 = _low11 = _high00 = _high10 = _high01 = _high11 = 0;
+        }
+
+        internal int Sample(long axis)
+        {
+            var (x, dx) = Grid(axis, _scale);
+            if (x != _gridX)
+            {
+                var left = Mix(_seed ^ unchecked((ulong)x));
+                var right = Mix(_seed ^ unchecked((ulong)(x + 1)));
+                var lowerLeft = Mix(left ^ unchecked((ulong)_y));
+                var lowerRight = Mix(right ^ unchecked((ulong)_y));
+                var upperLeft = Mix(left ^ unchecked((ulong)(_y + 1)));
+                var upperRight = Mix(right ^ unchecked((ulong)(_y + 1)));
+                _low00 = Corner(lowerLeft, _z);
+                _low10 = Corner(lowerRight, _z);
+                _low01 = Corner(upperLeft, _z);
+                _low11 = Corner(upperRight, _z);
+                _high00 = Corner(lowerLeft, _z + 1);
+                _high10 = Corner(lowerRight, _z + 1);
+                _high01 = Corner(upperLeft, _z + 1);
+                _high11 = Corner(upperRight, _z + 1);
+                _gridX = x;
+            }
+            var low = Interpolate(Interpolate(_low00, _low10, dx, _scale),
+                Interpolate(_low01, _low11, dx, _scale), _dy, _scale);
+            var high = Interpolate(Interpolate(_high00, _high10, dx, _scale),
+                Interpolate(_high01, _high11, dx, _scale), _dy, _scale);
+            return (int)Interpolate(low, high, _dz, _scale);
+        }
+
+        private static int Corner(ulong prefix, long axis) =>
+            (int)(Mix(prefix ^ unchecked((ulong)axis)) >> 48) - NoiseHalfRange;
+    }
+
     private PlanetLandform Landform(LatticeCoordinate vertex)
     {
         var mask = Noise(vertex, _recipe.ContinentScaleCells, ContinentStream) + NoiseHalfRange;

@@ -149,9 +149,9 @@ public sealed class PlanetBrickStore
             var materials = new ushort[CellCount];
             var allocated = measure ? Stopwatch.GetTimestamp() : 0;
             long densityTicks = 0, materialTicks = 0;
-            if (measure)
+            if (measure || _source is PlanetDensityField || _source is VolumeEditOverlay { SupportsRowSampling: true })
             {
-                (densityTicks, materialTicks) = SampleProfiled(origin, density, materials, cancellationToken);
+                (densityTicks, materialTicks) = SampleRows(origin, density, materials, measure, cancellationToken);
             }
             else
             {
@@ -206,8 +206,8 @@ public sealed class PlanetBrickStore
         }
     }
 
-    private (long DensityTicks, long MaterialTicks) SampleProfiled(LatticeCoordinate origin, long[] density,
-        ushort[] materials, CancellationToken cancellationToken)
+    private (long DensityTicks, long MaterialTicks) SampleRows(LatticeCoordinate origin, long[] density,
+        ushort[] materials, bool measure, CancellationToken cancellationToken)
     {
         long densityTicks = 0, materialTicks = 0;
         for (var z = 0; z < VertexEdge; z++)
@@ -216,29 +216,51 @@ public sealed class PlanetBrickStore
             for (var y = 0; y < VertexEdge; y++)
             {
                 // The source is immutable. Group each row by sample type to avoid a timer read for each value.
-                var rowStart = Stopwatch.GetTimestamp();
-                for (var x = 0; x < VertexEdge; x++)
-                {
-                    var vertex = new LatticeCoordinate(origin.X + x, origin.Y + y, origin.Z + z);
-                    density[Index(x, y, z, VertexEdge)] = _source.SampleDensity(vertex);
-                }
-                var densityEnd = Stopwatch.GetTimestamp();
+                var rowStart = measure ? Stopwatch.GetTimestamp() : 0;
+                var row = new LatticeCoordinate(origin.X, origin.Y + y, origin.Z + z);
+                SampleDensityRow(row, density.AsSpan(Index(0, y, z, VertexEdge), VertexEdge));
+                var densityEnd = measure ? Stopwatch.GetTimestamp() : 0;
                 densityTicks += densityEnd - rowStart;
                 if (y == CellEdge || z == CellEdge)
                     continue;
 
-                for (var x = 0; x < CellEdge; x++)
+                var materialRow = materials.AsSpan(Index(0, y, z, CellEdge), CellEdge);
+                SampleMaterialRow(row, materialRow);
+                foreach (var material in materialRow)
                 {
-                    var cell = new LatticeCoordinate(origin.X + x, origin.Y + y, origin.Z + z);
-                    var material = _source.SampleMaterial(cell);
                     if (material == 0)
                         throw new InvalidOperationException("A generated cell must have a nonzero material identifier.");
-                    materials[Index(x, y, z, CellEdge)] = material;
                 }
-                materialTicks += Stopwatch.GetTimestamp() - densityEnd;
+                materialTicks += measure ? Stopwatch.GetTimestamp() - densityEnd : 0;
             }
         }
         return (densityTicks, materialTicks);
+    }
+
+    private void SampleDensityRow(LatticeCoordinate origin, Span<long> values)
+    {
+        if (_source is PlanetDensityField field)
+        {
+            field.SampleDensityRow(origin, values);
+            return;
+        }
+        if (_source is VolumeEditOverlay overlay && overlay.TrySampleDensityRow(origin, values))
+            return;
+        for (var x = 0; x < values.Length; x++)
+            values[x] = _source.SampleDensity(origin with { X = origin.X + x });
+    }
+
+    private void SampleMaterialRow(LatticeCoordinate origin, Span<ushort> values)
+    {
+        if (_source is PlanetDensityField field)
+        {
+            field.SampleMaterialRow(origin, values);
+            return;
+        }
+        if (_source is VolumeEditOverlay overlay && overlay.TrySampleMaterialRow(origin, values))
+            return;
+        for (var x = 0; x < values.Length; x++)
+            values[x] = _source.SampleMaterial(origin with { X = origin.X + x });
     }
 
     /// <summary>Hashes each immutable payload separately in native numeric byte order, little-endian on Windows x64.</summary>
