@@ -1,3 +1,5 @@
+using System.Runtime.CompilerServices;
+
 namespace Groundwork.Voxels;
 
 /// <summary>
@@ -104,14 +106,14 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         for (var index = 0; index < values.Length; index++)
         {
             var x = origin.X + index;
-            var mask = continent.Sample(x) + NoiseHalfRange;
+            var mask = continent.Next() + NoiseHalfRange;
             var elevation = Interpolate(_recipe.LowElevation, _recipe.HighElevation, mask, 2 * NoiseHalfRange - 1);
             var mountain = _recipe.Mountains.Amplitude == 0 ? 0 :
-                RoundDivide((long)_recipe.Mountains.Amplitude * (NoiseHalfRange - Math.Abs(mountains.Sample(x))), NoiseHalfRange);
+                RoundDivide((long)_recipe.Mountains.Amplitude * (NoiseHalfRange - Math.Abs(mountains.Next())), NoiseHalfRange);
             var valley = _recipe.Valleys.Amplitude == 0 ? 0 :
-                -RoundDivide((long)_recipe.Valleys.Amplitude * (NoiseHalfRange - Math.Abs(valleys.Sample(x))), NoiseHalfRange);
+                -RoundDivide((long)_recipe.Valleys.Amplitude * (NoiseHalfRange - Math.Abs(valleys.Next())), NoiseHalfRange);
             var fine = _recipe.Detail.Amplitude == 0 ? 0 :
-                RoundDivide((long)_recipe.Detail.Amplitude * detail.Sample(x), NoiseHalfRange);
+                RoundDivide((long)_recipe.Detail.Amplitude * detail.Next(), NoiseHalfRange);
             var landform = checked(elevation + mountain + valley + fine);
             values[index] = checked(NearestSquareRoot((Square(x) + squaredYZ) << 16) - _radius - landform);
         }
@@ -124,7 +126,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         ValidateRow(origin, values.Length);
         var material = new NoiseRow(Descriptor.Seed, origin, _recipe.MaterialScaleCells, MaterialStream);
         for (var index = 0; index < values.Length; index++)
-            values[index] = material.Sample(origin.X + index) < 0 ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
+            values[index] = material.Next() < 0 ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
     }
 
     private static void ValidateRow(LatticeCoordinate origin, int length)
@@ -138,28 +140,31 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     private struct NoiseRow
     {
         private readonly int _scale;
+        private readonly RoundedDivisor _divisor;
         private readonly ulong _seed;
         private readonly long _y, _z, _dy, _dz;
-        private long _gridX;
+        private long _gridX, _dx;
+        private bool _refresh;
         private int _low00, _low10, _low01, _low11, _high00, _high10, _high01, _high11;
 
         internal NoiseRow(ulong seed, LatticeCoordinate origin, int scale, ulong stream)
         {
             _scale = scale;
+            _divisor = new RoundedDivisor(scale);
             _seed = Mix(seed ^ stream);
             (_y, _dy) = Grid(origin.Y, scale);
             (_z, _dz) = Grid(origin.Z, scale);
-            _gridX = long.MinValue;
+            (_gridX, _dx) = Grid(origin.X, scale);
+            _refresh = true;
             _low00 = _low10 = _low01 = _low11 = _high00 = _high10 = _high01 = _high11 = 0;
         }
 
-        internal int Sample(long axis)
+        internal int Next()
         {
-            var (x, dx) = Grid(axis, _scale);
-            if (x != _gridX)
+            if (_refresh)
             {
-                var left = Mix(_seed ^ unchecked((ulong)x));
-                var right = Mix(_seed ^ unchecked((ulong)(x + 1)));
+                var left = Mix(_seed ^ unchecked((ulong)_gridX));
+                var right = Mix(_seed ^ unchecked((ulong)(_gridX + 1)));
                 var lowerLeft = Mix(left ^ unchecked((ulong)_y));
                 var lowerRight = Mix(right ^ unchecked((ulong)_y));
                 var upperLeft = Mix(left ^ unchecked((ulong)(_y + 1)));
@@ -172,17 +177,62 @@ public sealed class PlanetDensityField : IPlanetBrickSource
                 _high10 = Corner(lowerRight, _z + 1);
                 _high01 = Corner(upperLeft, _z + 1);
                 _high11 = Corner(upperRight, _z + 1);
-                _gridX = x;
+                _refresh = false;
             }
-            var low = Interpolate(Interpolate(_low00, _low10, dx, _scale),
-                Interpolate(_low01, _low11, dx, _scale), _dy, _scale);
-            var high = Interpolate(Interpolate(_high00, _high10, dx, _scale),
-                Interpolate(_high01, _high11, dx, _scale), _dy, _scale);
-            return (int)Interpolate(low, high, _dz, _scale);
+            var low = Interpolate(Interpolate(_low00, _low10, _dx),
+                Interpolate(_low01, _low11, _dx), _dy);
+            var high = Interpolate(Interpolate(_high00, _high10, _dx),
+                Interpolate(_high01, _high11, _dx), _dy);
+            var result = (int)Interpolate(low, high, _dz);
+            // Callers consume consecutive X samples. Advance only after evaluating this one.
+            if (++_dx == _scale)
+            {
+                _dx = 0;
+                _gridX++;
+                _refresh = true;
+            }
+            return result;
         }
+
+        private readonly long Interpolate(long a, long b, long weight) =>
+            _divisor.Round(a * (_scale - weight) + b * weight);
 
         private static int Corner(ulong prefix, long axis) =>
             (int)(Mix(prefix ^ unchecked((ulong)axis)) >> 48) - NoiseHalfRange;
+    }
+
+    private readonly struct RoundedDivisor
+    {
+        private readonly uint _denominator;
+        private readonly ulong _reciprocal;
+
+        internal RoundedDivisor(int denominator)
+        {
+            _denominator = (uint)denominator;
+            _reciprocal = denominator == 1 ? 0 : ulong.MaxValue / _denominator + 1;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal long Round(long numerator)
+        {
+            if (_denominator == 1)
+                return numerator;
+            var magnitude = numerator < 0 ? unchecked((ulong)-numerator) : (ulong)numerator;
+            // ceil(2^64 / d) overestimates its exact reciprocal by less than one.
+            // For magnitude <= 2^63, the high product is at most one quotient too high.
+            var quotient = Math.BigMul(magnitude, _reciprocal, out _);
+            var product = quotient * _denominator;
+            if (product > magnitude)
+            {
+                quotient--;
+                product -= _denominator;
+            }
+            var remainder = magnitude - product;
+            var twice = remainder * 2;
+            if (twice > _denominator || (twice == _denominator && (quotient & 1) != 0))
+                quotient++;
+            return numerator < 0 ? -(long)quotient : (long)quotient;
+        }
     }
 
     private PlanetLandform Landform(LatticeCoordinate vertex)
@@ -257,6 +307,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     private static long Interpolate(long a, long b, long weight, int scale) =>
         RoundDivide(a * (scale - weight) + b * weight, scale);
 
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
     internal static long RoundDivide(long numerator, int denominator)
     {
         var (quotient, remainder) = Math.DivRem(numerator, denominator);
