@@ -274,6 +274,29 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
+    internal VolumeStreamingLease? TryBorrowPublishedBricks(VolumeGeneration target, out PlanetBrickStore? store)
+    {
+        lock (_gate)
+        {
+            Refresh();
+            store = null;
+            if (_stopped || !PresentationEpochOpen || !target.IsPrivate || target.AheadBaseRevision is not null ||
+                target.Edit is not null || !target.Outstanding || target.Cancelled || target.Released || target.Retired ||
+                target.View != _view || Array.IndexOf(_entries, target) < 0 ||
+                _active is not { Outstanding: false, Cancelled: false, Released: false, Retired: false,
+                    Artifacts: { } artifacts } active || !IsCurrentRoot(active) ||
+                target.SourceRevision != active.TargetRevision || target.TargetRevision != active.TargetRevision ||
+                !ReferenceEquals(target.Source, active.Source) || !ReferenceEquals(target.Overlay, active.Overlay))
+                return null;
+
+            // A renderer replacement invalidates presentation authority, but the committed root still owns its bricks.
+            var lease = Acquire(active);
+            if (lease is not null)
+                store = artifacts.Store;
+            return lease;
+        }
+    }
+
     internal void CancelPrivate(VolumeGeneration donor)
     {
         lock (_gate)

@@ -148,9 +148,15 @@ public sealed class VolumeStreamingWork : IDisposable
         return ExecuteCore(true, true, privateWork, out profile, cancellationToken);
     }
 
+    /// <summary>Executes and profiles a private build using compatible bricks from the committed terrain when available.</summary>
+    /// <remarks>Unavailable bricks are sampled. The build prepares its own mesh plan and meshes.</remarks>
+    public bool ExecuteDetailedProfiledReusingPublishedBricks(out VolumeStreamingWorkDetailedProfile profile,
+        CancellationToken cancellationToken = default) =>
+        ExecuteCore(true, true, null, out profile, cancellationToken, reusePublishedBricks: true);
+
     private bool ExecuteCore(bool measure, bool captureDetails, VolumeStreamingWork? privateWork,
         out VolumeStreamingWorkDetailedProfile profile,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken, bool reusePublishedBricks = false)
     {
         profile = default;
         if (Interlocked.CompareExchange(ref _state, 1, 0) != 0)
@@ -161,9 +167,13 @@ public sealed class VolumeStreamingWork : IDisposable
             var started = measure ? Stopwatch.GetTimestamp() : 0;
             Check(cancellationToken);
             VolumeArtifacts? donor = null;
-            using var borrow = privateWork is not null && ReferenceEquals(_owner, privateWork._owner)
-                ? _owner.TryBorrowPrivate(_generation, privateWork._generation, out donor)
-                : null;
+            PlanetBrickStore? publishedBricks = null;
+            using var borrow = reusePublishedBricks
+                ? _owner.TryBorrowPublishedBricks(_generation, out publishedBricks)
+                : privateWork is not null && ReferenceEquals(_owner, privateWork._owner)
+                    ? _owner.TryBorrowPrivate(_generation, privateWork._generation, out donor)
+                    : null;
+            var brickDonor = publishedBricks ?? donor?.Store;
             var overlay = _generation.Overlay;
             VolumeOreDepletion depletion = default;
             void CheckEditCancellation()
@@ -191,7 +201,7 @@ public sealed class VolumeStreamingWork : IDisposable
             ReadOnlyMemory<VolumeMeshWorkFingerprint> meshFingerprints = default;
             var brickElapsed = captureDetails ? new long[requests.Length] : null;
             var meshElapsed = captureDetails ? new long[_generation.Selection.MeshCount] : null;
-            var brickHits = captureDetails && donor is not null ? new bool[requests.Length] : null;
+            var brickHits = captureDetails && brickDonor is not null ? new bool[requests.Length] : null;
             var meshHits = captureDetails && donor is not null ? new bool[_generation.Selection.MeshCount] : null;
             try
             {
@@ -200,8 +210,8 @@ public sealed class VolumeStreamingWork : IDisposable
                     Check(cancellationToken);
                     var request = requests[requestIndex];
                     var brickStart = brickElapsed is not null ? Stopwatch.GetTimestamp() : 0;
-                    if (donor is not null && !AffectedByEdit(_generation.Edit, request.Brick.Vertex(0, 0, 0), mesh: false) &&
-                        store.TryImport(request.Brick, donor.Store))
+                    if (brickDonor is not null && !AffectedByEdit(_generation.Edit, request.Brick.Vertex(0, 0, 0), mesh: false) &&
+                        store.TryImport(request.Brick, brickDonor))
                     {
                         if (brickHits is not null)
                         {
@@ -282,7 +292,7 @@ public sealed class VolumeStreamingWork : IDisposable
                     planCreated, meshBuilt, Stopwatch.GetTimestamp());
                 profile = new(timing, brickTiming, evidenceFinished, brickFingerprints, meshFingerprints)
                 {
-                    ReuseSourceGeneration = borrow is null ? 0 : privateWork!.Generation
+                    ReuseSourceGeneration = borrow is null ? 0 : privateWork?.Generation ?? borrow.Info.Generation
                 };
             }
             return accepted;

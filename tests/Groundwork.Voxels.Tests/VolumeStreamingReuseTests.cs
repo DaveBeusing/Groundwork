@@ -171,6 +171,98 @@ public sealed partial class VolumeStreamingTests
         }
     }
 
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task PrivateBuildReusesPublishedBricksAcrossRendererEpoch(bool shifted)
+    {
+        using var run = new Run();
+        var sampler = new Source();
+        using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1, sampler);
+        Assert.IsTrue(initial.Execute());
+        await run.Publish(initial);
+        var view = run.Coordinator.View;
+        run.Coordinator.ChangeView(view.Frame, view.RendererEpoch + 1);
+        var selection = shifted ? VolumeStreamingSelection.Select(Descriptor, new(64, 0, 0), new(1, 0, 0)) : run.Selection;
+
+        using var target = StagePrivateRecipient(run, VolumeWorkClass.Recovery, selection, sampler, 1);
+        using var cold = StagePrivateRecipient(run, VolumeWorkClass.Speculative, selection, sampler, 1);
+        Assert.IsTrue(target.ExecuteDetailedProfiledReusingPublishedBricks(out var profile));
+        Assert.IsTrue(cold.ExecuteDetailedProfiled(out var expected));
+        Assert.AreEqual(initial.Generation, profile.ReuseSourceGeneration);
+        var shared = run.Selection.Requests.ToArray().Select(request => request.Brick)
+            .Intersect(selection.Requests.ToArray().Select(request => request.Brick)).ToArray();
+        Assert.HasCount(shifted ? 32 : 64, shared);
+        CollectionAssert.AreEquivalent(shared, profile.Bricks.ToArray().Where(brick => brick.Reused)
+            .Select(brick => brick.Key).ToArray());
+        Assert.IsFalse(profile.Meshes.ToArray().Any(mesh => mesh.Reused));
+        VolumeReuseAssertions.SameGeometry(expected, profile);
+        Assert.AreEqual(0, run.Coordinator.Statistics.Readers);
+        Assert.AreEqual(run.Unit.Retained + run.Unit.Retained + run.Unit.Retained, run.Coordinator.Statistics.Used);
+        run.Coordinator.Stop();
+        Assert.AreEqual(default, run.Coordinator.Statistics.Used);
+    }
+
+    [TestMethod]
+    [DataRow("no published terrain")]
+    [DataRow("different sampler")]
+    [DataRow("reader limit")]
+    public async Task PrivateBuildFallsBackWhenPublishedBricksAreUnavailable(string unavailable)
+    {
+        using var run = new Run();
+        var sampler = new Source();
+        var hasPublished = unavailable != "no published terrain";
+        if (hasPublished)
+        {
+            using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1, sampler);
+            Assert.IsTrue(initial.Execute());
+            await run.Publish(initial);
+            var view = run.Coordinator.View;
+            run.Coordinator.ChangeView(view.Frame, view.RendererEpoch + 1);
+        }
+        var readers = new List<VolumeStreamingLease>();
+        try
+        {
+            if (unavailable == "reader limit")
+            {
+                for (var index = 0; index < run.Limits.Readers; index++)
+                {
+                    var lease = run.Coordinator.TryRead();
+                    Assert.IsNotNull(lease);
+                    readers.Add(lease);
+                }
+                Assert.IsNull(run.Coordinator.TryRead());
+            }
+            var replacement = unavailable == "different sampler" ? new Source(threshold: 307) : sampler;
+            var revision = hasPublished ? 1UL : 0UL;
+            using var target = StagePrivateRecipient(run, VolumeWorkClass.Recovery, run.Selection, replacement, revision);
+            using var cold = StagePrivateRecipient(run, VolumeWorkClass.Speculative, run.Selection, replacement, revision);
+            Assert.IsTrue(target.ExecuteDetailedProfiledReusingPublishedBricks(out var profile));
+            Assert.IsTrue(cold.ExecuteDetailedProfiled(out var expected));
+            Assert.AreEqual(0UL, profile.ReuseSourceGeneration);
+            Assert.IsFalse(profile.Bricks.ToArray().Any(brick => brick.Reused));
+            Assert.IsFalse(profile.Meshes.ToArray().Any(mesh => mesh.Reused));
+            VolumeReuseAssertions.SameGeometry(expected, profile);
+            Assert.AreEqual(readers.Count, run.Coordinator.Statistics.Readers);
+        }
+        finally
+        {
+            foreach (var reader in readers)
+                reader.Dispose();
+        }
+        run.Coordinator.Stop();
+        Assert.AreEqual(default, run.Coordinator.Statistics.Used);
+    }
+
+    private static VolumeStreamingWork StagePrivateRecipient(Run run, VolumeWorkClass kind,
+        VolumeStreamingSelection selection, IPlanetBrickSource sampler, ulong sourceRevision)
+    {
+        Assert.AreEqual(VolumeAdmission.Accepted, run.Coordinator.TryStagePrivate(kind, selection, sourceRevision, 1,
+            2_000_000, run.Unit, sampler, out var work));
+        Assert.IsNotNull(work);
+        return work;
+    }
+
     private static VolumeStreamingWork StagePrivate(Run run, IPlanetBrickSource sampler)
     {
         var result = run.Coordinator.TryStagePrivate(VolumeWorkClass.Recovery, run.Selection, 0, 1,
