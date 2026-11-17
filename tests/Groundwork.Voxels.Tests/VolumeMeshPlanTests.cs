@@ -37,8 +37,15 @@ public sealed class VolumeMeshPlanTests
     public async Task PlanRetainsEvictedBricksAndReturnsQuotasAfterReadersFinish()
     {
         using var fixture = new Window(Descriptor(128), new LatticeCoordinate(0, 0, 0));
-        var metadataBytes = fixture.Requests.Length * (long)System.Runtime.CompilerServices.Unsafe.SizeOf<VolumeMeshInput>();
-        Assert.IsNull(VolumeMeshPlan.TryCreate(fixture.Store, fixture.Requests, 9, metadataBytes - 1));
+        var inputBytes = fixture.Requests.Length * (long)System.Runtime.CompilerServices.Unsafe.SizeOf<VolumeMeshInput>();
+        var metadataBytes = inputBytes + fixture.Requests.Length / 8 * sizeof(int);
+        Assert.IsNull(VolumeMeshPlan.TryCreate(fixture.Store, fixture.Requests, 9, inputBytes - 1));
+        using (var uncached = VolumeMeshPlan.TryCreate(fixture.Store, fixture.Requests, 9, metadataBytes - 1))
+        {
+            Assert.IsNotNull(uncached);
+            Assert.AreEqual(inputBytes, uncached.MetadataPayloadBytes);
+            Assert.IsNotNull(PlanetVolumeMesher.Build(uncached, uncached.Minimum, long.MaxValue));
+        }
         var plan = VolumeMeshPlan.TryCreate(fixture.Store, fixture.Requests, 9, metadataBytes);
         Assert.IsNotNull(plan);
         Assert.AreEqual(metadataBytes, plan.MetadataPayloadBytes);
@@ -69,6 +76,59 @@ public sealed class VolumeMeshPlanTests
         Assert.AreEqual(0L, fixture.Store.ChargedPayloadBytes);
         Assert.ThrowsExactly<ObjectDisposedException>(() => PlanetVolumeMesher.Build(plan, plan.Minimum, long.MaxValue));
         Assert.IsGreaterThan(0, mesh.Triangles.Length);
+    }
+
+    [TestMethod]
+    public void SealedCountsMatchStandaloneGeometryAndExactBudgetsAcrossRectangularPlan()
+    {
+        const int brickCount = 4 * 4 * 2;
+        var store = new PlanetBrickStore(new PlaneSource(Descriptor(128)), brickCount * (long)PlanetBrickStore.BrickPayloadBytes,
+            brickCount + 8);
+        var requests = new List<VolumeMeshRequest>(brickCount);
+        for (var z = 0; z < 2; z++)
+        for (var y = 0; y < 4; y++)
+        for (var x = 0; x < 4; x++)
+        {
+            var key = new LatticeBrick(x, y, z);
+            Assert.IsTrue(store.TryGenerate(key));
+            requests.Add(new(key, 2));
+        }
+
+        using var plan = VolumeMeshPlan.TryCreate(store, requests.ToArray(), 1, long.MaxValue);
+        Assert.IsNotNull(plan);
+        for (var y = 0; y < 4; y += 2)
+        for (var x = 0; x < 4; x += 2)
+        {
+            var minimum = new LatticeBrick(x, y, 0);
+            var local = new VolumeMeshInput[8];
+            try
+            {
+                for (var i = 0; i < local.Length; i++)
+                {
+                    var key = new LatticeBrick(x + (i & 1), y + ((i >> 1) & 1), i >> 2);
+                    var lease = store.TryAcquire(key);
+                    Assert.IsNotNull(lease);
+                    local[i] = new(lease, 2);
+                }
+
+                var standalone = PlanetVolumeMesher.Build(local, 1, long.MaxValue);
+                Assert.IsNotNull(standalone);
+                var bytes = standalone.Triangles.Length * (long)PlanetVolumeMesher.TrianglePayloadBytes;
+                Assert.AreEqual(y == 0, bytes > 0);
+                if (bytes > 0)
+                    Assert.IsNull(PlanetVolumeMesher.Build(plan, minimum, bytes - 1));
+                var cached = PlanetVolumeMesher.Build(plan, minimum, bytes);
+                Assert.IsNotNull(cached);
+                Assert.AreEqual(standalone.LodMask, cached.LodMask);
+                Assert.AreEqual(plan.Identity, cached.PlanIdentity);
+                CollectionAssert.AreEqual(standalone.Triangles.ToArray(), cached.Triangles.ToArray());
+            }
+            finally
+            {
+                foreach (var input in local)
+                    input.Brick?.Dispose();
+            }
+        }
     }
 
     [TestMethod]
@@ -314,5 +374,11 @@ public sealed class VolumeMeshPlanTests
         }
 
         public ushort SampleMaterial(LatticeCoordinate cell) => (ushort)((cell.X & 1) == 0 ? 7 : 19);
+    }
+
+    private sealed record PlaneSource(PlanetDescriptor Descriptor) : IPlanetBrickSource
+    {
+        public long SampleDensity(LatticeCoordinate vertex) => vertex.Y - 47;
+        public ushort SampleMaterial(LatticeCoordinate cell) => 7;
     }
 }

@@ -15,7 +15,7 @@ The coordinator builds the portable 3D window at B01 strides 1 and 2. Renderer s
 
 ## Accounting and evidence
 
-CPU credits include brick arrays, plan/request metadata, mesh references and the reserved mesh payload. Native/upload/retirement amounts are admission credits for later provider ownership. They are not measured physical GPU usage. Q01/Q02 establish production limits and reference-hardware qualification.
+CPU credits include brick arrays, plan/request metadata, one validated triangle count per mesh region, mesh references and the reserved mesh payload. Plan validation records counts for the layout that passes the winding check, including recalculation on the all-fine fallback. Native/upload/retirement amounts are admission credits for later provider ownership. They are not measured physical GPU usage. Q01/Q02 establish production limits and reference-hardware qualification.
 
 A bounded event FIFO stores view identities, generation, terrain revision and frame identity. Its reserved commit cell resolves from Core's atomic permit outcome. A full FIFO closes the journal epoch and retains terminal evidence. Consume events to return journal capacity. This is independent of diagnostic logging.
 

@@ -89,7 +89,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         ArgumentNullException.ThrowIfNull(selection);
         ArgumentOutOfRangeException.ThrowIfNegative(meshBytes);
         return checked((long)selection.Requests.Length * (PlanetBrickStore.BrickPayloadBytes +
-            Unsafe.SizeOf<VolumeMeshInput>() + Unsafe.SizeOf<VolumeMeshRequest>()) +
+            Unsafe.SizeOf<VolumeMeshRequest>()) + VolumeMeshPlan.RequiredMetadataBytes(selection.Requests.Length) +
             (long)selection.MeshCount * IntPtr.Size + meshBytes);
     }
 
