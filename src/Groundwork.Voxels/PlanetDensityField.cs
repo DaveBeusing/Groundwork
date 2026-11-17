@@ -135,7 +135,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         ValidateCoordinate(origin with { X = checked(origin.X + length - 1L) });
     }
 
-    // Eight scalar corners are local to this row and refreshed whenever X crosses a grid plane.
+    // Noise corners are generated afresh for this row whenever X crosses a grid plane.
     // Interpolation and rounding retain the scalar X, then Y, then Z order exactly.
     private struct NoiseRow
     {
@@ -145,7 +145,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         private readonly long _y, _z, _dy, _dz;
         private long _gridX, _dx;
         private bool _refresh;
-        private int _low00, _low10, _low01, _low11, _high00, _high10, _high01, _high11;
+        private LinearRowStepper _low0, _low1, _high0, _high1;
 
         internal NoiseRow(ulong seed, LatticeCoordinate origin, int scale, ulong stream)
         {
@@ -156,7 +156,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             (_z, _dz) = Grid(origin.Z, scale);
             (_gridX, _dx) = Grid(origin.X, scale);
             _refresh = true;
-            _low00 = _low10 = _low01 = _low11 = _high00 = _high10 = _high01 = _high11 = 0;
+            _low0 = _low1 = _high0 = _high1 = default;
         }
 
         internal int Next()
@@ -169,20 +169,14 @@ public sealed class PlanetDensityField : IPlanetBrickSource
                 var lowerRight = Mix(right ^ unchecked((ulong)_y));
                 var upperLeft = Mix(left ^ unchecked((ulong)(_y + 1)));
                 var upperRight = Mix(right ^ unchecked((ulong)(_y + 1)));
-                _low00 = Corner(lowerLeft, _z);
-                _low10 = Corner(lowerRight, _z);
-                _low01 = Corner(upperLeft, _z);
-                _low11 = Corner(upperRight, _z);
-                _high00 = Corner(lowerLeft, _z + 1);
-                _high10 = Corner(lowerRight, _z + 1);
-                _high01 = Corner(upperLeft, _z + 1);
-                _high11 = Corner(upperRight, _z + 1);
+                _low0 = new LinearRowStepper(Corner(lowerLeft, _z), Corner(lowerRight, _z), _dx, _scale);
+                _low1 = new LinearRowStepper(Corner(upperLeft, _z), Corner(upperRight, _z), _dx, _scale);
+                _high0 = new LinearRowStepper(Corner(lowerLeft, _z + 1), Corner(lowerRight, _z + 1), _dx, _scale);
+                _high1 = new LinearRowStepper(Corner(upperLeft, _z + 1), Corner(upperRight, _z + 1), _dx, _scale);
                 _refresh = false;
             }
-            var low = Interpolate(Interpolate(_low00, _low10, _dx),
-                Interpolate(_low01, _low11, _dx), _dy);
-            var high = Interpolate(Interpolate(_high00, _high10, _dx),
-                Interpolate(_high01, _high11, _dx), _dy);
+            var low = Interpolate(_low0.Next(), _low1.Next(), _dy);
+            var high = Interpolate(_high0.Next(), _high1.Next(), _dy);
             var result = (int)Interpolate(low, high, _dz);
             // Callers consume consecutive X samples. Advance only after evaluating this one.
             if (++_dx == _scale)
@@ -201,15 +195,51 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             (int)(Mix(prefix ^ unchecked((ulong)axis)) >> 48) - NoiseHalfRange;
     }
 
+    private struct LinearRowStepper
+    {
+        private readonly int _scale;
+        private readonly long _stepQuotient, _stepRemainder;
+        private long _quotient, _remainder;
+
+        internal LinearRowStepper(int left, int right, long dx, int scale)
+        {
+            _scale = scale;
+            var slope = (long)right - left;
+            (_quotient, _remainder) = Grid((long)left * scale + slope * dx, scale);
+            (_stepQuotient, _stepRemainder) = Grid(slope, scale);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal long Next()
+        {
+            // Euclidean q/r represents the exact weighted numerator, also when it is negative.
+            // Adding the slope's q/r preserves it; round only the returned value, ties to even.
+            var twice = 2 * _remainder;
+            var result = _quotient + (twice > _scale || (twice == _scale && (_quotient & 1) != 0) ? 1 : 0);
+            _quotient += _stepQuotient;
+            _remainder += _stepRemainder;
+            if (_remainder >= _scale)
+            {
+                _remainder -= _scale;
+                _quotient++;
+            }
+            return result;
+        }
+    }
+
     private readonly struct RoundedDivisor
     {
         private readonly uint _denominator;
         private readonly ulong _reciprocal;
+        private readonly int _shift;
+        private readonly uint _odd;
 
         internal RoundedDivisor(int denominator)
         {
             _denominator = (uint)denominator;
             _reciprocal = denominator == 1 ? 0 : ulong.MaxValue / _denominator + 1;
+            _shift = (int)uint.TrailingZeroCount(_denominator);
+            _odd = _denominator >> _shift;
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -218,16 +248,21 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             if (_denominator == 1)
                 return numerator;
             var magnitude = numerator < 0 ? unchecked((ulong)-numerator) : (ulong)numerator;
-            // ceil(2^64 / d) overestimates its exact reciprocal by less than one.
-            // For magnitude <= 2^63, the high product is at most one quotient too high.
-            var quotient = Math.BigMul(magnitude, _reciprocal, out _);
-            var product = quotient * _denominator;
-            if (product > magnitude)
+            ulong quotient;
+            // floor(floor(n / odd) / 2^shift) equals floor(n / (odd * 2^shift)).
+            if (_odd == 1)
+                quotient = magnitude >> _shift;
+            else if (_odd == 3)
+                quotient = (magnitude / 3) >> _shift;
+            else
             {
-                quotient--;
-                product -= _denominator;
+                // ceil(2^64 / d) overestimates its exact reciprocal by less than one.
+                // For magnitude <= 2^63, the high product is at most one quotient too high.
+                quotient = Math.BigMul(magnitude, _reciprocal, out _);
+                if (quotient * _denominator > magnitude)
+                    quotient--;
             }
-            var remainder = magnitude - product;
+            var remainder = magnitude - quotient * _denominator;
             var twice = remainder * 2;
             if (twice > _denominator || (twice == _denominator && (quotient & 1) != 0))
                 quotient++;

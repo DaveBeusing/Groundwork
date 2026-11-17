@@ -25,6 +25,11 @@ public sealed class PlanetRoundedDivisionTests
             1, 2, 3, 24, 48, 96, 192, 1024, 32768, 65535, int.MaxValue,
             4, 7, 8, 16, 31, 32, 33, 63, 64, 65, 127, 128, 129,
         };
+        // Exercise every valid optimized divisor and the immediately adjacent generic paths.
+        for (var shift = 0; shift <= 30; shift++)
+            AddNeighbors(1L << shift);
+        for (var shift = 0; shift <= 29; shift++)
+            AddNeighbors(3L << shift);
         for (var i = 0; i < 24; i++)
             denominators.Add(random.Next(1, int.MaxValue));
 
@@ -44,6 +49,48 @@ public sealed class PlanetRoundedDivisionTests
             }
         }
         Assert.IsGreaterThan(10_000, compared, $"Expected broad signed coverage, compared {compared} values.");
+
+        void AddNeighbors(long denominator)
+        {
+            for (var neighbor = denominator - 1; neighbor <= denominator + 1; neighbor++)
+                if (neighbor is > 0 and <= int.MaxValue)
+                    denominators.Add((int)neighbor);
+        }
+    }
+
+    [TestMethod]
+    public void LinearRowStepperMatchesScalarInterpolationAcrossSignedCornersAndHalfwayCuts()
+    {
+        var stepperType = typeof(PlanetDensityField).GetNestedType("LinearRowStepper", BindingFlags.NonPublic);
+        Assert.IsNotNull(stepperType);
+        var constructor = stepperType.GetConstructor(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null, types: [typeof(int), typeof(int), typeof(long), typeof(int)], modifiers: null);
+        var next = stepperType.GetMethod("Next", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            binder: null, types: Type.EmptyTypes, modifiers: null);
+        Assert.IsNotNull(constructor);
+        Assert.IsNotNull(next);
+        int[] corners = [-32768, -32767, -1, 0, 1, 32766, 32767];
+        int[] scales = [1, 2, 3, 24, 61, 1024, int.MaxValue];
+        var compared = 0;
+        foreach (var scale in scales)
+        foreach (var left in corners)
+        foreach (var right in corners)
+        foreach (var dx in new long[] { 0, scale / 2, scale - 1 }.Distinct())
+        {
+            // Invoke the same boxed mutable struct: every Next must carry its exact q/r state.
+            var stepper = constructor.Invoke([left, right, dx, scale]);
+            var count = Math.Min(65L, scale - dx);
+            for (var i = 0; i < count; i++)
+            {
+                var numerator = (long)left * scale + ((long)right - left) * (dx + i);
+                var expected = ScalarRound(numerator, scale);
+                var actual = (long)next.Invoke(stepper, null)!;
+                if (actual != expected)
+                    Assert.Fail($"Linear row ({left},{right}), scale={scale}, dx={dx}, index={i}: expected {expected}, got {actual}.");
+                compared++;
+            }
+        }
+        Assert.IsGreaterThan(10_000, compared, $"Expected carried-state and signed rounding coverage; compared {compared} values.");
     }
 
     private static long ScalarRound(long numerator, int denominator)
