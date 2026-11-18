@@ -101,8 +101,11 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         var retirement = _gpu.BeginQueueWork();
         if (_gpu.HasResourceDiagnostics)
             _gpu.ObservePresentStart(retirement, CurrentBuffer);
-        var result = _gpu.InjectedPresentFailure() is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
+        var injectedFailure = _gpu.InjectedPresentFailure();
+        var result = injectedFailure is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
         var presentedAt = result.Value == 0 && _gpu.HasResourceDiagnostics ? Stopwatch.GetTimestamp() : 0;
+        if (injectedFailure is null)
+            _gpu.ObserveNativePresentForTests(retirement, result.Value);
         var signal = _gpu.SignalQueueWork(retirement);
         if (signal.Value >= 0)
             _gpu.ObservePresentSignal(retirement);
