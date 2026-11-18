@@ -17,10 +17,11 @@ public sealed class PlanetDensityFieldParityTests
             new(1024, -6144, 8192, new(192, 6144), new(96, 3072), new(24, 512), 48, 1, 2),
             new(61, -512, 1280, new(17, 1536), new(11, 1024), new(5, 192), 13, 7, 19),
             new(1, 0, 0, new(3, 0), new(5, 0), new(7, 0), 1, 7, 19),
-            new(13, -256, 512, new(17, 0), new(11, 1024), new(5, 0), 3, 7, 19)
+            new(13, -256, 512, new(17, 0), new(11, 1024), new(5, 0), 3, 7, 19),
+            new(32768, -6144, 8192, new(24576, 6144), new(49152, 3072), new(2, 512), 24576, 1, 2)
         ];
         var maximum = PlanetDensityField.MaximumCoordinate;
-        long[] starts = [-maximum, -193, -97, -25, -1, 0, 23, 95, 191, maximum - 64];
+        long[] starts = [-maximum, -32769, -24577, -193, -97, -25, -1, 0, 23, 95, 191, 24573, 32765, maximum - 64];
         foreach (var seed in new ulong[] { 0, 42, ulong.MaxValue })
         foreach (var recipe in recipes)
         {

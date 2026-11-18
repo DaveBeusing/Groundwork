@@ -1,4 +1,5 @@
 using System.Runtime.CompilerServices;
+using System.Runtime.Intrinsics;
 
 namespace Groundwork.Voxels;
 
@@ -44,8 +45,8 @@ public sealed class PlanetDensityField : IPlanetBrickSource
 
         Descriptor = descriptor;
         _recipe = recipe;
-        // The only floating-point step is the initial radius conversion: binary64 division,
-        // exact power-of-two scaling and round-to-nearest, ties to even. All sampling is integer.
+        // Convert the radius once using binary64 division, exact power-of-two scaling and ties to even.
+        // Sample rounding is integer-exact, including correction of the small square-root estimate.
         _radius = checked((long)Math.Round(descriptor.RadiusMeters / descriptor.CellSizeMeters * UnitsPerCell,
             MidpointRounding.ToEven));
     }
@@ -102,20 +103,40 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             new NoiseRow(Descriptor.Seed, origin, _recipe.Valleys.ScaleCells, ValleyStream);
         var detail = _recipe.Detail.Amplitude == 0 ? default :
             new NoiseRow(Descriptor.Seed, origin, _recipe.Detail.ScaleCells, DetailStream);
+        const int blockSize = 32;
+        Span<int> continental = stackalloc int[blockSize];
+        Span<int> ridges = stackalloc int[blockSize];
+        Span<int> cuts = stackalloc int[blockSize];
+        Span<int> details = stackalloc int[blockSize];
+        var mountainAmplitude = _recipe.Mountains.Amplitude;
+        var valleyAmplitude = _recipe.Valleys.Amplitude;
+        var detailAmplitude = _recipe.Detail.Amplitude;
         var squaredYZ = Square(origin.Y) + Square(origin.Z);
-        for (var index = 0; index < values.Length; index++)
+        for (var offset = 0; offset < values.Length;)
         {
-            var x = origin.X + index;
-            var mask = continent.Next() + NoiseHalfRange;
-            var elevation = Interpolate(_recipe.LowElevation, _recipe.HighElevation, mask, 2 * NoiseHalfRange - 1);
-            var mountain = _recipe.Mountains.Amplitude == 0 ? 0 :
-                RoundDivide((long)_recipe.Mountains.Amplitude * (NoiseHalfRange - Math.Abs(mountains.Next())), NoiseHalfRange);
-            var valley = _recipe.Valleys.Amplitude == 0 ? 0 :
-                -RoundDivide((long)_recipe.Valleys.Amplitude * (NoiseHalfRange - Math.Abs(valleys.Next())), NoiseHalfRange);
-            var fine = _recipe.Detail.Amplitude == 0 ? 0 :
-                RoundDivide((long)_recipe.Detail.Amplitude * detail.Next(), NoiseHalfRange);
-            var landform = checked(elevation + mountain + valley + fine);
-            values[index] = checked(NearestSquareRoot((Square(x) + squaredYZ) << 16) - _radius - landform);
+            var count = Math.Min(blockSize, values.Length - offset);
+            continent.Fill(continental[..count]);
+            if (mountainAmplitude != 0)
+                mountains.Fill(ridges[..count]);
+            if (valleyAmplitude != 0)
+                valleys.Fill(cuts[..count]);
+            if (detailAmplitude != 0)
+                detail.Fill(details[..count]);
+            for (var index = 0; index < count; index++)
+            {
+                var x = origin.X + offset + index;
+                var elevation = Interpolate(_recipe.LowElevation, _recipe.HighElevation,
+                    continental[index] + NoiseHalfRange, 2 * NoiseHalfRange - 1);
+                var mountain = mountainAmplitude == 0 ? 0 :
+                    RoundDivide((long)mountainAmplitude * (NoiseHalfRange - Math.Abs(ridges[index])), NoiseHalfRange);
+                var valley = valleyAmplitude == 0 ? 0 :
+                    -RoundDivide((long)valleyAmplitude * (NoiseHalfRange - Math.Abs(cuts[index])), NoiseHalfRange);
+                var fine = detailAmplitude == 0 ? 0 :
+                    RoundDivide((long)detailAmplitude * details[index], NoiseHalfRange);
+                values[offset + index] = checked(NearestSquareRoot((Square(x) + squaredYZ) << 16) -
+                    _radius - checked(elevation + mountain + valley + fine));
+            }
+            offset += count;
         }
     }
 
@@ -125,8 +146,15 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             return;
         ValidateRow(origin, values.Length);
         var material = new NoiseRow(Descriptor.Seed, origin, _recipe.MaterialScaleCells, MaterialStream);
-        for (var index = 0; index < values.Length; index++)
-            values[index] = material.Next() < 0 ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
+        Span<int> samples = stackalloc int[32];
+        for (var offset = 0; offset < values.Length;)
+        {
+            var count = Math.Min(samples.Length, values.Length - offset);
+            material.Fill(samples[..count]);
+            for (var index = 0; index < count; index++)
+                values[offset + index] = samples[index] < 0 ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
+            offset += count;
+        }
     }
 
     private static void ValidateRow(LatticeCoordinate origin, int length)
@@ -141,6 +169,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
     {
         private readonly int _scale;
         private readonly RoundedDivisor _divisor;
+        private readonly int _shift, _odd;
         private readonly ulong _seed;
         private readonly long _y, _z, _dy, _dz;
         private long _gridX, _dx;
@@ -151,6 +180,8 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         {
             _scale = scale;
             _divisor = new RoundedDivisor(scale);
+            _shift = (int)uint.TrailingZeroCount((uint)scale);
+            _odd = scale >> _shift;
             _seed = Mix(seed ^ stream);
             (_y, _dy) = Grid(origin.Y, scale);
             (_z, _dz) = Grid(origin.Z, scale);
@@ -159,20 +190,101 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             _low0 = _low1 = _high0 = _high1 = default;
         }
 
-        internal int Next()
+        internal void Fill(Span<int> output)
+        {
+            if (!Vector128.IsHardwareAccelerated || _scale > 32768 || _odd is not (1 or 3))
+            {
+                for (var index = 0; index < output.Length; index++)
+                    output[index] = Next();
+                return;
+            }
+
+            // Work within one noise cell at a time. In the last group only the lanes within
+            // that cell are emitted; the next group starts with the next cell's own corners.
+            while (!output.IsEmpty)
+            {
+                var count = Math.Min(output.Length, _scale - (int)_dx);
+                var (left, right) = GetCorners();
+                for (var index = 0; index < count; index += Vector128<int>.Count)
+                {
+                    var x = Vector128.Create((int)_dx + index) + Vector128.Create(0, 1, 2, 3);
+                    if (count - index < Vector128<int>.Count)
+                        x = Vector128.Min(x, Vector128.Create((int)_dx + count - 1));
+                    var lo0 = InterpolateBlock(left.GetElement(0), right.GetElement(0), x);
+                    var lo1 = InterpolateBlock(left.GetElement(1), right.GetElement(1), x);
+                    var hi0 = InterpolateBlock(left.GetElement(2), right.GetElement(2), x);
+                    var hi1 = InterpolateBlock(left.GetElement(3), right.GetElement(3), x);
+                    var lo = InterpolateBlock(lo0, lo1, Vector128.Create((int)_dy));
+                    var hi = InterpolateBlock(hi0, hi1, Vector128.Create((int)_dy));
+                    var result = InterpolateBlock(lo, hi, Vector128.Create((int)_dz));
+                    if (count - index >= Vector128<int>.Count)
+                        result.CopyTo(output[index..]);
+                    else
+                        for (var lane = 0; lane < count - index; lane++)
+                            output[index + lane] = result.GetElement(lane);
+                }
+                output = output[count..];
+                _dx += count;
+                if (_dx == _scale)
+                {
+                    _dx = 0;
+                    _gridX++;
+                }
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private readonly Vector128<int> InterpolateBlock(Vector128<int> a, Vector128<int> b, Vector128<int> weight)
+        {
+            // Noise corners and rounded intermediate values fit Int16. Bounded scale and
+            // in-cell weights keep the weighted numerators within Int32.
+            var numerator = a * _scale + (b - a) * weight;
+            var sign = numerator >> 31;
+            var magnitude = ((numerator ^ sign) - sign).AsUInt32();
+            var quotient = magnitude >> _shift;
+            if (_odd == 3)
+            {
+                // The shifted magnitude is below 2^17. The fixed reciprocal is at most
+                // one quotient high for the emitted lanes (whose shifted magnitude is <= 98304).
+                var divided = (quotient * 21846u) >> 16;
+                quotient = divided + Vector128.GreaterThan(divided * 3u, quotient);
+            }
+            var remainder = magnitude - quotient * (uint)_scale;
+            var twice = remainder + remainder;
+            var divisor = Vector128.Create((uint)_scale);
+            var increment = Vector128.GreaterThan(twice, divisor) |
+                (Vector128.Equals(twice, divisor) & (Vector128<uint>.Zero - (quotient & Vector128<uint>.One)));
+            return (((quotient - increment).AsInt32()) ^ sign) - sign;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        private readonly Vector128<int> InterpolateBlock(int a, int b, Vector128<int> weight) =>
+            InterpolateBlock(Vector128.Create(a), Vector128.Create(b), weight);
+
+        private readonly (Vector128<int> Left, Vector128<int> Right) GetCorners()
+        {
+            var left = Mix(_seed ^ unchecked((ulong)_gridX));
+            var right = Mix(_seed ^ unchecked((ulong)(_gridX + 1)));
+            return (CornersAtX(left), CornersAtX(right));
+        }
+
+        private readonly Vector128<int> CornersAtX(ulong x)
+        {
+            var lower = Mix(x ^ unchecked((ulong)_y));
+            var upper = Mix(x ^ unchecked((ulong)(_y + 1)));
+            return Vector128.Create(Corner(lower, _z), Corner(upper, _z),
+                Corner(lower, _z + 1), Corner(upper, _z + 1));
+        }
+
+        private int Next()
         {
             if (_refresh)
             {
-                var left = Mix(_seed ^ unchecked((ulong)_gridX));
-                var right = Mix(_seed ^ unchecked((ulong)(_gridX + 1)));
-                var lowerLeft = Mix(left ^ unchecked((ulong)_y));
-                var lowerRight = Mix(right ^ unchecked((ulong)_y));
-                var upperLeft = Mix(left ^ unchecked((ulong)(_y + 1)));
-                var upperRight = Mix(right ^ unchecked((ulong)(_y + 1)));
-                _low0 = new LinearRowStepper(Corner(lowerLeft, _z), Corner(lowerRight, _z), _dx, _scale);
-                _low1 = new LinearRowStepper(Corner(upperLeft, _z), Corner(upperRight, _z), _dx, _scale);
-                _high0 = new LinearRowStepper(Corner(lowerLeft, _z + 1), Corner(lowerRight, _z + 1), _dx, _scale);
-                _high1 = new LinearRowStepper(Corner(upperLeft, _z + 1), Corner(upperRight, _z + 1), _dx, _scale);
+                var (left, right) = GetCorners();
+                _low0 = new LinearRowStepper(left.GetElement(0), right.GetElement(0), _dx, _scale);
+                _low1 = new LinearRowStepper(left.GetElement(1), right.GetElement(1), _dx, _scale);
+                _high0 = new LinearRowStepper(left.GetElement(2), right.GetElement(2), _dx, _scale);
+                _high1 = new LinearRowStepper(left.GetElement(3), right.GetElement(3), _dx, _scale);
                 _refresh = false;
             }
             var low = Interpolate(_low0.Next(), _low1.Next(), _dy);
@@ -375,14 +487,12 @@ public sealed class PlanetDensityField : IPlanetBrickSource
 
     private static long NearestSquareRoot64(ulong squared)
     {
-        var root = 1UL << (((int)ulong.Log2(squared) + 2) / 2);
-        while (true)
-        {
-            var next = (root + squared / root) >> 1;
-            if (next >= root)
-                return (long)(squared - root * root > root ? root + 1 : root);
-            root = next;
-        }
+        var root = Math.Min((ulong)Math.Sqrt(squared), uint.MaxValue);
+        while (root * root > squared)
+            root--;
+        while (root < uint.MaxValue && (root + 1) * (root + 1) <= squared)
+            root++;
+        return (long)(squared - root * root > root ? root + 1 : root);
     }
 
     internal static void ValidateCoordinate(LatticeCoordinate coordinate)
