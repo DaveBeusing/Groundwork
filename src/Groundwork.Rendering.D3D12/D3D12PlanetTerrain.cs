@@ -246,27 +246,35 @@ public sealed partial class D3D12Renderer
                         sampleColor?.Invoke(keys[vertex]) ?? uint.MaxValue);
                 }
 
-                for (var triangle = 0; triangle < triangles.Length; triangle += 3)
-                {
-                    var a = samples[(int)triangles[triangle]];
-                    var b = samples[(int)triangles[triangle + 1]];
-                    var c = samples[(int)triangles[triangle + 2]];
-                    OrderTerrainMaterialTriangle(indices.AsSpan(offset, 3), (uint)offset, a.Material, b.Material, c.Material);
-                    WriteTerrainAppearance(appearance.AsSpan(offset, 3), a.Point, b.Point, c.Point, a.Material, b.Material, c.Material);
-                    for (var corner = 0; corner < 3; corner++, offset++)
-                    {
-                        var index = (int)triangles[triangle + corner];
-                        positions[offset] = local[index];
-                        normals[offset] = samples[index].Normal;
-                        if (!colors.AsSpan().IsEmpty)
-                            colors[offset] = samples[index].Color;
-                    }
-                }
+                PackOrbitTriangles(local, triangles, samples, positions, indices, normals, colors, appearance, offset);
+                offset += triangles.Length;
             }
 
             instances[batch] = new(RenderMesh.CreateWithTerrainNormals(positions, indices, colors, normals, appearance), Vector3.Zero);
         }
         return new RenderMeshRegion(instances);
+    }
+
+    private static void PackOrbitTriangles(ReadOnlySpan<Vector3> local, ReadOnlySpan<uint> triangles,
+        ReadOnlySpan<OrbitAppearanceSample> samples, Span<Vector3> positions, Span<uint> indices, Span<uint> normals,
+        Span<uint> colors, Span<TerrainAppearanceVertex> appearance, int offset)
+    {
+        for (var triangle = 0; triangle < triangles.Length; triangle += 3)
+        {
+            var a = samples[(int)triangles[triangle]];
+            var b = samples[(int)triangles[triangle + 1]];
+            var c = samples[(int)triangles[triangle + 2]];
+            OrderTerrainMaterialTriangle(indices.Slice(offset, 3), (uint)offset, a.Material, b.Material, c.Material);
+            WriteTerrainAppearance(appearance.Slice(offset, 3), a.Point, b.Point, c.Point, a.Material, b.Material, c.Material);
+            for (var corner = 0; corner < 3; corner++, offset++)
+            {
+                var index = (int)triangles[triangle + corner];
+                positions[offset] = local[index];
+                normals[offset] = samples[index].Normal;
+                if (!colors.IsEmpty)
+                    colors[offset] = samples[index].Color;
+            }
+        }
     }
 
     private readonly record struct OrbitAppearanceSample(PlanetTriplanarPoint Point, ushort Material, uint Normal, uint Color);

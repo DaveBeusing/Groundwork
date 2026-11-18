@@ -64,6 +64,10 @@ public sealed partial class D3D12Renderer
 
     private D3D12TextureView CurrentPlanetTextureView()
     {
+        if (_sessionOrbitTextureView.IsValid)
+            return PlanetTextureAdmissionOpen && Volatile.Read(ref _sessionOrbitPresented) != 0
+                ? _sessionOrbitTextureView : default;
+
         lock (_planetAppearanceGate)
         {
             if (_submittedPlanetAppearance is not { } accepted || !PlanetTextureAdmissionOpen)
@@ -77,6 +81,9 @@ public sealed partial class D3D12Renderer
 
     private bool HasProtectedPlanetTextureCompetition()
     {
+        if (_sessionOrbitTextureView.IsValid)
+            return Volatile.Read(ref _sessionOrbitPresented) == 0;
+
         if (_planetTextureDomain is null || !PlanetTextureAdmissionOpen)
             return false;
 

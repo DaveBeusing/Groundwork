@@ -77,6 +77,22 @@ public sealed partial class D3D12Renderer
         bool useWarp = false, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null) =>
         new(window, ownership, terrain, rendererEpoch, diagnostics, useWarp, startupTimeout, operationTimeout, null, includeTerrainAppearance: true);
 
+    /// <summary>Creates a textured volume renderer on the existing device session.</summary>
+    /// <remarks>
+    /// Attach a fresh texture handoff before startup. Publish appearance against the coordinator's world
+    /// identity and the exact publication's view, terrain revision, and generation.
+    /// If canonical appearance geometry exceeds either the reserved packing or native credits, the renderer
+    /// uses the existing colored geometry for that generation. This factory does not increase either credit.
+    /// </remarks>
+    public static D3D12Renderer CreateWithTexturedSessionVolumeTerrain(WindowsHostModule window,
+        IRuntimeOwnership ownership, VolumeStreamingCoordinator terrain, ulong rendererEpoch, D3D12DeviceSession session,
+        VolumeTerrainColorEvaluator? colorEvaluator = null, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        return new(window, ownership, terrain, rendererEpoch, session.Diagnostics, session.UseWarp,
+            startupTimeout, operationTimeout, null, colorEvaluator, includeTerrainAppearance: true) { _deviceSession = session };
+    }
+
     /// <summary>Creates a volume renderer with a fixed terrain color policy.</summary>
     public static D3D12Renderer CreateWithColoredVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
         VolumeStreamingCoordinator terrain, ulong rendererEpoch, VolumeTerrainColorEvaluator colorEvaluator,
@@ -570,7 +586,7 @@ public sealed partial class D3D12Renderer
         if (_recordedPlanetAppearance is { } planet)
             return AuthorizeRecordedPlanetAppearance(frame, planet);
         if (_volume is null)
-            return true;
+            return !_sessionOrbitTextureView.IsValid || PlanetTextureAdmissionOpen;
         lock (_volumeGate)
         {
             return CanDrawVolume(frame) && (!frame.Scene.HasValue ||
@@ -611,6 +627,8 @@ public sealed partial class D3D12Renderer
 
             if (appearance.Materials is not null)
                 return RecordedTextureIsCurrent();
+            if (UsesSessionTerrainAppearance)
+                return !_textureFrameTicket.HasValue;
 
             return _textures.TryGetDrawableResident(appearance.TextureView, out var current)
                 ? current == appearance.TextureTicket : !appearance.TextureTicket.HasValue;

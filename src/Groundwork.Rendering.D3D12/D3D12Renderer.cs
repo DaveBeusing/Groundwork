@@ -201,6 +201,8 @@ public sealed partial class D3D12Renderer : IRenderer
 
     public RenderSubmissionResult TrySubmit(in RenderFrame frame)
     {
+        if (_sessionOrbitTextureView.IsValid && frame.Scene is { World.IsIdentity: false })
+            return RenderSubmissionResult.InvalidFrame;
         var result = _admission.TrySubmit(frame);
         if (result is RenderSubmissionResult.Accepted or RenderSubmissionResult.Replaced)
             Wake();
@@ -217,16 +219,16 @@ public sealed partial class D3D12Renderer : IRenderer
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException("The Direct3D 12 provider requires Windows 11 x64.");
         var meshFence = context.StopControl as IRuntimeAdmissionFence;
-        var replacesGeometry = _admission.MeshRegionReplacement is not null;
-        if (replacesGeometry && meshFence is null)
-            throw new ArgumentException("Mesh replacement requires a runtime admission fence.", nameof(context));
+        var requiresAdmissionFence = _admission.MeshRegionReplacement is not null || _sessionOrbitTextureView.IsValid;
+        if (requiresAdmissionFence && meshFence is null)
+            throw new ArgumentException("Mesh replacement and session orbital appearance require a runtime admission fence.", nameof(context));
 
         var timestamp = context.Clock.GetTimestamp();
         lock (_lifecycle)
         {
             _admission.MarkInitialized();
             _context = context;
-            _meshRuntimeFence = replacesGeometry ? meshFence : null;
+            _meshRuntimeFence = requiresAdmissionFence ? meshFence : null;
             _faultTimestamp = timestamp;
         }
 

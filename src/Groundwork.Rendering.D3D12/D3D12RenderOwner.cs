@@ -356,7 +356,8 @@ public sealed partial class D3D12Renderer
             var latestTakenSequence = current?.Sequence ?? 0;
             var appearanceView = normalFrame is null && appearancePending && !retry.HasValue
                 ? CurrentAcknowledgedAppearanceView(latestTakenSequence) : null;
-            var planetCut = normalFrame is null && appearancePending && _planetTerrain && current is { Scene: not null } &&
+            var planetCut = normalFrame is null && appearancePending &&
+                (_planetTerrain || _sessionOrbitTextureView.IsValid) && current is { Scene: not null } &&
                 CanRedrawPlanetAppearance(latestTakenSequence) ? CurrentPlanetTextureView() : default;
             if ((normalFrame ?? appearanceView?.Frame ?? (planetCut.IsValid ? current : null)) is not { } frame)
             {
@@ -497,7 +498,10 @@ public sealed partial class D3D12Renderer
                         planetPresented = (0, frame.Sequence, generation);
                 }
                 else
+                {
                     _admission.RecordPresented(frame.Sequence);
+                    RecordSessionOrbitPresent(frame);
+                }
                 if (frame.Scene.HasValue)
                     appearancePending = false;
                 redraw = false;

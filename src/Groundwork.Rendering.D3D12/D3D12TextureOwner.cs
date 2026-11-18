@@ -17,6 +17,8 @@ public sealed partial class D3D12Renderer
     private D3D12TextureView _textureFrameView;
     private D3D12TextureTicket? _textureFrameTicket;
     private GpuTerrainMaterialSet? _textureFrameMaterials;
+    private bool UsesSessionTerrainAppearance => _sessionOrbitTextureView.IsValid ||
+        (_volumeAppearanceGeometry && _deviceSession is not null);
     internal Action<D3D12TextureTicket, WaitHandle>? BeforeTextureUploadForTests { private get; init; }
 
     /// <summary>Attach a static cooked texture stream before starting a volume renderer.</summary>
@@ -27,7 +29,8 @@ public sealed partial class D3D12Renderer
         {
             if (_volume is null || _threadStarted || Stopping || _textures is not null)
                 throw new InvalidOperationException("Attach a fresh texture stream before starting a volume renderer.");
-            stream.BindOwner(_volume.WorldIdentity, Wake, _volumeAppearanceGeometry ? _volumeEpoch : 0);
+            stream.BindOwner(_volume.WorldIdentity, Wake, _volumeAppearanceGeometry ? _volumeEpoch : 0,
+                retainTerrainResidents: _volumeAppearanceGeometry && _deviceSession is not null);
             _textures = stream;
         }
     }
@@ -53,7 +56,7 @@ public sealed partial class D3D12Renderer
     {
         if (_textureOwner is not { } owner)
             return false;
-        var changed = owner.Refresh(CurrentTextureView(), out var released);
+        var changed = owner.Refresh(CurrentTextureView(), !UsesSessionTerrainAppearance, out var released);
         if (released)
             PublishTextureDiagnostics(gpu);
         return changed;
@@ -150,7 +153,9 @@ public sealed partial class D3D12Renderer
             gpu.SelectTerrainMaterials(materials, _textures);
             return;
         }
-        if (owner.TryResolve(view, out var ticket, out var binding) &&
+        // A budget fallback keeps legacy biome colors. Never reuse a palette map as the
+        // unrelated legacy single-texture binding on a session terrain renderer.
+        if (!UsesSessionTerrainAppearance && owner.TryResolve(view, out var ticket, out var binding) &&
             gpu.SetFrameTexture(binding, view.View.RendererEpoch))
         {
             _textureFrameView = view;
@@ -194,18 +199,20 @@ public sealed partial class D3D12Renderer
             return stream.TryGetDrawableResident(view, out ticket) && _resident.TryGetValue(ticket, out binding);
         }
 
-        internal bool Refresh(D3D12TextureView view, out bool released)
+        internal bool Refresh(D3D12TextureView view, bool allowLegacyTexture, out bool released)
         {
             released = false;
             foreach (var ticket in _resident.Keys)
             {
-                if (!stream.IsCurrent(ticket, view))
+                if (!stream.ShouldKeepResident(ticket, view))
                 {
                     ReleaseResident(ticket);
                     released = true;
                 }
             }
-            TryResolve(view, out _, out var next);
+            var next = default(GpuTextureIdentity);
+            if (allowLegacyTexture)
+                TryResolve(view, out _, out next);
             var previousMaterials = _materials;
             _materials = gpu.ActiveMeshGeometry is { HasTerrainAppearance: true } ? CaptureTerrainMaterials(view) : null;
             var changed = next != _selected || !ReferenceEquals(previousMaterials, _materials);
