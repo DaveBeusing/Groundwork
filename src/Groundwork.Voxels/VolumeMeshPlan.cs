@@ -36,6 +36,7 @@ public sealed class VolumeMeshPlan : IDisposable
         _ownsLeases = ownsLeases;
         _triangleCounts = triangleCounts;
         _editDigest = editDigest;
+        AcquireReadSessions();
     }
 
     public PlanetDescriptor Descriptor { get; }
@@ -156,8 +157,16 @@ public sealed class VolumeMeshPlan : IDisposable
         foreach (var input in inputs)
             sorted[Index(input.Brick.Key, min, width, height)] = input;
         var plan = new VolumeMeshPlan(sorted, min, width, height, depth, terrainRevision, ownsLeases: false);
-        plan.Prepare();
-        return plan;
+        try
+        {
+            plan.Prepare();
+            return plan;
+        }
+        catch
+        {
+            plan.Dispose();
+            throw;
+        }
     }
 
     private void Prepare()
@@ -223,9 +232,27 @@ public sealed class VolumeMeshPlan : IDisposable
 
     private void ReleaseLeases()
     {
+        foreach (var input in _inputs)
+            input.Brick.ExitReadSession();
         if (_ownsLeases)
             foreach (var input in _inputs)
                 input.Brick.Dispose();
+    }
+
+    private void AcquireReadSessions()
+    {
+        var acquired = 0;
+        try
+        {
+            for (; acquired < _inputs.Length; acquired++)
+                _inputs[acquired].Brick.EnterReadSession();
+        }
+        catch
+        {
+            while (acquired > 0)
+                _inputs[--acquired].Brick.ExitReadSession();
+            throw;
+        }
     }
 
     internal Vector3 BrickPosition(int index) => new(
@@ -306,7 +333,7 @@ public sealed class VolumeMeshPlan : IDisposable
     {
         var index = BrickAt(point);
         var local = point - BrickPosition(index);
-        return _inputs[index].Brick.ReadDensity((int)local.X, (int)local.Y, (int)local.Z);
+        return _inputs[index].Brick.ReadDensityInSession((int)local.X, (int)local.Y, (int)local.Z);
     }
 
     internal Vector3 Gradient(Vector3 point)
@@ -329,7 +356,7 @@ public sealed class VolumeMeshPlan : IDisposable
         point = Vector3.Min(point, new Vector3(Width * 32 - 1, Height * 32 - 1, Depth * 32 - 1));
         var index = BrickAt(point);
         var local = point - BrickPosition(index);
-        return _inputs[index].Brick.ReadMaterial((int)local.X, (int)local.Y, (int)local.Z);
+        return _inputs[index].Brick.ReadMaterialInSession((int)local.X, (int)local.Y, (int)local.Z);
     }
 
     private string ComputeIdentity()

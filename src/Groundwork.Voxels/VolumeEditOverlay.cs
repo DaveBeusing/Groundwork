@@ -143,6 +143,30 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
     public ushort SampleMaterial(LatticeCoordinate cell) =>
         TryRead(_materials, _materialCount, cell, out var material) ? (ushort)(material & MaterialMask) : _baseline.SampleMaterial(cell);
 
+    internal bool SupportsRowSampling => _baseline is PlanetDensityField;
+
+    internal bool TrySampleDensityRow(LatticeCoordinate origin, Span<long> values)
+    {
+        if (_baseline is not PlanetDensityField field)
+            return false;
+        field.SampleDensityRow(origin, values);
+        for (var x = 0; x < values.Length; x++)
+            if (TryRead(_density, _densityCount, origin with { X = origin.X + x }, out var density))
+                values[x] = density;
+        return true;
+    }
+
+    internal bool TrySampleMaterialRow(LatticeCoordinate origin, Span<ushort> values)
+    {
+        if (_baseline is not PlanetDensityField field)
+            return false;
+        field.SampleMaterialRow(origin, values);
+        for (var x = 0; x < values.Length; x++)
+            if (TryRead(_materials, _materialCount, origin with { X = origin.X + x }, out var material))
+                values[x] = (ushort)(material & MaterialMask);
+        return true;
+    }
+
     internal static long ReservedBytes(int limit) => 64L * limit;
 
     internal VolumeEditOverlay? Apply(VolumeBrushIntent brush, int limit, Action check, out VolumeOreDepletion depletion)
