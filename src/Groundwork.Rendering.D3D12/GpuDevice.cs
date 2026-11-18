@@ -341,6 +341,9 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal int? InjectedPresentFailure() => _retirementHooks?.PresentFailure?.Invoke(this);
 
+    internal void ObserveNativePresentForTests(ulong fence, int result) =>
+        _retirementHooks?.AfterNativePresent?.Invoke(fence, result);
+
     internal HRESULT SignalQueueWork(ulong value)
     {
         if (_retirementHooks?.SignalFailure?.Invoke(this, value) is int failure)
