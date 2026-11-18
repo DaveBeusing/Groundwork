@@ -648,7 +648,8 @@ public sealed partial class PresentationSmokeTests
         internal VolumeRun(int readers = 8, bool editable = false,
             PlanetVector? camera = null, PlanetVector? forward = null,
             PlanetGeologyField? geology = null, PlanetVector displacement = default, bool openFloor = false,
-            Func<LatticeCoordinate, ushort>? material = null, SavedOverlay? savedOverlay = null, int floorHeight = 0)
+            Func<LatticeCoordinate, ushort>? material = null, SavedOverlay? savedOverlay = null, int floorHeight = 0,
+            VolumeStreamingLimits? qualificationLimits = null, int? qualificationOverlayRows = null)
         {
             _tick = savedOverlay?.CompletedTick ?? 0;
             World = Fixture.OpenWorld(completedTick: _tick);
@@ -659,15 +660,16 @@ public sealed partial class PresentationSmokeTests
             _displacement = displacement;
             _selection = geology is null ? VolumeStreamingSelection.Select(descriptor, _camera, _forward) :
                 SelectCave(descriptor);
-            var overlayRows = geology is null ? 1024 : 4096;
+            var overlayRows = qualificationOverlayRows ?? (geology is null ? 1024 : 4096);
             _editSource = (IPlanetBrickSource?)geology ?? (editable ? new VolumeFixtureSource(descriptor, false, openFloor, material, floorHeight) : null);
             _meshBytes = geology is null ? 8 * 1024 * 1024 : 32 * 1024 * 1024;
             var native = geology is null ? NativeBytes : CaveNativeBytes;
-            _unit = new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, _meshBytes) + (_editSource is not null ? 64L * overlayRows + 4096 : 0),
+            _unit = qualificationLimits?.Envelope(VolumeWorkClass.FirstEdit) ??
+                new(VolumeStreamingCoordinator.RequiredCpuBytes(_selection, _meshBytes) + (_editSource is not null ? 64L * overlayRows + 4096 : 0),
                 native, native, native, 1, 1, 1, 64, 1);
             var baseline = _unit.Retained + _unit.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
-            var limits = new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
+            var limits = qualificationLimits ?? new VolumeStreamingLimits(baseline + _unit + _unit + _unit + _unit,
                 baseline, _unit, _unit, _unit, _unit, 12, readers, 128);
             Terrain = savedOverlay is { } saved
                 ? new(World, _editSource ?? throw new ArgumentException("Restore requires an editable source.", nameof(savedOverlay)),
@@ -724,6 +726,15 @@ public sealed partial class PresentationSmokeTests
         {
             Assert.AreEqual(VolumeAdmission.Accepted,
                 Terrain.TryStageEdit(edit.Tick, edit.Id, selection, _meshBytes, _unit, out var work));
+            Assert.IsNotNull(work);
+            return work;
+        }
+
+        internal VolumeStreamingWork StagePrivateSpeculation(ulong revision)
+        {
+            Assert.IsNotNull(_editSource);
+            Assert.AreEqual(VolumeAdmission.Accepted, Terrain.TryStagePrivateAhead(VolumeWorkClass.Speculative,
+                _selection, revision, revision, _meshBytes, _unit, _editSource, out var work));
             Assert.IsNotNull(work);
             return work;
         }

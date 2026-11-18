@@ -660,7 +660,7 @@ public sealed partial class VolumeEditTests
 
         private readonly ulong _initialRevision;
         internal EditRun(int limit = 256, int journalRecords = 256, byte[]? restored = null, PlanetGeologyField? geology = null,
-            ulong restoredRevision = 2, int restoredOreCount = 0)
+            ulong restoredRevision = 2, int restoredOreCount = 0, VolumeStreamingLimits? qualificationLimits = null)
         {
             _tick = restored is null ? 0UL : 21UL;
             World = _fixture.OpenWorld(completedTick: _tick);
@@ -669,11 +669,12 @@ public sealed partial class VolumeEditTests
             _meshBytes = geology is null ? 8_000_000 : 32_000_000;
             _initialInventory = geology is null ? null : new(World.Publication.Committed.Read().Root.World, 1, restoredOreCount);
             Selection = Select(Center);
-            _resources = new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, _meshBytes) + limit * 64L + 4096,
+            _resources = qualificationLimits?.Envelope(VolumeWorkClass.FirstEdit) ??
+                new(VolumeStreamingCoordinator.RequiredCpuBytes(Selection, _meshBytes) + limit * 64L + 4096,
                 0, 0, 0, 1, 1, 1, 64, 1);
             var baseline = _resources.Retained + _resources.Retained + _resources.Retained;
             baseline = baseline with { LeaseSlots = baseline.LeaseSlots + 8 };
-            var limits = new VolumeStreamingLimits(baseline + _resources + _resources + _resources + _resources,
+            var limits = qualificationLimits ?? new VolumeStreamingLimits(baseline + _resources + _resources + _resources + _resources,
                 baseline, _resources, _resources, _resources, _resources, 12, 8, journalRecords);
             _initialRevision = restored is null ? 1UL : restoredRevision;
             Coordinator = restored is null ? new(World, _baseline, limits, limit) :
@@ -725,12 +726,20 @@ public sealed partial class VolumeEditTests
             _open = false;
         }
 
-        internal VolumeAdmission Stage(VolumeBrushIntent intent, out VolumeStreamingWork? work)
+        internal VolumeAdmission Stage(VolumeBrushIntent intent, out VolumeStreamingWork? work, VolumeResources? resources = null)
         {
             var selection = Selection;
             if (_baseline is PlanetGeologyField && VolumeStreamingCoordinator.TryGetEditDependencies(intent, out var footprint))
                 selection = Select(Center, footprint);
-            return Coordinator.TryStageEdit(intent.Tick, intent.Id, selection, _meshBytes, _resources, out work);
+            return Coordinator.TryStageEdit(intent.Tick, intent.Id, selection, _meshBytes, resources ?? _resources, out work);
+        }
+
+        internal VolumeStreamingWork HoldSpeculativeCredits(VolumeResources resources)
+        {
+            Assert.AreEqual(VolumeAdmission.Accepted, Coordinator.TryStagePrivateAhead(VolumeWorkClass.Speculative,
+                Selection, 1, 1, _meshBytes, resources, _baseline, out var work));
+            Assert.IsNotNull(work);
+            return work;
         }
 
         internal void Hold()
