@@ -63,6 +63,47 @@ public sealed class TextureStreamTests
     }
 
     [TestMethod]
+    public void SessionTerrainCutCarriesExactResidentButRejectsOldWorkAndDraws()
+    {
+        var view = View();
+        var stream = Stream();
+        stream.BindOwner(view.World, () => { }, view.View.RendererEpoch, retainTerrainResidents: true);
+        var texture = Cook(TextureSemantic.Color);
+        var current = Target(1, MaterialTextureSemantic.BaseColor, texture);
+        var waiting = Target(2, MaterialTextureSemantic.BaseColor, texture);
+        var descriptor = new PbrMaterialDescriptor(System.Numerics.Vector3.One, 0, 1, 1, default, 0,
+            new MaterialTextureSet(baseColor: current.Reference));
+        var palette = new MaterialPalette(1, [new(1, descriptor), new(2, descriptor)]);
+        Assert.IsTrue(stream.PublishTerrainAppearance(view, palette, [current, waiting]));
+        var resident = Request(stream, view, current);
+        Assert.AreEqual(D3D12TextureResult.Accepted, stream.TryComplete(resident, texture));
+        Assert.AreEqual(resident, Take(stream, view).Ticket);
+        Install(stream, view, resident);
+        var worker = Request(stream, view, waiting);
+
+        // A sealed terrain change can remove the installed cut before the next present.
+        Assert.IsTrue(stream.ShouldKeepResident(resident, default));
+        Assert.IsFalse(stream.IsCurrent(resident, default));
+        var next = view with { TerrainRevision = 2, CoverageGeneration = 2 };
+        Assert.IsTrue(stream.PublishTerrainAppearance(next, palette, [current, waiting]));
+        Assert.IsFalse(stream.IsCurrent(resident, view));
+        Assert.IsFalse(stream.TryGetResident(view, current.Slot, out _));
+        Assert.IsTrue(stream.TryGetResident(next, current.Slot, out var carried));
+        Assert.AreEqual(resident, carried);
+        Assert.AreEqual(D3D12TextureResult.Stale, stream.TryComplete(worker, texture));
+        Assert.AreEqual(D3D12TextureResult.Coalesced, stream.TryRequest(next, current, Credit, out _));
+        Assert.AreEqual(ResidentCredit, stream.ReadUsage());
+
+        var replacement = current with { Sequence = 2 };
+        Assert.IsTrue(stream.PublishTerrainAppearance(next, new MaterialPalette(2, palette.Entries), [replacement, waiting]));
+        Assert.IsFalse(stream.ShouldKeepResident(resident, next));
+        Assert.IsFalse(stream.TryGetResident(next, current.Slot, out _));
+        Assert.AreEqual(ResidentCredit, stream.ReadUsage(), "Invalidation must leave physical retirement credit charged.");
+        Assert.IsTrue(stream.Release(resident));
+        Assert.AreEqual(default, stream.ReadUsage());
+    }
+
+    [TestMethod]
     public void TierChangeOverCapRetainsAdmissibleResidentAndRetriesAfterCreditSettles()
     {
         var view = View();

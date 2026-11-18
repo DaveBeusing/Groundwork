@@ -114,6 +114,8 @@ public sealed class D3D12TextureHandoff
     private readonly Demand[] _demands;
     private Guid _ownerWorld;
     private ulong _ownerEpoch;
+    private D3D12TextureView _ownerFixedView;
+    private bool _retainTerrainResidents;
     private D3D12TextureView _view;
     private ulong _paletteRevision;
     private MaterialPalette? _terrainPalette;
@@ -162,7 +164,8 @@ public sealed class D3D12TextureHandoff
         {
             if (Closed || !view.IsValid || paletteRevision == 0 || targets.Length > _targets.Length ||
                 (_ownerWorld != Guid.Empty && _ownerWorld != view.World) ||
-                (_ownerEpoch != 0 && view.View.RendererEpoch != _ownerEpoch) || (_view.IsValid && !CanAdvanceView(view)))
+                (_ownerEpoch != 0 && view.View.RendererEpoch != _ownerEpoch) ||
+                (_ownerFixedView.IsValid && view != _ownerFixedView) || (_view.IsValid && !CanAdvanceView(view)))
                 return false;
 
             // Validate the bounded owned snapshot so caller-backed spans cannot change the accepted cut.
@@ -199,6 +202,8 @@ public sealed class D3D12TextureHandoff
                     return true;
                 }
 
+                var carryResidents = !sameView && _retainTerrainResidents && _terrainPalette is not null &&
+                    terrainPalette is not null && view.View.RendererEpoch == _view.View.RendererEpoch;
                 _view = view;
                 _paletteRevision = paletteRevision;
                 _terrainPalette = terrainPalette;
@@ -206,11 +211,24 @@ public sealed class D3D12TextureHandoff
                 stableTargets.CopyTo(_targets);
                 _targetCount = stableTargets.Length;
                 foreach (ref var entry in _entries.AsSpan())
-                    if (entry.State != State.Free && (entry.View != view || FindTarget(entry.Target.Slot) != entry.Target))
+                {
+                    if (entry.State == State.Free)
+                        continue;
+                    var unchanged = FindTarget(entry.Target.Slot) == entry.Target;
+                    if (carryResidents && unchanged && entry.State == State.Resident && !entry.Invalidated)
+                        entry.View = view;
+                    else if (entry.View != view || !unchanged)
                         Invalidate(ref entry);
+                }
                 foreach (ref var demand in _demands.AsSpan())
-                    if (demand.Target.Sequence != 0 && (!sameView || FindTarget(demand.Target.Slot) != demand.Target))
+                {
+                    if (demand.Target.Sequence == 0)
+                        continue;
+                    if ((!sameView && !carryResidents) || FindTarget(demand.Target.Slot) != demand.Target)
                         demand = default;
+                    else if (carryResidents)
+                        demand.Failed = false;
+                }
 
                 wake = _wake;
             }
@@ -515,18 +533,25 @@ public sealed class D3D12TextureHandoff
         }
     }
 
-    internal void BindOwner(Guid world, Action wake, ulong rendererEpoch = 0)
+    internal void BindOwner(Guid world, Action wake, ulong rendererEpoch = 0, bool retainTerrainResidents = false,
+        D3D12TextureView fixedView = default)
     {
         if (world == Guid.Empty)
             throw new ArgumentException("The renderer must supply a world.", nameof(world));
         ArgumentNullException.ThrowIfNull(wake);
+        if (fixedView != default && (!fixedView.IsValid || fixedView.World != world ||
+            fixedView.View.RendererEpoch != rendererEpoch))
+            throw new ArgumentException("The fixed texture view must match the renderer attachment.", nameof(fixedView));
         lock (Gate)
         {
             if (Closed || _wake is not null || _view.IsValid &&
-                (_view.World != world || rendererEpoch != 0 && _view.View.RendererEpoch != rendererEpoch))
+                (_view.World != world || rendererEpoch != 0 && _view.View.RendererEpoch != rendererEpoch ||
+                 fixedView.IsValid && _view != fixedView))
                 throw new InvalidOperationException("The texture stream does not match this renderer attachment.");
             _ownerWorld = world;
             _ownerEpoch = rendererEpoch;
+            _ownerFixedView = fixedView;
+            _retainTerrainResidents = retainTerrainResidents;
             _wake = wake;
         }
     }
@@ -660,6 +685,20 @@ public sealed class D3D12TextureHandoff
     {
         lock (Gate)
             return FindEntry(ticket) && MatchesCurrent(in _entries[ticket.Index], view);
+    }
+
+    // A protected geometry publication may temporarily leave the renderer without an installed cut.
+    // Keep exact, still-published session resources charged without making them drawable for that cut.
+    internal bool ShouldKeepResident(D3D12TextureTicket ticket, D3D12TextureView view)
+    {
+        lock (Gate)
+        {
+            if (!FindEntry(ticket))
+                return false;
+            ref readonly var entry = ref _entries[ticket.Index];
+            return entry.State == State.Resident && (MatchesCurrent(in entry, view) ||
+                (_retainTerrainResidents && _terrainPalette is not null && MatchesCurrent(in entry, _view)));
+        }
     }
 
     /// <summary>Install after a successful assigned copy fence and physical staging release.</summary>
