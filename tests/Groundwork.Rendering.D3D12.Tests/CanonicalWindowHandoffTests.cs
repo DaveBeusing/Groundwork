@@ -77,6 +77,7 @@ public sealed partial class PresentationSmokeTests
         Assert.IsTrue(stream.PublishTerrainAppearance(view, assets.Palette, targets));
         var nativeMaps = new Dictionary<D3D12TextureTicket, GpuTerrainMap>();
         var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, region: near);
+        using var ownerWake = new AutoResetEvent(false);
         WindowsSwapChain? chain = null;
         nint hwnd = 0;
         try
@@ -91,7 +92,7 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreNotEqual(nint.Zero, hwnd);
                 Assert.AreEqual(width, attach.Snapshot.ClientWidth);
                 Assert.AreEqual(height, attach.Snapshot.ClientHeight);
-                chain = new WindowsSwapChain(gpu, attach, width, height);
+                chain = new WindowsSwapChain(gpu, attach, width, height, ownerWake);
             }
 
             foreach (var textureTarget in targets)
@@ -199,7 +200,7 @@ public sealed partial class PresentationSmokeTests
             while (!chain!.CanBeginFrame())
             {
                 token.ThrowIfCancellationRequested();
-                Thread.Sleep(1);
+                chain.WaitForFrameSlot(10);
             }
 
             using (var operation = target.TryBeginOperation())

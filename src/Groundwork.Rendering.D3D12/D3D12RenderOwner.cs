@@ -386,7 +386,7 @@ public sealed partial class D3D12Renderer
 
             if (!chain!.CanBeginFrame())
             {
-                WaitForFrame(ProgressPollMilliseconds);
+                WaitForFrame(ProgressPollMilliseconds, chain);
                 continue;
             }
 
@@ -524,12 +524,15 @@ public sealed partial class D3D12Renderer
             appearancePending |= RefreshTextures(gpu);
         }
 
-        void WaitForFrame(int maximum = Timeout.Infinite)
+        void WaitForFrame(int maximum = Timeout.Infinite, WindowsSwapChain? waitingChain = null)
         {
             var timeout = retry?.WaitMilliseconds(FirstContentTimestamp(), _operationTimeout) ?? maximum;
             if (maximum != Timeout.Infinite)
                 timeout = Math.Min(maximum, timeout);
-            _wake!.WaitOne(timeout);
+            if (waitingChain is null)
+                _wake!.WaitOne(timeout);
+            else
+                waitingChain.WaitForFrameSlot(timeout);
         }
 
         // A newer neutral mask may submit while the old registration still holds its
@@ -660,7 +663,7 @@ public sealed partial class D3D12Renderer
 
         var snapshot = operation.Snapshot;
         if (chain is null)
-            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight);
+            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight, _wake!);
         else if (!Matches(snapshot, chain))
         {
             if (_resize is { } resize)
