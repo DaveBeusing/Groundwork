@@ -72,7 +72,7 @@ public sealed unsafe class GpuTextureTests
             Assert.IsTrue(heldPredecessor);
 
             Assert.IsTrue(gpu.TrySubmitTexture(texture, 1, coarse, out var replacement));
-            gpu.WakeOnTextureCopyCompletion(copyWake);
+            gpu.WakeOnQueueRetirement(copyWake);
             Assert.IsTrue(copyWake.WaitOne(TimeSpan.FromSeconds(3)), "The texture copy fence did not wake the owner.");
             Assert.AreEqual(fine.TextureAllocationBytes + coarse.TextureAllocationBytes, gpu.TextureStatistics.NativeBytes);
             Assert.AreEqual(replacement, AwaitTexture(gpu));

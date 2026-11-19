@@ -479,6 +479,8 @@ public sealed partial class D3D12Renderer
             var result = TryPresent(target, chain, watchdog, testOnly: false);
             if (!watchdog.TryAdvance(RendererStage.Retire))
                 break;
+            // Present can be declined after a draw. In that case the draw fence is last.
+            gpu.WakeOnQueueRetirement(_wake!);
             if (result == PresentResult.Presented)
             {
                 if (appearance is { } presented)

@@ -360,6 +360,13 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         return result;
     }
 
+    internal void WakeOnQueueRetirement(WaitHandle wake)
+    {
+        // The renderer holds the wake event until native work and its fence settle.
+        // Keep the existing bounded retirement poll if registration fails.
+        _ = _fence->SetEventOnCompletion(_retirement.Submitted, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle());
+    }
+
     public void Dispose()
     {
         if (_fence != null && !IsIdle && !IsRemoved)

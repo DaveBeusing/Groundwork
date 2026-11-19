@@ -1,7 +1,6 @@
 using Groundwork.Rendering.Passes;
 using Groundwork.Rendering.Textures;
 using TerraFX.Interop.DirectX;
-using TerraFX.Interop.Windows;
 using static Groundwork.Rendering.D3D12.GpuNative;
 using static TerraFX.Interop.Windows.Windows;
 
@@ -311,13 +310,6 @@ internal sealed unsafe partial class GpuDevice
             var written = new D3D12_RANGE { End = (nuint)((rows - 1UL) * rowPitch + (uint)mip.RowBytes) };
             staging->Unmap(0, &written);
         }
-    }
-
-    internal void WakeOnTextureCopyCompletion(WaitHandle wake)
-    {
-        // The renderer owns this event until native work and its fence settle.
-        // Keep the existing bounded retirement poll if registration fails.
-        _ = _fence->SetEventOnCompletion(_textureCopyFence, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle());
     }
 
     internal bool TryRetireTextureCopy(out GpuTextureIdentity identity)
