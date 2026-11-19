@@ -124,7 +124,10 @@ public sealed partial class D3D12Renderer
                 if (owner.TrySubmit(transfer, view, () => !ShouldStop(target) &&
                     !HasProtectedTextureCompetition() && CurrentTextureView() == view && watchdog.IsWithinDeadline,
                     out spentTurn))
+                {
+                    gpu.WakeOnTextureCopyCompletion(_wake!);
                     return true;
+                }
             }
             finally
             {
