@@ -62,6 +62,28 @@ float3 Transmission(float2 depth)
     return exp(-min(depth.x * RayleighLoss.rgb + depth.y * AerosolLoss.rgb, 80));
 }
 
+float SolarVisibility(float3 position)
+{
+    float radius = length(position);
+    float horizon = sqrt(max((radius - 1) * (radius + 1), 0)) / radius;
+    // Approximate a finite solar disk's penumbra instead of switching the whole
+    // atmosphere sample when its centre crosses the planet's tangent.
+    float elevation = dot(position / radius, SunEnergy.xyz) + horizon;
+    return smoothstep(-UpDisk.w, UpDisk.w, elevation);
+}
+
+float2 SolarDepth(float3 position, float distance)
+{
+    // Four-point Gauss-Legendre quadrature resolves the dense end of grazing
+    // light paths without increasing the existing four solar density samples.
+    const float4 nodes = float4(0.0694318442, 0.3300094782, 0.6699905218, 0.9305681558);
+    const float4 weights = float4(0.1739274226, 0.3260725774, 0.3260725774, 0.1739274226);
+    float2 depth = 0;
+    [unroll] for (uint j = 0; j < 4; ++j)
+        depth += Density(position + SunEnergy.xyz * (nodes[j] * distance)) * (weights[j] * distance);
+    return depth;
+}
+
 uint Hash(uint v)
 {
     v = (v ^ (v >> 16)) * 0x7feb352du;
@@ -114,14 +136,12 @@ float4 SkyPS(SkyVertex input) : SV_Target
                 float3 samplePosition = eye + ray * (start + (i + 0.5) * stepSize);
                 float2 density = Density(samplePosition) * stepSize;
                 float2 solar;
-                if (Sphere(samplePosition, SunEnergy.xyz, EyeOuter.w, solar) && Ground(samplePosition, SunEnergy.xyz) >= solar.y)
+                float visibility = SolarVisibility(samplePosition);
+                if (visibility > 0 && Sphere(samplePosition, SunEnergy.xyz, EyeOuter.w, solar))
                 {
-                    float sunStep = solar.y / 4;
-                    float2 solarDepth = 0;
-                    [unroll] for (uint j = 0; j < 4; ++j)
-                        solarDepth += Density(samplePosition + SunEnergy.xyz * ((j + 0.5) * sunStep)) * sunStep;
+                    float2 solarDepth = SolarDepth(samplePosition, solar.y);
                     light += Transmission(viewDepth + density * 0.5 + solarDepth) *
-                        (density.x * RayleighHeight.rgb * rayleighPhase + density.y * AerosolHeight.rgb * aerosolPhase);
+                        (density.x * RayleighHeight.rgb * rayleighPhase + density.y * AerosolHeight.rgb * aerosolPhase) * visibility;
                 }
                 viewDepth += density;
             }
