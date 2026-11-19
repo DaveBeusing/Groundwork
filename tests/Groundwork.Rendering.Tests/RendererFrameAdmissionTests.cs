@@ -11,6 +11,40 @@ public sealed class RendererFrameAdmissionTests
         MathF.PI / 4, 0.1f, 100);
 
     [TestMethod]
+    public async Task PresentationWaitCompletesOnlyWhenFrameIsRecorded()
+    {
+        var queue = Start();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var wait = queue.WaitForPresentedAsync(2, timeout.Token).AsTask();
+        Assert.AreEqual(RenderSubmissionResult.Accepted, queue.TrySubmit(new RenderFrame(1, Vector4.One)));
+        Assert.IsTrue(queue.TryTakeLatest(out _));
+        queue.RecordPresented(1);
+        Assert.IsFalse(wait.IsCompleted);
+
+        Assert.AreEqual(RenderSubmissionResult.Accepted, queue.TrySubmit(new RenderFrame(2, Vector4.One)));
+        Assert.IsTrue(queue.TryTakeLatest(out _));
+        queue.RecordPresented(2);
+        Assert.AreEqual(2UL, (await wait).LastPresentedSequence);
+        Assert.AreEqual(2UL, (await queue.WaitForPresentedAsync(2, timeout.Token)).LastPresentedSequence);
+    }
+
+    [TestMethod]
+    public async Task CancellationDoesNotConsumeTheStopNotification()
+    {
+        var queue = Start();
+        using var canceled = new CancellationTokenSource();
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+        var first = queue.WaitForPresentedAsync(1, canceled.Token).AsTask();
+        var second = queue.WaitForPresentedAsync(1, timeout.Token).AsTask();
+        canceled.Cancel();
+        await Assert.ThrowsAsync<OperationCanceledException>(async () => await first);
+        Assert.IsFalse(second.IsCompleted);
+
+        queue.BeginStop();
+        Assert.AreEqual(RendererLifecycle.Stopping, (await second).Lifecycle);
+    }
+
+    [TestMethod]
     public void SubmissionAndPresentationTrackDistinctSequences()
     {
         var queue = Start();
