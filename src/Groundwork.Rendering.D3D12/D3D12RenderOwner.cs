@@ -177,6 +177,8 @@ public sealed partial class D3D12Renderer
         var lastProbe = 0L;
         var visualArbitration = new OptionalVisualArbitration();
         var servicedTextureBeforeFrame = false;
+        Func<WindowsSwapChain, WindowsPresentationOperation?> tryPresentAgain = presentChain =>
+            TryBeginPresent(target, presentChain, watchdog, testOnly: false);
 
         while (!ShouldStop(target))
         {
@@ -306,7 +308,7 @@ public sealed partial class D3D12Renderer
                 stage = RendererStage.Visibility;
                 if (!watchdog.Begin(stage, null, _operationTimeout))
                     break;
-                occluded = TryPresent(target, chain!, watchdog, testOnly: true) != PresentResult.Presented;
+                occluded = TryPresent(target, chain!, watchdog, testOnly: true, tryPresentAgain) != PresentResult.Presented;
                 if (!watchdog.Complete())
                     break;
                 if (occluded)
@@ -476,7 +478,7 @@ public sealed partial class D3D12Renderer
             }
             pendingRetirement = true;
             stage = RendererStage.Present;
-            var result = TryPresent(target, chain, watchdog, testOnly: false);
+            var result = TryPresent(target, chain, watchdog, testOnly: false, tryPresentAgain);
             if (!watchdog.TryAdvance(RendererStage.Retire))
                 break;
             // Present can be declined after a draw. In that case the draw fence is last.
@@ -767,12 +769,32 @@ public sealed partial class D3D12Renderer
     }
 
     private PresentResult TryPresent(WindowsPresentationTargetLease target, WindowsSwapChain chain,
-        RendererWatchdog watchdog, bool testOnly)
+        RendererWatchdog watchdog, bool testOnly, Func<WindowsSwapChain, WindowsPresentationOperation?> tryPresentAgain)
     {
-        using var operation = TryBegin(target);
-        return operation is not null && Matches(operation.Snapshot, chain) &&
-            watchdog.TryAdvance(testOnly ? RendererStage.Visibility : RendererStage.Present)
-            ? chain.Present(testOnly) : PresentResult.Busy;
+        using var operation = TryBeginPresent(target, chain, watchdog, testOnly);
+        return operation is null
+            ? PresentResult.Busy
+            : chain.Present(testOnly, operation, tryPresentAgain);
+    }
+
+    private WindowsPresentationOperation? TryBeginPresent(WindowsPresentationTargetLease target,
+        WindowsSwapChain chain, RendererWatchdog watchdog, bool testOnly)
+    {
+        var operation = TryBegin(target);
+        try
+        {
+            if (operation is null || !Matches(operation.Snapshot, chain) ||
+                !watchdog.TryAdvance(testOnly ? RendererStage.Visibility : RendererStage.Present))
+                return null;
+
+            var admitted = operation;
+            operation = null;
+            return admitted;
+        }
+        finally
+        {
+            operation?.Dispose();
+        }
     }
 
     private WindowsPresentationOperation? TryBegin(WindowsPresentationTargetLease target)

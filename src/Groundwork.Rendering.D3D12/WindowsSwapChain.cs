@@ -16,8 +16,11 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
     private const uint BufferCount = 2;
     private const uint LatencyFlag = (uint)DXGI_SWAP_CHAIN_FLAG.DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     private const uint PresentTest = 1;
+    private const uint PresentDoNotWait = 8;
     private const int StatusOccluded = 0x087A0001;
     private const int ErrorStillDrawing = unchecked((int)0x887A000A);
+    private const int ErrorInvalidCall = unchecked((int)0x887A0001);
+    private const int ErrorInvalidArgument = unchecked((int)0x80070057);
     private const DXGI_FORMAT Format = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM;
 
     private readonly GpuDevice _gpu;
@@ -100,7 +103,8 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         AttachBuffers(width, height);
     }
 
-    internal PresentResult Present(bool testOnly)
+    internal PresentResult Present(bool testOnly, WindowsPresentationOperation operation,
+        Func<WindowsSwapChain, WindowsPresentationOperation?> tryPresentAgain)
     {
         if (testOnly)
             return ClassifyPresent(_chain->Present(0, PresentTest));
@@ -109,14 +113,25 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         // DXGI queues presentation on the same command queue after the draw fence.
         // Buffer release and resize must also wait for that queue work to retire.
         var retirement = _gpu.BeginQueueWork();
-        if (_gpu.HasResourceDiagnostics)
-            _gpu.ObservePresentStart(retirement, CurrentBuffer);
-        var injectedFailure = _gpu.InjectedPresentFailure();
-        var result = injectedFailure is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
-        var presentedAt = result.Value == 0 && _gpu.HasResourceDiagnostics ? Stopwatch.GetTimestamp() : 0;
-        if (injectedFailure is null)
-            _gpu.ObserveNativePresentForTests(retirement, result.Value);
-        var signal = _gpu.SignalQueueWork(retirement);
+        HRESULT result;
+        HRESULT signal;
+        long presentedAt;
+        try
+        {
+            if (_gpu.HasResourceDiagnostics)
+                _gpu.ObservePresentStart(retirement, CurrentBuffer);
+            var injectedFailure = _gpu.InjectedPresentFailure();
+            result = injectedFailure is int failure ? new HRESULT(failure) : PresentWithVSync(operation, tryPresentAgain);
+            presentedAt = result.Value == 0 && _gpu.HasResourceDiagnostics ? Stopwatch.GetTimestamp() : 0;
+            if (injectedFailure is null)
+                _gpu.ObserveNativePresentForTests(retirement, result.Value);
+        }
+        finally
+        {
+            // The draw still needs a retirement fence if retry admission fails.
+            signal = _gpu.SignalQueueWork(retirement);
+        }
+
         if (signal.Value >= 0)
             _gpu.ObservePresentSignal(retirement);
         var outcome = ClassifyPresent(result);
@@ -124,6 +139,20 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         if (outcome == PresentResult.Presented)
             _gpu.ObservePresented(retirement, presentedAt);
         return outcome;
+    }
+
+    private HRESULT PresentWithVSync(WindowsPresentationOperation operation,
+        Func<WindowsSwapChain, WindowsPresentationOperation?> tryPresentAgain)
+    {
+        var result = _chain->Present(1, PresentDoNotWait);
+        if (result.Value is not (ErrorStillDrawing or ErrorInvalidCall or ErrorInvalidArgument))
+            return result;
+
+        // A rejected attempt did not queue the frame. Acquire a fresh permit
+        // to present the same buffer before arming its retirement fence.
+        operation.Dispose();
+        using var retry = tryPresentAgain(this);
+        return retry is null ? new HRESULT(ErrorStillDrawing) : _chain->Present(1, 0);
     }
 
     private static PresentResult ClassifyPresent(HRESULT result)
