@@ -3,8 +3,10 @@
 WP01 through WP10 established the Windows single-player alpha. WYU's
 long-term goal is first-person survival and exploration on procedural,
 destructible planets, with modular construction and travel from the
-surface to orbit. See the [WYU product vision](https://github.com/DaveBeusing/wyu/blob/master/docs/World_Vision.md).
+surface to orbit. See the [WYU product vision](https://github.com/DaveBeusing/wyu/blob/master/docs/World_Vision_Consolidated.md).
 
+
+The [current gameplay rules](https://github.com/DaveBeusing/wyu/blob/master/docs/World_Vision_Consolidated.md#current-decisions-and-precedence) and [approved decisions](https://github.com/DaveBeusing/wyu/blob/master/docs/World_Vision_Consolidated.md#approved-decisions) guide the game-facing backlog. [WYU #71](https://github.com/DaveBeusing/wyu/issues/71) reconciles these rules with the energy and physics foundations before [inventory #75](https://github.com/DaveBeusing/wyu/issues/75) and [construction #76](https://github.com/DaveBeusing/wyu/issues/76). These are design inputs. Implementation and acceptance remain attached to their work packages.
 
 Groundwork owns reusable simulation, world and mesh data, rendering and
 resource management. WYU owns rules, content, controls and the user interface.
