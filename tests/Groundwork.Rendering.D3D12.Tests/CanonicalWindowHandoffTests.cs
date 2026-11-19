@@ -211,7 +211,7 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreEqual(height, operation.Snapshot.ClientHeight);
                 Assert.AreEqual(GpuFrameSubmitResult.Submitted,
                     gpu.TryRenderWithPresentReadback(chain.CurrentBuffer, new(sequence, Vector4.Zero, scene), frameOwner));
-                Assert.AreEqual(PresentResult.Presented, chain.Present(testOnly: false, operation, _ => target.TryBeginOperation()));
+                Assert.AreEqual(PresentResult.Presented, chain.Present(testOnly: false));
             }
             ObserveInt01Retirement(gpu);
             return gpu.ReadRetiredPresent();
