@@ -42,6 +42,7 @@ public sealed unsafe class GpuTextureTests
                 onDrawSignal?.Invoke(device);
             return null;
         });
+        using var copyWake = new AutoResetEvent(false);
         var gpu = new GpuDevice(warp: warp, enableDebugLayer: true, enableDred: true, retirementHooks: hooks);
         using (gpu)
         {
@@ -71,6 +72,8 @@ public sealed unsafe class GpuTextureTests
             Assert.IsTrue(heldPredecessor);
 
             Assert.IsTrue(gpu.TrySubmitTexture(texture, 1, coarse, out var replacement));
+            gpu.WakeOnTextureCopyCompletion(copyWake);
+            Assert.IsTrue(copyWake.WaitOne(TimeSpan.FromSeconds(3)), "The texture copy fence did not wake the owner.");
             Assert.AreEqual(fine.TextureAllocationBytes + coarse.TextureAllocationBytes, gpu.TextureStatistics.NativeBytes);
             Assert.AreEqual(replacement, AwaitTexture(gpu));
             Assert.IsTrue(gpu.SetFrameTexture(replacement, 1));
