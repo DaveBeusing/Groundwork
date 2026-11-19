@@ -45,7 +45,7 @@ Mandatory report header: role, invoked tool/context/session ID, model/reviewer i
 - `docs/adr/ADR-0006-packaging-release.md`, `docs/adr/ADR-0001-repository-boundaries.md`.
 - `docs/architecture/wp08-spherical-planet-contract.md`, `docs/architecture/wp09-surface-to-orbit-contract.md`, `docs/architecture/wp06-save-recovery-contract.md`.
 - Actual implementation as of the recorded base SHA, including `src/Groundwork.Voxels/`, `src/Groundwork.Persistence/`, `src/Groundwork.Rendering.D3D12/`, `src/Groundwork.Core/`, `src/Groundwork.Jobs/` and relevant tests. Inspect only relevant files for the role.
-- WYU `src/WorldsYetUnseen.Client/`, `src/WorldsYetUnseen.Gameplay/`, `docs/World_Vision.md` when game integration/compatibility is relevant.
+- WYU `src/WorldsYetUnseen.Client/`, `src/WorldsYetUnseen.Gameplay/`, `docs/World_Vision_Consolidated.md` when game integration/compatibility is relevant.
 - Do not use notes from other reviewers or any preliminary triage discussion as an input to the independent report.
 
 ## Packet 1 — L3A-ECS / authoritative volumetric world and ownership
