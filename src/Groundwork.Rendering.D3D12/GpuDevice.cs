@@ -107,6 +107,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             foreach (var frame in _frames)
                 frame.Initialize(_device);
             _session?.Retain(_device, _queue, Adapter);
+            _retirementHooks?.AfterDeviceInitialize?.Invoke(this);
         }
         catch
         {
@@ -136,6 +137,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (completed == ulong.MaxValue)
             _observedFenceSentinel = true;
         _resourceDiagnostics?.Complete(completed);
+        DrainRetiredSkyTimingForTests(completed);
         return completed;
     }
 
@@ -288,6 +290,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             PublishRecordedProps(deferredProps);
                             PublishShadows(shadows);
                             submitted = true;
+                            PublishSkyQualificationForTests(frame.Sequence, next);
                             return GpuFrameSubmitResult.Submitted;
                         }
                     }

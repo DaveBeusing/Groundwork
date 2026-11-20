@@ -36,6 +36,9 @@ internal sealed unsafe partial class GpuDevice
         commands->SetGraphicsRootSignature(_skyRoot);
         commands->SetGraphicsRoot32BitConstants(0, SkyConstantCount, &constants, 0);
         commands->DrawInstanced(3, 1, 0, 0);
+        _retirementHooks?.SkyDrawRecorded?.Invoke();
+        if (_retirementHooks?.AfterSkyRecordMeasured is not null)
+            _skyRecordDrawCount++;
     }
 
     private readonly record struct SkyConstants(Vector4 EyeOuter, Vector4 ForwardTan, Vector4 RightAspect,

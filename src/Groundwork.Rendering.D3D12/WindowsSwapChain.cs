@@ -103,7 +103,7 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
             _gpu.ObservePresentStart(retirement, CurrentBuffer);
         var injectedFailure = _gpu.InjectedPresentFailure();
         var result = injectedFailure is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
-        var presentedAt = result.Value == 0 && _gpu.HasResourceDiagnostics ? Stopwatch.GetTimestamp() : 0;
+        var presentedAt = result.Value == 0 && _gpu.NeedsPresentTimestamp ? Stopwatch.GetTimestamp() : 0;
         if (injectedFailure is null)
             _gpu.ObserveNativePresentForTests(retirement, result.Value);
         var signal = _gpu.SignalQueueWork(retirement);
@@ -112,7 +112,11 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         var outcome = ClassifyPresent(result);
         GpuNative.Check(signal, "Signal presentation queue");
         if (outcome == PresentResult.Presented)
+        {
             _gpu.ObservePresented(retirement, presentedAt);
+            if (injectedFailure is null)
+                _gpu.ObserveSuccessfulNativePresentForTests(retirement, presentedAt);
+        }
         return outcome;
     }
 

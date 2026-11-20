@@ -39,8 +39,70 @@ Review this contract before implementation. The first Groundwork slice adds fram
 
 ## Dawn and dusk renderer slice
 
+### Approved visual decisions
+
+On 20 November 2026 the owner approved TW1–TW3 for Groundwork #193 and WYU #83:
+the captured warm low-sun/horizon treatment with cooler ambient light and a
+shared morning/evening elevation curve (TW1), the existing 0.18 night-strength
+floor with cool bias while night remains darker than day (TW2), and automatic
+adoption by existing Far Horizon saves on Continue without changing seed,
+clock or terrain (TW3). WYU owns the lighting profile and save-adoption rule;
+the renderer remains stateless. These approvals do not waive any performance,
+provenance, installed handoff or final technical-review gate and do not themselves
+authorize a merge or immutable package publication.
+
+### Renderer implementation and evidence
+
 The dawn/dusk update for #112 keeps the existing `RenderSky` input, normalized constant layout, single fullscreen draw, eight view samples and maximum four solar density samples per view sample. It adds no target, texture, upload or persistent state. Low-angle red/orange glow comes from the longer wavelength-dependent optical path, rather than an overlay color or a separate clock. The same canonical sun direction therefore produces the same image during sunrise and sunset. WYU remains responsible for the shared sun/time sample and its terrain/fog presentation.
 
 `TwilightTests` exercises production D3D12 readback at 321 × 181 on WARP and NVIDIA: a surface eye one metre above the 4,096 m reference sphere, the existing `SkyFixture` profile, and solar elevations from −90° through −12°, −6°, −3°, −1°, 0°, 1°, 3°, 6°, 12° to 45°. The tests compare unobstructed 9 × 5 horizon and upper-sky regions, require a warmer low-angle horizon than at 45°, a fading twilight and dark shadowed night, unchanged scene depth, and matching images when the same sun states are submitted in reverse order. A −18° to 3° sweep in 0.25° steps rejects abrupt sample-shadow bands: the maximum allowed regional channel step is 12/255. This is an image-regression tolerance for this fixed profile, not a performance limit or an accuracy claim for other profiles. Existing `SkyTests` retain dark-night star, planet/terrain occlusion, disabled output, grazing-ray, outer-shell and rebase checks.
 
 The local 2026-11-20 calibration measured a maximum regional step of 9/255 on both Microsoft Basic Render Driver 10.0.26100.9711 and NVIDIA RTX PRO 5000 Blackwell Generation Laptop GPU driver 32.0.15.9653. At −6° the horizon mean RGB was approximately (119, 60, 12), at 0° (202, 156, 57), and at −90° (0, 0, 0). These workstation image observations do not establish the reference-class timing, full-route, handoff, memory or pressure gates above. All existing numeric gates remain required, including direct GPU timestamps; readback elapsed time does not substitute for them.
+
+### Qualification tooling and diagnostic results
+
+`eng/Measure-SkyQualification.ps1` builds a clean reviewed source checkout and
+collects direct 1920 × 1080 sky/frame query results after fence retirement.
+Strict mode fixes five alternating pairs and 2,000 retained samples per variant
+and phase in each pair, with 64 warmups. It retains raw samples, summaries,
+failed/partial counts, adapter/driver/CPU/source identity, build/test logs and
+hashes in a fresh output directory. `-LocalProbe` and `-AllowDirty` are explicit
+development modes, not reference qualification; `-SkipBuild` is restricted to
+local probes. Limits remain 0.8/1.2 ms sky p95/p99 and 0.10 ms recording CPU p99,
+zero warmed recording allocations and one native sky draw when enabled.
+
+The fixture uses the existing `SkyFixture` profile (4,096 m radius, 256 m
+shell, 72/24 m scale heights), not WYU's 112 m shell/40/14 m profile. Its CPU
+interval includes target binding, sky constants and recording but excludes
+application preparation. Its resource ledger does not observe all driver
+PSO/root-signature memory. Even a passing strict fixture cannot close installed
+route, total-frame relative, handoff, full memory or protected-work gates.
+
+A short, ordered RTX PRO 5000 workstation comparison retained 768/768 measured
+rows and 384/384 warmups for each baseline/candidate run. It used one pair and
+128 samples per variant/phase, not the reference protocol. Actual sky costs:
+
+| Phase | Baseline p95 / p99 ms | Candidate p95 / p99 ms |
+| --- | ---: | ---: |
+| Surface | 3.826 / 4.991 | 3.673 / 4.306 |
+| Ascent | 3.915 / 5.543 | 4.364 / 5.970 |
+| Orbit | 3.236 / 7.802 | 2.967 / 3.219 |
+
+Both exceed the unchanged 0.8/1.2 ms fixture thresholds. The first, separate
+candidate probe also exceeded them (surface 2.250/4.187 ms, ascent
+4.364/4.635 ms, orbit 1.366/3.939 ms). All runs remain retained under
+`artifacts/sky-qualification/`, including the ordered comparison directory
+`comparison-20261120T003959Z`. Distinct shader binary hashes verified the
+baseline/candidate builds, and the exact candidate shader was restored.
+These exploratory runs do not establish regression causality or reference
+acceptance. No shader quality or acceptance limit was reduced to obtain a pass.
+
+The real WYU integration now has a separate opt-in reference runner in
+DaveBeusing/wyu#83. It keeps canonical cameras and B/E inputs fixed while
+removing only the submitted sky in the off variant. Owner-thread hooks report
+retired direct-query timings and successful native-Present timestamps; these
+hooks remain inactive in ordinary use and preserve the public API and existing
+WP15 CSV format. See WYU's `docs/dawn-twilight/reference-qualification.md` for
+the owner's reference-machine run, its exact sample/handoff denominators and
+remaining evidence gates. A smoke result is plumbing validation, not budget
+acceptance, and an isolated DLL is not a master-produced immutable archive.

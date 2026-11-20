@@ -12,4 +12,14 @@ internal sealed record GpuRetirementTestHooks(
     Action<ulong>? BeforeExecute = null,
     Func<bool, int?>? PbrPipelineCreationFailure = null,
     Action<ulong, int>? BeforeValidateRecordedBindings = null,
-    Action<ulong, int>? AfterNativePresent = null);
+    Action<ulong, int>? AfterNativePresent = null,
+    Action? BeforeSkyRecord = null,
+    Action? AfterSkyRecord = null,
+    Action? SkyDrawRecorded = null,
+    Action<GpuDevice>? AfterDeviceInitialize = null,
+    Action<ulong, double, double, bool>? AfterSkyTimingRetired = null,
+    Action<ulong, double, long, int>? AfterSkyRecordMeasured = null,
+    Action<ulong, long>? AfterSuccessfulPresent = null)
+{
+    internal const int SkyQualificationHookSchemaVersion = 1;
+}

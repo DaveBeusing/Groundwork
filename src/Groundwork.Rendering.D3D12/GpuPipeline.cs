@@ -383,6 +383,7 @@ internal sealed unsafe partial class GpuDevice
     {
         timingLayout = default;
         var shadowTiming = _terrainTiming is { MeasuresShadows: true } timing ? timing : null;
+        ResetSkyRecordMeasurementForTests();
         shadowTiming?.Stamp(commands, ref timingLayout);
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
@@ -416,9 +417,17 @@ internal sealed unsafe partial class GpuDevice
             }
             else if (pass.Id == GpuPassPlan.Sky)
             {
+                if (shadowTiming is { MeasuresSky: true })
+                    timingLayout.SkyStart = shadowTiming.Stamp(commands, ref timingLayout);
                 ObserveUse(target.Buffer);
+                _retirementHooks?.BeforeSkyRecord?.Invoke();
+                BeginSkyRecordMeasurementForTests();
                 BindFrameTargets(commands, target, rtv, dsv);
                 DrawSky(commands, target, frame.Sky!.Value);
+                EndSkyRecordMeasurementForTests();
+                _retirementHooks?.AfterSkyRecord?.Invoke();
+                if (shadowTiming is { MeasuresSky: true })
+                    shadowTiming.Stamp(commands, ref timingLayout);
             }
             else if (pass.Id == GpuPassPlan.Terrain)
             {
