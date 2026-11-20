@@ -7,7 +7,8 @@ namespace Groundwork.Rendering.D3D12;
 internal readonly record struct ShadowGpuTiming(double FrameMicroseconds, double TerrainMicroseconds,
     double NearShadowMicroseconds, double FarShadowMicroseconds, int ShadowPassCount);
 
-internal readonly record struct SkyGpuTiming(double FrameMicroseconds, double SkyMicroseconds, bool HasSky);
+internal readonly record struct SkyGpuTiming(double FrameMicroseconds, double SkyMicroseconds, bool HasSky,
+    ulong FrameStart = 0, ulong FrameEnd = 0, ulong SkyStart = 0, ulong SkyEnd = 0, ulong Frequency = 0);
 
 internal sealed unsafe partial class GpuDevice
 {
@@ -30,6 +31,12 @@ internal sealed unsafe partial class GpuDevice
             throw new InvalidOperationException("Timing requires an idle device without an active query heap.");
 
         _terrainTiming = new(_device, _queue, measureShadows, measureSky);
+        if (measureSky && _retirementHooks?.AfterSkyClockCalibration is { } calibrated)
+        {
+            ulong gpu = 0, cpu = 0;
+            Check(_queue->GetClockCalibration(&gpu, &cpu), "Calibrate diagnostic GPU and CPU clocks");
+            calibrated(gpu, cpu, _terrainTiming.Frequency);
+        }
     }
 
     internal SkyGpuTiming ReadSkyTimingForTests(ulong sequence)
@@ -188,7 +195,9 @@ internal sealed unsafe partial class GpuDevice
             try
             {
                 return new(Microseconds(ticks, 0, layout.FrameEnd),
-                    OptionalPassMicroseconds(ticks, layout.SkyStart), layout.SkyStart != 0);
+                    OptionalPassMicroseconds(ticks, layout.SkyStart), layout.SkyStart != 0,
+                    ticks[0], ticks[layout.FrameEnd], layout.SkyStart == 0 ? 0 : ticks[layout.SkyStart],
+                    layout.SkyStart == 0 ? 0 : ticks[layout.SkyStart + 1], _frequency);
             }
             finally
             {

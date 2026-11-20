@@ -19,7 +19,10 @@ internal sealed record GpuRetirementTestHooks(
     Action<GpuDevice>? AfterDeviceInitialize = null,
     Action<ulong, ulong, double, double, bool>? AfterSkyTimingRetired = null,
     Action<ulong, ulong, double, long, int>? AfterSkyRecordMeasured = null,
-    Action<ulong, long>? AfterSuccessfulPresent = null)
+    Action<ulong, long>? AfterSuccessfulPresent = null,
+    Action<long, long, bool>? AfterSkyPipelineReady = null,
+    Action<ulong, ulong, ulong, ulong, ulong, ulong, ulong>? AfterSkyTimingDetailsRetired = null,
+    Action<ulong, ulong, ulong>? AfterSkyClockCalibration = null)
 {
     internal const int SkyQualificationHookSchemaVersion = 2;
 }

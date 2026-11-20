@@ -1,4 +1,5 @@
 using System.Numerics;
+using System.Diagnostics;
 using TerraFX.Interop.DirectX;
 
 namespace Groundwork.Rendering.D3D12;
@@ -13,9 +14,22 @@ internal sealed unsafe partial class GpuDevice
     {
         if (_skyPipeline == null)
         {
-            if (_skyRoot == null)
-                _skyRoot = CreateFrameRoot(SkyConstantCount);
-            _skyPipeline = CreateFramePipeline(_skyRoot, sky: true);
+            var started = _retirementHooks?.AfterSkyPipelineReady is not null ? Stopwatch.GetTimestamp() : 0;
+            var reused = false;
+            if (_session is not null && _session.TryAcquireSkyPipeline(out var root, out var pipeline))
+            {
+                _skyRoot = root;
+                _skyPipeline = pipeline;
+                reused = true;
+            }
+            else
+            {
+                if (_skyRoot == null)
+                    _skyRoot = CreateFrameRoot(SkyConstantCount);
+                _skyPipeline = CreateFramePipeline(_skyRoot, sky: true);
+                _session?.RetainSkyPipeline(_skyRoot, _skyPipeline);
+            }
+            _retirementHooks?.AfterSkyPipelineReady?.Invoke(started, Stopwatch.GetTimestamp(), reused);
         }
 
         var radius = sky.PlanetRadiusMeters;

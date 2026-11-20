@@ -9,6 +9,37 @@ namespace Groundwork.Rendering.D3D12.Tests;
 
 public sealed partial class PresentationSmokeTests
 {
+    private static readonly bool[] ExpectedSessionSkyReuse = [false, true, true];
+    [TestMethod]
+    public void WarpSkyPipelineIsReusedAcrossSettledSessionOwners()
+    {
+        using var session = new D3D12DeviceSession(useWarp: true);
+        var reuse = new List<bool>();
+        var hooks = new GpuRetirementTestHooks(AfterSkyPipelineReady: (start, end, reused) =>
+        {
+            Assert.IsGreaterThan(0L, start);
+            Assert.IsGreaterThanOrEqualTo(start, end);
+            reuse.Add(reused);
+        });
+        for (var owner = 0; owner < 3; owner++)
+        {
+            using var gpu = new GpuDevice(warp: true, session: session, retirementHooks: hooks);
+            GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(1, Vector4.Zero) { Sky = SkyFixture() });
+            GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(2, Vector4.Zero) { Sky = SkyFixture() });
+            if (owner == 2)
+            {
+                // Session disposal may close admissions while the attached owner
+                // still holds its independent pipeline/root/device references.
+                session.Dispose();
+                GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(3, Vector4.Zero) { Sky = SkyFixture() });
+            }
+        }
+        CollectionAssert.AreEqual(ExpectedSessionSkyReuse, reuse);
+        using var independent = new GpuDevice(warp: true, retirementHooks: hooks);
+        GpuDevice.RenderOffscreen(independent, 64, 64, new RenderFrame(1, Vector4.Zero) { Sky = SkyFixture() });
+        Assert.IsFalse(reuse[^1]);
+    }
+
     private static readonly JsonSerializerOptions SkyEvidenceJsonOptions = new() { WriteIndented = true };
 
     [TestMethod]
@@ -108,12 +139,20 @@ public sealed partial class PresentationSmokeTests
         var sky = gpu.ReadSkyTimingForTests(1);
         Assert.IsTrue(sky.HasSky);
         Assert.IsGreaterThan(0d, sky.SkyMicroseconds);
+        Assert.IsGreaterThan(0UL, sky.Frequency);
+        Assert.IsGreaterThanOrEqualTo(sky.FrameStart, sky.SkyStart);
+        Assert.IsGreaterThanOrEqualTo(sky.SkyStart, sky.SkyEnd);
+        Assert.IsGreaterThanOrEqualTo(sky.SkyEnd, sky.FrameEnd);
+        Assert.AreEqual(sky.FrameMicroseconds, (sky.FrameEnd - sky.FrameStart) * 1_000_000d / sky.Frequency);
+        Assert.AreEqual(sky.SkyMicroseconds, (sky.SkyEnd - sky.SkyStart) * 1_000_000d / sky.Frequency);
         Assert.IsGreaterThanOrEqualTo(sky.SkyMicroseconds, sky.FrameMicroseconds);
         Assert.Throws<InvalidOperationException>(() => gpu.ReadSkyTimingForTests(2));
         GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(2, Vector4.Zero));
         var clear = gpu.ReadSkyTimingForTests(2);
         Assert.IsFalse(clear.HasSky);
         Assert.AreEqual(0d, clear.SkyMicroseconds);
+        Assert.AreEqual(0UL, clear.SkyStart);
+        Assert.AreEqual(0UL, clear.SkyEnd);
         Assert.Throws<InvalidOperationException>(() => gpu.ReadSkyTimingForTests(1));
     }
 

@@ -10,6 +10,8 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
     private readonly string? _queueName;
     private ID3D12Device* _device;
     private ID3D12CommandQueue* _queue;
+    private ID3D12RootSignature* _skyRoot;
+    private ID3D12PipelineState* _skyPipeline;
     private D3D12AdapterInfo? _adapter;
     private bool _attached;
     private bool _disposed;
@@ -81,11 +83,49 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
             _attached = false;
     }
 
+    // One immutable sky pipeline per device session. Each attached owner holds
+    // its own COM references; command allocators, constants and fences remain
+    // owner-local. A session never admits concurrent renderer owners.
+    internal bool TryAcquireSkyPipeline(out ID3D12RootSignature* root, out ID3D12PipelineState* pipeline)
+    {
+        lock (_gate)
+        {
+            root = null;
+            pipeline = null;
+            if (_disposed || !_attached || _skyPipeline == null)
+                return false;
+            _skyRoot->AddRef();
+            _skyPipeline->AddRef();
+            root = _skyRoot;
+            pipeline = _skyPipeline;
+            return true;
+        }
+    }
+
+    internal void RetainSkyPipeline(ID3D12RootSignature* root, ID3D12PipelineState* pipeline)
+    {
+        lock (_gate)
+        {
+            if (_disposed || !_attached || _skyPipeline != null)
+                return;
+            root->AddRef();
+            pipeline->AddRef();
+            _skyRoot = root;
+            _skyPipeline = pipeline;
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
         {
             _disposed = true;
+            if (_skyPipeline != null)
+                _skyPipeline->Release();
+            if (_skyRoot != null)
+                _skyRoot->Release();
+            _skyPipeline = null;
+            _skyRoot = null;
             if (_queue != null)
                 _queue->Release();
             if (_device != null)

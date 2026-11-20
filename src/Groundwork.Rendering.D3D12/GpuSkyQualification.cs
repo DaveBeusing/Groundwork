@@ -43,7 +43,8 @@ internal sealed unsafe partial class GpuDevice
     {
         _retirementHooks?.AfterSkyRecordMeasured?.Invoke(sequence, fence, _skyRecordMicroseconds,
             _skyRecordAllocatedBytes, _skyRecordDrawCount);
-        if (_retirementHooks?.AfterSkyTimingRetired is null || _terrainTiming is not { MeasuresSky: true })
+        if ((_retirementHooks?.AfterSkyTimingRetired is null && _retirementHooks?.AfterSkyTimingDetailsRetired is null) ||
+            _terrainTiming is not { MeasuresSky: true })
             return;
         if (_skyTimingPendingFence != 0)
             throw new InvalidOperationException("A retired sky timing must be drained before replacing its query results.");
@@ -65,6 +66,8 @@ internal sealed unsafe partial class GpuDevice
         _skyTimingPendingSequence = 0;
         _retirementHooks?.AfterSkyTimingRetired?.Invoke(sequence, fence, result.FrameMicroseconds,
             result.SkyMicroseconds, result.HasSky);
+        _retirementHooks?.AfterSkyTimingDetailsRetired?.Invoke(sequence, fence, result.FrameStart,
+            result.FrameEnd, result.SkyStart, result.SkyEnd, result.Frequency);
     }
 
     internal GpuFrameSubmitResult TryRenderSkyTimingForTests(GpuTarget target, in RenderFrame frame)
