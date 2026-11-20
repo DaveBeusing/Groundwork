@@ -41,7 +41,7 @@ internal sealed unsafe partial class GpuDevice
 
     private void PublishSkyQualificationForTests(ulong sequence, ulong fence)
     {
-        _retirementHooks?.AfterSkyRecordMeasured?.Invoke(sequence, _skyRecordMicroseconds,
+        _retirementHooks?.AfterSkyRecordMeasured?.Invoke(sequence, fence, _skyRecordMicroseconds,
             _skyRecordAllocatedBytes, _skyRecordDrawCount);
         if (_retirementHooks?.AfterSkyTimingRetired is null || _terrainTiming is not { MeasuresSky: true })
             return;
@@ -57,12 +57,13 @@ internal sealed unsafe partial class GpuDevice
             !_retirement.IsIdle(completed) || _terrainTiming is not { MeasuresSky: true } timing)
             return;
         var sequence = _skyTimingPendingSequence;
+        var fence = _skyTimingPendingFence;
         var result = timing.ReadSkyMicroseconds();
         // Clear before calling the observer so a reentrant diagnostic read does
         // not emit twice. Results are never mapped before their actual fence.
         _skyTimingPendingFence = 0;
         _skyTimingPendingSequence = 0;
-        _retirementHooks?.AfterSkyTimingRetired?.Invoke(sequence, result.FrameMicroseconds,
+        _retirementHooks?.AfterSkyTimingRetired?.Invoke(sequence, fence, result.FrameMicroseconds,
             result.SkyMicroseconds, result.HasSky);
     }
 

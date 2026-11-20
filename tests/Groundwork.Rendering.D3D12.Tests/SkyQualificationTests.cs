@@ -17,8 +17,8 @@ public sealed partial class PresentationSmokeTests
         var ownerThread = Environment.CurrentManagedThreadId;
         var initialized = 0;
         var exposeCompletion = false;
-        var recorded = new List<(ulong Sequence, int Draws)>();
-        var retired = new List<(ulong Sequence, bool HasSky)>();
+        var recorded = new List<(ulong Sequence, ulong Fence, int Draws)>();
+        var retired = new List<(ulong Sequence, ulong Fence, bool HasSky)>();
         var hooks = new GpuRetirementTestHooks(
             CompletedValue: (_, actual) => exposeCompletion ? actual : 0,
             RejectRecordedPlan: sequence => sequence == 3,
@@ -28,18 +28,19 @@ public sealed partial class PresentationSmokeTests
                 device.EnableSkyTimingForTests();
                 initialized++;
             },
-            AfterSkyRecordMeasured: (sequence, cpu, allocation, draws) =>
+            AfterSkyRecordMeasured: (sequence, fence, cpu, allocation, draws) =>
             {
                 Assert.AreEqual(ownerThread, Environment.CurrentManagedThreadId);
                 Assert.IsGreaterThanOrEqualTo(0d, cpu);
                 Assert.IsGreaterThanOrEqualTo(0L, allocation);
-                recorded.Add((sequence, draws));
+                Assert.IsGreaterThan(0UL, fence);
+                recorded.Add((sequence, fence, draws));
             },
-            AfterSkyTimingRetired: (sequence, frame, sky, hasSky) =>
+            AfterSkyTimingRetired: (sequence, fence, frame, sky, hasSky) =>
             {
                 Assert.AreEqual(ownerThread, Environment.CurrentManagedThreadId);
                 Assert.IsGreaterThanOrEqualTo(sky, frame);
-                retired.Add((sequence, hasSky));
+                retired.Add((sequence, fence, hasSky));
             });
         var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true, retirementHooks: hooks);
         GpuTarget? target = null;
@@ -55,15 +56,25 @@ public sealed partial class PresentationSmokeTests
             WaitForRetirement();
             Assert.IsTrue(gpu.IsIdle);
             Assert.IsTrue(gpu.IsIdle);
-            CollectionAssert.AreEqual(new[] { (1UL, true) }, retired.ToArray());
+            CollectionAssert.AreEqual(new[] { (1UL, true) }, retired.Select(row => (row.Sequence, row.HasSky)).ToArray());
             Assert.AreEqual(GpuFrameSubmitResult.Submitted,
                 gpu.TryRenderSkyTimingForTests(target, new RenderFrame(2, Vector4.Zero)));
+            WaitForRetirement();
+            // Appearance redraws can legitimately reuse an acknowledged logical
+            // sequence. Their native command lists must retain distinct identities.
+            Assert.AreEqual(GpuFrameSubmitResult.Submitted,
+                gpu.TryRenderSkyTimingForTests(target, new RenderFrame(2, Vector4.Zero) { Sky = SkyFixture() }));
             WaitForRetirement();
             Assert.AreEqual(GpuFrameSubmitResult.Rejected,
                 gpu.TryRenderSkyTimingForTests(target, new RenderFrame(3, Vector4.Zero) { Sky = SkyFixture() }));
             Assert.IsTrue(gpu.IsIdle);
-            CollectionAssert.AreEqual(new[] { (1UL, 1), (2UL, 0) }, recorded.ToArray());
-            CollectionAssert.AreEqual(new[] { (1UL, true), (2UL, false) }, retired.ToArray());
+            CollectionAssert.AreEqual(new[] { (1UL, 1), (2UL, 0), (2UL, 1) },
+                recorded.Select(row => (row.Sequence, row.Draws)).ToArray());
+            CollectionAssert.AreEqual(new[] { (1UL, true), (2UL, false), (2UL, true) },
+                retired.Select(row => (row.Sequence, row.HasSky)).ToArray());
+            CollectionAssert.AreEqual(recorded.Select(row => (row.Sequence, row.Fence)).ToArray(),
+                retired.Select(row => (row.Sequence, row.Fence)).ToArray());
+            Assert.AreEqual(3, retired.Select(row => row.Fence).Distinct().Count());
         }
         finally
         {

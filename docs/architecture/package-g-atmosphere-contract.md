@@ -106,3 +106,11 @@ WP15 CSV format. See WYU's `docs/dawn-twilight/reference-qualification.md` for
 the owner's reference-machine run, its exact sample/handoff denominators and
 remaining evidence gates. A smoke result is plumbing validation, not budget
 acceptance, and an isolated DLL is not a master-produced immutable archive.
+
+The combined renderer includes the full PR #186 presentation/refinement work.
+Private qualification hook schema 2 includes both logical sequence and actual
+native draw fence in CPU recording and retired GPU observations. Appearance
+updates can redraw an acknowledged logical frame: each native execution must
+remain identifiable instead of being conflated by logical sequence. WYU retains
+every execution. Smoke may report extras, but a strict controlled phase with
+additional executions remains blocked instead of selecting or dropping a row.
