@@ -156,6 +156,11 @@ public sealed partial class D3D12Renderer : IRenderer
 
     public RendererSnapshot Read() => _admission.Read();
 
+    /// <summary>Waits for the specified frame to be acknowledged while the renderer is running.</summary>
+    /// <returns>The current snapshot once the sequence is reached or the renderer is not running.</returns>
+    public ValueTask<RendererSnapshot> WaitForPresentedAsync(ulong sequence, CancellationToken token) =>
+        _admission.WaitForPresentedAsync(sequence, token);
+
     /// <summary>Reads the last published native diagnostics without calling the graphics driver.</summary>
     public D3D12DiagnosticsSnapshot ReadDiagnostics() => Volatile.Read(ref _diagnostics);
 
