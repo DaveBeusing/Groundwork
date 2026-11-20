@@ -53,20 +53,20 @@ public sealed partial class PresentationSmokeTests
                     ready.Wait(token);
                     return;
                 }
-                if (sequence < 4 || sequence > 10)
+                if (sequence < 4 || sequence > 12)
                     return;
 
                 var statistics = props.ReadStatistics();
                 Assert.IsLessThanOrEqualTo(D3D12PropCells.MaximumUploadBytes, statistics.UploadBytes);
                 turns.Enqueue((sequence, default, statistics.PayloadBytes));
-                if (sequence == 10)
+                if (sequence == 12)
                 {
                     finished.TrySetResult();
                     return;
                 }
                 if (statistics.PayloadBytes > 0)
                     StageProp();
-                if (sequence == 6)
+                if (sequence == 7)
                     stageDemotion!();
                 Assert.AreEqual(RenderSubmissionResult.Accepted,
                     active!.TrySubmitVolumeCamera(generation, sequence + 1, VolumeCameraAt(view, 32, 7)));
@@ -135,11 +135,12 @@ public sealed partial class PresentationSmokeTests
                 new (ulong, D3D12TextureTicket, int)[]
                 {
                     (0, coarse, 0), (0, firstTicket, 0), (4, default, 0), (5, default, PropInstanceData.ByteSize),
-                    (0, refine, 0), (6, default, 0), (7, default, PropInstanceData.ByteSize),
-                    (0, nextTicket, 0), (8, default, 0), (9, default, PropInstanceData.ByteSize),
-                    (0, demotion, 0), (10, default, 0),
+                    (6, default, PropInstanceData.ByteSize), (0, refine, 0), (7, default, 0),
+                    (8, default, PropInstanceData.ByteSize), (0, nextTicket, 0), (9, default, 0),
+                    (10, default, PropInstanceData.ByteSize), (11, default, PropInstanceData.ByteSize),
+                    (0, demotion, 0), (12, default, 0),
                 }, turns.ToArray());
-            Assert.AreEqual(10UL, renderer.Read().LastPresentedSequence);
+            Assert.AreEqual(12UL, renderer.Read().LastPresentedSequence);
             Assert.IsTrue(textures.TryReadResidency(cut, stable, out var final));
             Assert.AreEqual(1, final.ResidentMip);
 

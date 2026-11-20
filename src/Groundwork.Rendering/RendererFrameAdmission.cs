@@ -12,6 +12,7 @@ public sealed partial class RendererFrameAdmission
     private ulong _takenSequence;
     private bool _takenFrameHasScene;
     private bool _pairedRegionFrames;
+    private TaskCompletionSource? _presentationChanged;
 
     public RendererSnapshot Read()
     {
@@ -19,6 +20,33 @@ public sealed partial class RendererFrameAdmission
         {
             return _status;
         }
+    }
+
+    /// <summary>Waits for the sequence to be presented while the renderer is running.</summary>
+    /// <returns>The current snapshot once the sequence is reached or the renderer is not running.</returns>
+    public async ValueTask<RendererSnapshot> WaitForPresentedAsync(ulong sequence, CancellationToken token)
+    {
+        while (true)
+        {
+            token.ThrowIfCancellationRequested();
+            Task changed;
+            lock (_gate)
+            {
+                if (_status.LastPresentedSequence >= sequence || _status.Lifecycle != RendererLifecycle.Running)
+                    return _status;
+
+                changed = (_presentationChanged ??= new(TaskCreationOptions.RunContinuationsAsynchronously)).Task;
+            }
+
+            await changed.WaitAsync(token).ConfigureAwait(false);
+        }
+    }
+
+    private void SignalPresentationChange()
+    {
+        var changed = _presentationChanged;
+        _presentationChanged = null;
+        changed?.TrySetResult();
     }
 
     public void MarkInitialized()
@@ -149,6 +177,7 @@ public sealed partial class RendererFrameAdmission
         }
 
         _status = _status with { LastPresentedSequence = sequence };
+        SignalPresentationChange();
     }
 
     public void RecordSkipped()
@@ -214,6 +243,7 @@ public sealed partial class RendererFrameAdmission
             _pending = null;
             MeshReplacement?.Close();
             MeshRegionReplacement?.Close();
+            SignalPresentationChange();
         }
     }
 
