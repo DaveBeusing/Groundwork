@@ -178,7 +178,10 @@ internal sealed unsafe partial class GpuDevice
                 ObserveUse(_propGeometry);
                 var fogDepth = scene.Fog is { MaxOpacity: > 0 } fog ? GetFogDepthConstants(fog) : Vector4.Zero;
                 var fogColor = scene.Fog is { } f ? new Vector4(f.Color, f.MaxOpacity) : Vector4.Zero;
-                var constants = new DrawConstants(projection, scene.Tint, fogColor, fogDepth, default, default, default);
+                var tint = scene.Tint;
+                if (scene.Sunlight is { } sunlight)
+                    tint *= new Vector4(sunlight.Ambient + sunlight.Direct, 1);
+                var constants = new DrawConstants(projection, tint, fogColor, fogDepth, default, default, default);
                 commands->SetPipelineState(_propPipeline);
                 commands->SetGraphicsRootSignature(_propRoot);
                 commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
