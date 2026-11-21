@@ -76,8 +76,6 @@ internal static class GpuPassPlan
         var far = shape.Far;
         Shadow(NearShadow, NearMap, near);
         Shadow(FarShadow, FarMap, far);
-        if (shape.Sky)
-            Add(Sky, [], [Output(Color, RenderResourceState.ColorAttachment, RenderLoadAction.Load)]);
         if (shape.Scene)
         {
             var inputs = geometry.ToBuilder();
@@ -122,6 +120,11 @@ internal static class GpuPassPlan
             if (shape.FollowOn)
                 Add(FollowOn, geometry, Attachments(RenderLoadAction.Load));
         }
+        // Opaque depth rejects hidden background fragments before atmosphere
+        // integration. Sky only reads depth and never changes its coverage.
+        if (shape.Sky)
+            Add(Sky, [Input(Depth, RenderResourceState.DepthRead)],
+                [Output(Color, RenderResourceState.ColorAttachment, RenderLoadAction.Load)]);
         if (shape.Readback)
         {
             // One logical packed color/depth footprint, excluding the unread native row/plane padding.

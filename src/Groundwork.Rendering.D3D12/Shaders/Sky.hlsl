@@ -22,7 +22,7 @@ SkyVertex SkyVS(uint id : SV_VertexID)
 {
     SkyVertex vertex;
     vertex.Screen = float2(id == 1 ? 3 : -1, id == 2 ? 3 : -1);
-    vertex.Position = float4(vertex.Screen, 0, 1);
+    vertex.Position = float4(vertex.Screen, 1, 1);
     return vertex;
 }
 
@@ -107,6 +107,7 @@ float Stars(float3 ray)
     return (h >> 24) < 9 ? 1 - smoothstep(0.045 - aa * 0.3, 0.045 + aa, distance) : 0;
 }
 
+[earlydepthstencil]
 float4 SkyPS(SkyVertex input) : SV_Target
 {
     float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *

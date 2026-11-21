@@ -154,14 +154,14 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             _depthWidth = 0;
             _depthHeight = 0;
             if (_depthHeap == null)
-                _depthHeap = CreateHeap(_device, D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+                _depthHeap = CreateDepthAttachmentHeap();
             var clear = new D3D12_CLEAR_VALUE { Format = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT };
             clear.DepthStencil.Depth = 1;
             _depth = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT,
                 Texture(width, height, DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear);
             ObserveResource(_depth, D3D12ResourceOwner.Depth);
-            _device->CreateDepthStencilView(_depth, null, _depthHeap->GetCPUDescriptorHandleForHeapStart());
+            CreateDepthAttachmentViews();
             _depthWidth = width;
             _depthHeight = height;
             _depthGeneration = checked(_depthGeneration + 1);

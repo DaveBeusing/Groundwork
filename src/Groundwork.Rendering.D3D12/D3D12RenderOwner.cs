@@ -13,6 +13,7 @@ public sealed partial class D3D12Renderer
     internal Action<ulong, ulong, ulong, OffscreenFrame>? AppearancePresentReadbackForTests { private get; init; }
     internal Action<ulong, ulong, ulong, OffscreenFrame>? PlanetAppearanceReadbackForTests { private get; init; }
     internal Action<D3D12Renderer>? BeforeRetrySelectionForTests { private get; init; }
+    internal Action<bool, EventWaitHandle>? OwnerRetirementWaitForTests { private get; init; }
     internal Func<long>? FirstContentTimestampForTests { private get; init; }
 
     private D3D12PropCells? _props;
@@ -641,7 +642,21 @@ public sealed partial class D3D12Renderer
             // Signaling already-submitted work occurs in GpuDevice before it returns.
             // An unretirable submission stays owned until device removal proves quiescence.
             while (gpu is not null && !gpu.IsRemoved && !gpu.IsIdle)
-                _wake!.WaitOne(ProgressPollMilliseconds);
+            {
+                var wake = _wake!;
+                OwnerRetirementWaitForTests?.Invoke(false, wake);
+                if (gpu.IsRemoved || gpu.IsIdle)
+                    break;
+                // An unassigned signal or sentinel cannot provide a future
+                // completion event. Keep the bounded custody poll in that case.
+                if (gpu.ReadObservedCustody() == D3D12CustodyStatus.None)
+                {
+                    gpu.WakeOnQueueRetirement(wake);
+                    OwnerRetirementWaitForTests?.Invoke(true, wake);
+                }
+                if (!gpu.IsRemoved && !gpu.IsIdle)
+                    wake.WaitOne(ProgressPollMilliseconds);
+            }
 
             // Stop has already closed admission. Keep the device and lifetime lease during diagnostics.
             if (gpu?.CaptureDred() is { } removal)
