@@ -224,7 +224,8 @@ public sealed partial class PresentationSmokeTests
         File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(new
         {
             DiagnosticOnly = true, QualityApproved = false, PerformanceQualified = false,
-            Scope = "Direct 8x4 oracle versus fixed angular 8x4 lookup interpolation; not WYU gameplay acceptance",
+            Scope = "Direct 8x4 oracle versus fixed 256x128 frame-camera view-ray field; not WYU gameplay acceptance",
+            LookupMappingVersion = 3,
             Width = width, Height = height, Parameters = sky, gpu.Adapter,
             LookupWidth = gpu.SkyLookupWidthForTests, LookupHeight = gpu.SkyLookupHeightForTests,
             AllocationBytes = gpu.SkyLookupAllocatedBytesForTests, Dispatches = gpu.SkyLookupDispatchesForTests,

@@ -458,7 +458,7 @@ internal sealed unsafe partial class GpuDevice
                 var readOnlyDsv = dsv;
                 readOnlyDsv.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
                 BindFrameTargets(commands, target, rtv, readOnlyDsv);
-                DrawSky(commands, target, frame.Sky!.Value);
+                DrawSky(commands, target, frame.Sky!.Value, ref timingLayout);
                 // As with the packed readback pass, restore the fixed route's
                 // canonical depth state for readback and the next recording.
                 RecordTransition(commands, _depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_READ,
@@ -466,7 +466,7 @@ internal sealed unsafe partial class GpuDevice
                 EndSkyRecordMeasurementForTests();
                 _retirementHooks?.AfterSkyRecord?.Invoke();
                 if (shadowTiming is { MeasuresSky: true })
-                    shadowTiming.Stamp(commands, ref timingLayout);
+                    timingLayout.SkyEnd = shadowTiming.Stamp(commands, ref timingLayout);
             }
             else if (pass.Id == GpuPassPlan.Terrain)
             {

@@ -8,7 +8,8 @@ internal readonly record struct ShadowGpuTiming(double FrameMicroseconds, double
     double NearShadowMicroseconds, double FarShadowMicroseconds, int ShadowPassCount);
 
 internal readonly record struct SkyGpuTiming(double FrameMicroseconds, double SkyMicroseconds, bool HasSky,
-    ulong FrameStart = 0, ulong FrameEnd = 0, ulong SkyStart = 0, ulong SkyEnd = 0, ulong Frequency = 0);
+    ulong FrameStart = 0, ulong FrameEnd = 0, ulong SkyStart = 0, ulong SkyEnd = 0, ulong Frequency = 0,
+    bool HasLookupSplit = false, double LookupComputeMicroseconds = 0, double LookupDrawBarrierMicroseconds = 0);
 
 internal sealed unsafe partial class GpuDevice
 {
@@ -72,6 +73,8 @@ internal sealed unsafe partial class GpuDevice
         internal uint NearStart;
         internal uint FarStart;
         internal uint SkyStart;
+        internal uint SkyEnd;
+        internal uint SkyLookupComputeEnd;
     }
 
     private sealed class TerrainTiming : IDisposable
@@ -94,7 +97,7 @@ internal sealed unsafe partial class GpuDevice
             MeasuresShadows = measureShadows;
             MeasuresSky = measureSky;
 
-            var queryCount = measureSky ? ShadowQueryCount + 2 : measureShadows ? ShadowQueryCount : TerrainQueryCount;
+            var queryCount = measureSky ? ShadowQueryCount + 3 : measureShadows ? ShadowQueryCount : TerrainQueryCount;
             var description = new D3D12_QUERY_HEAP_DESC
             {
                 Type = D3D12_QUERY_HEAP_TYPE.D3D12_QUERY_HEAP_TYPE_TIMESTAMP,
@@ -195,9 +198,12 @@ internal sealed unsafe partial class GpuDevice
             try
             {
                 return new(Microseconds(ticks, 0, layout.FrameEnd),
-                    OptionalPassMicroseconds(ticks, layout.SkyStart), layout.SkyStart != 0,
+                    layout.SkyStart == 0 ? 0 : Microseconds(ticks, layout.SkyStart, layout.SkyEnd), layout.SkyStart != 0,
                     ticks[0], ticks[layout.FrameEnd], layout.SkyStart == 0 ? 0 : ticks[layout.SkyStart],
-                    layout.SkyStart == 0 ? 0 : ticks[layout.SkyStart + 1], _frequency);
+                    layout.SkyStart == 0 ? 0 : ticks[layout.SkyEnd], _frequency,
+                    layout.SkyLookupComputeEnd != 0,
+                    layout.SkyLookupComputeEnd == 0 ? 0 : Microseconds(ticks, layout.SkyStart, layout.SkyLookupComputeEnd),
+                    layout.SkyLookupComputeEnd == 0 ? 0 : Microseconds(ticks, layout.SkyLookupComputeEnd, layout.SkyEnd));
             }
             finally
             {

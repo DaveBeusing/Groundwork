@@ -149,41 +149,17 @@ void IntegrateAtmosphere(float3 eye, float3 ray, float mu, float ground, out flo
 }
 
 #ifdef SKY_LOOKUP
-// Fixed angular tables, independent of the output target. No history is used:
+// Fixed 256x128 view-ray fields, independent of the output target dimensions.
+// The same frame camera/FOV/aspect constructs both compute and pixel rays.
+// No history is used:
 // the compute dispatch refreshes both fields with this frame's constants.
 static const uint LookupWidth = 256;
 static const uint LookupHeight = 128;
-static const float Pi = 3.14159265358979323846;
 RWTexture2D<float4> LookupRadianceOut : register(u0);
 RWTexture2D<float4> LookupTransmissionOut : register(u1);
 Texture2D<float4> LookupRadiance : register(t0);
 Texture2D<float4> LookupTransmission : register(t1);
-SamplerState LookupLinearWrapClamp : register(s0);
-
-void LookupBasis(float3 eye, out float3 up, out float3 x, out float3 y,
-    out float horizon, out float ceiling, out bool outside)
-{
-    up = normalize(eye);
-    x = SunEnergy.xyz - up * dot(up, SunEnergy.xyz);
-    if (dot(x, x) < 0.000001)
-        x = cross(abs(up.y) < 0.9 ? float3(0,1,0) : float3(1,0,0), up);
-    x = normalize(x);
-    y = cross(up, x);
-    float radius = length(eye);
-    horizon = -acos(saturate(1 / radius));
-    outside = radius >= EyeOuter.w;
-    ceiling = outside ? -acos(saturate(EyeOuter.w / radius)) : Pi * 0.5;
-}
-
-float LookupElevation(float v, float horizon, float ceiling, bool outside)
-{
-    float s = 2 * v - 1;
-    // Outside the shell, half the rows resolve the entire thin atmospheric
-    // annulus rather than spending them on empty space up to the zenith.
-    if (outside && s >= 0)
-        return lerp(horizon, ceiling, s);
-    return horizon + s * abs(s) * (s < 0 ? horizon + Pi * 0.5 : Pi * 0.5 - horizon);
-}
+SamplerState LookupLinearClamp : register(s0);
 
 [numthreads(8,8,1)]
 void SkyLookupCS(uint3 id : SV_DispatchThreadID)
@@ -191,49 +167,24 @@ void SkyLookupCS(uint3 id : SV_DispatchThreadID)
     if (id.x >= LookupWidth || id.y >= LookupHeight)
         return;
     float3 eye = SkyEye();
-    float3 up, x, y;
-    float horizon, ceiling;
-    bool outside;
-    LookupBasis(eye, up, x, y, horizon, ceiling, outside);
-    float azimuth = (float(id.x) / LookupWidth) * (2 * Pi);
-    float elevation = LookupElevation(float(id.y) / (LookupHeight - 1), horizon, ceiling, outside);
-    float3 ray = cos(elevation) * (cos(azimuth) * x + sin(azimuth) * y) + sin(elevation) * up;
+    float2 uv = (float2(id.xy) + 0.5) / float2(LookupWidth, LookupHeight);
+    float2 screen = float2(uv.x * 2 - 1, 1 - uv.y * 2);
+    float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
+        (screen.x * RightAspect.w * RightAspect.xyz + screen.y * UpDisk.xyz));
     float3 light;
     float2 depth;
-    ray = normalize(ray);
     IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), Ground(eye, ray), light, depth);
     LookupRadianceOut[id.xy] = float4(light, 1);
     LookupTransmissionOut[id.xy] = float4(Transmission(depth), 1);
 }
 
-void SampleLookup(float3 eye, float3 ray, out float3 light, out float3 transmission)
+void SampleLookup(float2 screen, out float3 light, out float3 transmission)
 {
-    float3 up, x, y;
-    float horizon, ceiling;
-    bool outside;
-    LookupBasis(eye, up, x, y, horizon, ceiling, outside);
-    float2 horizontal = float2(dot(ray, x), dot(ray, y));
-    float azimuth = dot(horizontal, horizontal) > 0 ? atan2(horizontal.y, horizontal.x) : 0;
-    float u = frac(azimuth / (2 * Pi) + 1);
-    float elevation = asin(clamp(dot(ray, up), -1, 1));
-    if (outside && elevation >= ceiling)
-    {
-        light = 0;
-        transmission = 1;
-        return;
-    }
-    float delta = elevation - horizon;
-    float span = delta < 0 ? horizon + Pi * 0.5 : ceiling - horizon;
-    float offset = saturate(abs(delta) / span);
-    if (!outside || delta < 0)
-        offset = sqrt(offset);
-    float v = 0.5 + (delta < 0 ? -0.5 : 0.5) * offset;
-    // U samples are periodic; V includes both poles. Address texel centres so
-    // fixed-function bilinear filtering matches the angular grid exactly.
-    float2 coordinate = float2((u * LookupWidth + 0.5) / LookupWidth,
-        (v * (LookupHeight - 1) + 0.5) / LookupHeight);
-    light = LookupRadiance.SampleLevel(LookupLinearWrapClamp, coordinate, 0).rgb;
-    transmission = LookupTransmission.SampleLevel(LookupLinearWrapClamp, coordinate, 0).rgb;
+    // Compute texel centres and the pixel's NDC-derived UV share the same
+    // convention. Clamp only the outer half-texel; no per-pixel angular inverse.
+    float2 coordinate = float2(screen.x * 0.5 + 0.5, 0.5 - screen.y * 0.5);
+    light = LookupRadiance.SampleLevel(LookupLinearClamp, coordinate, 0).rgb;
+    transmission = LookupTransmission.SampleLevel(LookupLinearClamp, coordinate, 0).rgb;
 }
 #endif
 
@@ -252,7 +203,7 @@ float4 SkyPS(SkyVertex input) : SV_Target
     float3 light;
 #ifdef SKY_LOOKUP
     float3 transmission;
-    SampleLookup(eye, ray, light, transmission);
+    SampleLookup(input.Screen, light, transmission);
 #else
     float2 viewDepth;
     IntegrateAtmosphere(eye, ray, mu, ground, light, viewDepth);

@@ -6,7 +6,7 @@ namespace Groundwork.Rendering.D3D12;
 
 internal sealed unsafe partial class GpuDevice
 {
-    // Diagnostic prototype only. Two fixed RGBA32F angular fields use 1 MiB
+    // Diagnostic prototype only. Two fixed RGBA32F view-ray fields use 1 MiB
     // per owner. Preparation rejects larger native texture alignment.
     private const int SkyLookupWidth = 256;
     private const int SkyLookupHeight = 128;
@@ -40,7 +40,7 @@ internal sealed unsafe partial class GpuDevice
         var sampler = new D3D12_STATIC_SAMPLER_DESC
         {
             Filter = D3D12_FILTER.D3D12_FILTER_MIN_MAG_LINEAR_MIP_POINT,
-            AddressU = D3D12_TEXTURE_ADDRESS_MODE.D3D12_TEXTURE_ADDRESS_MODE_WRAP,
+            AddressU = D3D12_TEXTURE_ADDRESS_MODE.D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
             AddressV = D3D12_TEXTURE_ADDRESS_MODE.D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
             AddressW = D3D12_TEXTURE_ADDRESS_MODE.D3D12_TEXTURE_ADDRESS_MODE_CLAMP,
             ComparisonFunc = D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_ALWAYS,
@@ -132,7 +132,8 @@ internal sealed unsafe partial class GpuDevice
         catch { ReleaseSkyLookup(); throw; }
     }
 
-    private void BuildSkyLookup(ID3D12GraphicsCommandList* commands, in SkyConstants constants)
+    private void BuildSkyLookup(ID3D12GraphicsCommandList* commands, in SkyConstants constants,
+        ref ShadowTimingLayout timingLayout)
     {
         PrepareSkyLookup();
         ObserveUse(_skyLookupRadiance);
@@ -145,6 +146,9 @@ internal sealed unsafe partial class GpuDevice
             commands->SetComputeRoot32BitConstants(0, SkyConstantCount, data, 0);
         commands->SetComputeRootDescriptorTable(1, heap->GetGPUDescriptorHandleForHeapStart());
         commands->Dispatch(SkyLookupWidth / 8, SkyLookupHeight / 8, 1);
+        if (_retirementHooks?.AfterSkyLookupGpuTimingRetired is not null && _terrainTiming is { MeasuresSky: true } timing)
+            timingLayout.SkyLookupComputeEnd = timing.Stamp(commands, ref timingLayout);
+        MarkSkyLookupRecordSplitForTests();
         SkyLookupDispatchesForTests++;
         // The transition orders all UAV writes before sampling. Every recording
         // restores UAV state after the draw, even when admission later rejects it.

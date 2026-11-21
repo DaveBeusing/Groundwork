@@ -10,7 +10,8 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12RootSignature* _skyRoot;
     private ID3D12PipelineState* _skyPipeline;
 
-    private void DrawSky(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderSky sky)
+    private void DrawSky(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderSky sky,
+        ref ShadowTimingLayout timingLayout)
     {
         if (_skyPipeline == null)
         {
@@ -50,7 +51,7 @@ internal sealed unsafe partial class GpuDevice
             new(sky.RayleighExtinction * radius, 0),
             new(sky.AerosolExtinction * radius, 0), sky.StarSeed, 0, 0, 0);
         if (SkyLookupPrototypeEnabledForTests)
-            BuildSkyLookup(commands, in constants);
+            BuildSkyLookup(commands, in constants, ref timingLayout);
         commands->SetPipelineState(_skyPipeline);
         commands->SetGraphicsRootSignature(_skyRoot);
         commands->SetGraphicsRoot32BitConstants(0, SkyConstantCount, &constants, 0);

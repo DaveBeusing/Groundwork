@@ -13,19 +13,26 @@ internal sealed unsafe partial class GpuDevice
     private double _skyRecordMicroseconds;
     private long _skyRecordAllocatedBytes;
     private int _skyRecordDrawCount;
+    private bool _skyLookupRecordSplit;
+    private double _skyLookupRecordComputeMicroseconds;
+
+    private bool MeasuresSkyRecordForTests => _retirementHooks?.AfterSkyRecordMeasured is not null ||
+        _retirementHooks?.AfterSkyLookupRecordMeasured is not null;
 
     private void ResetSkyRecordMeasurementForTests()
     {
-        if (_retirementHooks?.AfterSkyRecordMeasured is null)
+        if (!MeasuresSkyRecordForTests)
             return;
         _skyRecordMicroseconds = 0;
         _skyRecordAllocatedBytes = 0;
         _skyRecordDrawCount = 0;
+        _skyLookupRecordSplit = false;
+        _skyLookupRecordComputeMicroseconds = 0;
     }
 
     private void BeginSkyRecordMeasurementForTests()
     {
-        if (_retirementHooks?.AfterSkyRecordMeasured is null)
+        if (!MeasuresSkyRecordForTests)
             return;
         _skyRecordAllocationStart = GC.GetAllocatedBytesForCurrentThread();
         _skyRecordStarted = Stopwatch.GetTimestamp();
@@ -33,17 +40,29 @@ internal sealed unsafe partial class GpuDevice
 
     private void EndSkyRecordMeasurementForTests()
     {
-        if (_retirementHooks?.AfterSkyRecordMeasured is null)
+        if (!MeasuresSkyRecordForTests)
             return;
         _skyRecordMicroseconds = Stopwatch.GetElapsedTime(_skyRecordStarted).TotalMicroseconds;
         _skyRecordAllocatedBytes = GC.GetAllocatedBytesForCurrentThread() - _skyRecordAllocationStart;
+    }
+
+    private void MarkSkyLookupRecordSplitForTests()
+    {
+        if (_retirementHooks?.AfterSkyLookupRecordMeasured is null)
+            return;
+        _skyLookupRecordComputeMicroseconds = Stopwatch.GetElapsedTime(_skyRecordStarted).TotalMicroseconds;
+        _skyLookupRecordSplit = true;
     }
 
     private void PublishSkyQualificationForTests(ulong sequence, ulong fence)
     {
         _retirementHooks?.AfterSkyRecordMeasured?.Invoke(sequence, fence, _skyRecordMicroseconds,
             _skyRecordAllocatedBytes, _skyRecordDrawCount);
-        if ((_retirementHooks?.AfterSkyTimingRetired is null && _retirementHooks?.AfterSkyTimingDetailsRetired is null) ||
+        if (_skyLookupRecordSplit)
+            _retirementHooks?.AfterSkyLookupRecordMeasured?.Invoke(sequence, fence, _skyLookupRecordComputeMicroseconds,
+                _skyRecordMicroseconds - _skyLookupRecordComputeMicroseconds);
+        if ((_retirementHooks?.AfterSkyTimingRetired is null && _retirementHooks?.AfterSkyTimingDetailsRetired is null &&
+            _retirementHooks?.AfterSkyLookupGpuTimingRetired is null) ||
             _terrainTiming is not { MeasuresSky: true })
             return;
         if (_skyTimingPendingFence != 0)
@@ -68,6 +87,9 @@ internal sealed unsafe partial class GpuDevice
             result.SkyMicroseconds, result.HasSky);
         _retirementHooks?.AfterSkyTimingDetailsRetired?.Invoke(sequence, fence, result.FrameStart,
             result.FrameEnd, result.SkyStart, result.SkyEnd, result.Frequency);
+        if (result.HasLookupSplit)
+            _retirementHooks?.AfterSkyLookupGpuTimingRetired?.Invoke(sequence, fence, result.LookupComputeMicroseconds,
+                result.LookupDrawBarrierMicroseconds);
     }
 
     internal GpuFrameSubmitResult TryRenderSkyTimingForTests(GpuTarget target, in RenderFrame frame)
