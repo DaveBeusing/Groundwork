@@ -17,7 +17,15 @@ internal sealed unsafe partial class GpuDevice
         {
             var started = _retirementHooks?.AfterSkyPipelineReady is not null ? Stopwatch.GetTimestamp() : 0;
             var reused = false;
-            if (!SkyLookupPrototypeEnabledForTests && _session is not null && _session.TryAcquireSkyPipeline(out var root, out var pipeline))
+            if (SkyLookupPrototypeEnabledForTests && _session is not null &&
+                _session.TryAcquireSkyLookupPipelines(out var lookupRoot, out var lookupGraphics, out var lookupCompute))
+            {
+                _skyRoot = lookupRoot;
+                _skyPipeline = lookupGraphics;
+                _skyLookupCompute = lookupCompute;
+                reused = true;
+            }
+            else if (!SkyLookupPrototypeEnabledForTests && _session is not null && _session.TryAcquireSkyPipeline(out var root, out var pipeline))
             {
                 _skyRoot = root;
                 _skyPipeline = pipeline;

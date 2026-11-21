@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using TerraFX.Interop.DirectX;
 using static Groundwork.Rendering.D3D12.GpuNative;
 using static TerraFX.Interop.Windows.Windows;
@@ -15,11 +16,14 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12DescriptorHeap* _skyLookupDescriptors;
     private ID3D12PipelineState* _skyLookupCompute;
     private bool _skyLookupFallbackMaskForTests;
+    private bool _skyLookupPrepared;
     internal bool SkyLookupPrototypeEnabledForTests { get; }
     internal int SkyLookupWidthForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupWidth : 0;
     internal int SkyLookupHeightForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupHeight : 0;
     internal ulong SkyLookupAllocatedBytesForTests { get; private set; }
     internal ulong SkyLookupDispatchesForTests { get; private set; }
+    internal (nint Root, nint Graphics, nint Compute) SkyLookupPipelineHandlesForTests =>
+        ((nint)_skyRoot, (nint)_skyPipeline, (nint)_skyLookupCompute);
 
     internal void SetSkyLookupFallbackMaskForTests(bool enabled)
     {
@@ -78,8 +82,10 @@ internal sealed unsafe partial class GpuDevice
 
     private void PrepareSkyLookup()
     {
-        if (_skyLookupCompute != null)
+        if (_skyLookupPrepared)
             return;
+        var observed = _retirementHooks?.AfterSkyLookupPreparationStage;
+        var preparationStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
         // Partial preparation is owned immediately and released on any failure;
         // none of these resources are published into the direct session cache.
         try
@@ -98,6 +104,8 @@ internal sealed unsafe partial class GpuDevice
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
             ObserveResource(_skyLookupTransmission, D3D12ResourceOwner.Texture, allocation);
             SkyLookupAllocatedBytesForTests += allocation;
+            observed?.Invoke("textures", preparationStarted, Stopwatch.GetTimestamp(), false);
+            var descriptorsStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
             var heapDescription = new D3D12_DESCRIPTOR_HEAP_DESC
             {
                 Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
@@ -125,17 +133,29 @@ internal sealed unsafe partial class GpuDevice
             _device->CreateShaderResourceView(_skyLookupRadiance, &srv, handle);
             handle.ptr += increment;
             _device->CreateShaderResourceView(_skyLookupTransmission, &srv, handle);
-            var shader = LoadShader("SkyLookup.cs.dxil");
-            fixed (byte* code = shader)
+            observed?.Invoke("descriptors", descriptorsStarted, Stopwatch.GetTimestamp(), false);
+            var computeStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
+            var reusedCompute = _skyLookupCompute != null;
+            if (!reusedCompute)
             {
-                var pipeline = new D3D12_COMPUTE_PIPELINE_STATE_DESC
+                var shader = LoadShader("SkyLookup.cs.dxil");
+                fixed (byte* code = shader)
                 {
-                    pRootSignature = _skyRoot, CS = new() { pShaderBytecode = code, BytecodeLength = (nuint)shader.Length },
-                };
-                fixed (ID3D12PipelineState** state = &_skyLookupCompute)
-                    Check(_device->CreateComputePipelineState(&pipeline, __uuidof<ID3D12PipelineState>(), (void**)state),
-                        "Create sky lookup compute pipeline");
+                    var pipeline = new D3D12_COMPUTE_PIPELINE_STATE_DESC
+                    {
+                        pRootSignature = _skyRoot, CS = new() { pShaderBytecode = code, BytecodeLength = (nuint)shader.Length },
+                    };
+                    fixed (ID3D12PipelineState** state = &_skyLookupCompute)
+                        Check(_device->CreateComputePipelineState(&pipeline, __uuidof<ID3D12PipelineState>(), (void**)state),
+                            "Create sky lookup compute pipeline");
+                }
             }
+            observed?.Invoke("compute-pipeline", computeStarted, Stopwatch.GetTimestamp(), reusedCompute);
+            // Publish only after all three immutable objects exist. Every owner
+            // still prepares its own textures/views, including cache hits.
+            _session?.RetainSkyLookupPipelines(_skyRoot, _skyPipeline, _skyLookupCompute);
+            _skyLookupPrepared = true;
+            observed?.Invoke("ready", preparationStarted, Stopwatch.GetTimestamp(), reusedCompute);
         }
         catch { ReleaseSkyLookup(); throw; }
     }
@@ -191,5 +211,6 @@ internal sealed unsafe partial class GpuDevice
         _skyLookupDescriptors = null;
         _skyLookupTransmission = _skyLookupRadiance = null;
         SkyLookupAllocatedBytesForTests = 0;
+        _skyLookupPrepared = false;
     }
 }

@@ -12,6 +12,9 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
     private ID3D12CommandQueue* _queue;
     private ID3D12RootSignature* _skyRoot;
     private ID3D12PipelineState* _skyPipeline;
+    private ID3D12RootSignature* _skyLookupRoot;
+    private ID3D12PipelineState* _skyLookupGraphics;
+    private ID3D12PipelineState* _skyLookupCompute;
     private D3D12AdapterInfo? _adapter;
     private bool _attached;
     private bool _disposed;
@@ -115,6 +118,47 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
         }
     }
 
+    // The lookup ABI has UAV/SRV tables and a compute PSO. Keep its complete
+    // immutable triplet separate from the direct sky cache. Mutable LUTs,
+    // descriptor heaps, constants and retirement fences never enter a session.
+    internal bool TryAcquireSkyLookupPipelines(out ID3D12RootSignature* root,
+        out ID3D12PipelineState* graphics, out ID3D12PipelineState* compute)
+    {
+        lock (_gate)
+        {
+            root = null;
+            graphics = null;
+            compute = null;
+            if (_disposed || !_attached || _skyLookupRoot == null || _skyLookupGraphics == null || _skyLookupCompute == null)
+                return false;
+            _skyLookupRoot->AddRef();
+            _skyLookupGraphics->AddRef();
+            _skyLookupCompute->AddRef();
+            root = _skyLookupRoot;
+            graphics = _skyLookupGraphics;
+            compute = _skyLookupCompute;
+            return true;
+        }
+    }
+
+    internal void RetainSkyLookupPipelines(ID3D12RootSignature* root,
+        ID3D12PipelineState* graphics, ID3D12PipelineState* compute)
+    {
+        if (root == null || graphics == null || compute == null)
+            throw new ArgumentException("The lookup cache requires a complete pipeline triplet.");
+        lock (_gate)
+        {
+            if (_disposed || !_attached || _skyLookupRoot != null)
+                return;
+            root->AddRef();
+            graphics->AddRef();
+            compute->AddRef();
+            _skyLookupRoot = root;
+            _skyLookupGraphics = graphics;
+            _skyLookupCompute = compute;
+        }
+    }
+
     public void Dispose()
     {
         lock (_gate)
@@ -126,6 +170,14 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
                 _skyRoot->Release();
             _skyPipeline = null;
             _skyRoot = null;
+            if (_skyLookupCompute != null)
+                _skyLookupCompute->Release();
+            if (_skyLookupGraphics != null)
+                _skyLookupGraphics->Release();
+            if (_skyLookupRoot != null)
+                _skyLookupRoot->Release();
+            _skyLookupCompute = _skyLookupGraphics = null;
+            _skyLookupRoot = null;
             if (_queue != null)
                 _queue->Release();
             if (_device != null)

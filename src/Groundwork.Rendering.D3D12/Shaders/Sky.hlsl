@@ -216,7 +216,30 @@ void SkyLookupCS(uint3 id : SV_DispatchThreadID)
     LookupTransmissionOut[id.xy] = float4(Transmission(depth), edge ? 1 : 0);
 }
 
-bool SampleLookup(float2 screen, float3 eye, float3 ray, float ground, out float3 light, out float3 transmission)
+float PixelLookupGeometryClass(float3 eye, float3 ray, out float ground)
+{
+    float eyeSquared = dot(eye, eye);
+    float cOuter = eyeSquared - EyeOuter.w * EyeOuter.w;
+    if (cOuter < 0)
+    {
+        // For an eye strictly inside the outer sphere, its roots straddle
+        // zero. Preserve Sphere's cross-product distance and strict tangent
+        // decisions while avoiding roots needed only for classifying a ray.
+        float b = dot(eye, ray);
+        float distance = length(cross(eye, ray));
+        bool surfaceZero = eyeSquared <= 1.0000003 && b < 0;
+        bool hitsGround = surfaceZero || (b < 0 && distance < 1);
+        bool hasAir = distance < EyeOuter.w && !surfaceZero;
+        // Lookup composition only needs the ground/no-ground decision. Any
+        // direct fallback below recomputes the actual original ground root.
+        ground = hitsGround ? 0 : 1e10;
+        return float((hitsGround ? 1u : 0u) | (hasAir ? 2u : 0u));
+    }
+    ground = Ground(eye, ray);
+    return LookupGeometryClass(eye, ray, ground);
+}
+
+bool SampleLookup(float2 screen, float geometry, out float3 light, out float3 transmission)
 {
     // Compute texel centres and the pixel's NDC-derived UV share the same
     // convention. Clamp only the outer half-texel; no per-pixel angular inverse.
@@ -226,8 +249,8 @@ bool SampleLookup(float2 screen, float3 eye, float3 ray, float ground, out float
     light = radianceField.rgb;
     transmission = transmissionField.rgb;
     // A full-resolution ray can hit a small planet or atmosphere silhouette
-    // between grid centres. Classify both with the original sphere solver.
-    return transmissionField.a > 0 || radianceField.a != LookupGeometryClass(eye, ray, ground);
+    // between grid centres. Its exact geometry class must still agree.
+    return transmissionField.a > 0 || radianceField.a != geometry;
 }
 #endif
 
@@ -242,18 +265,21 @@ float4 SkyPS(SkyVertex input) : SV_Target
     float disk = mu > 0 ? 1 - smoothstep(max(0, UpDisk.w - diskAA), UpDisk.w + diskAA, sine) : 0;
     float stars = Stars(ray);
     float3 eye = SkyEye();
-    float ground = Ground(eye, ray);
+    float ground;
     float3 light;
 #ifdef SKY_LOOKUP
     float3 transmission;
-    bool directFallback = SampleLookup(input.Screen, eye, ray, ground, light, transmission);
+    float geometry = PixelLookupGeometryClass(eye, ray, ground);
+    bool directFallback = SampleLookup(input.Screen, geometry, light, transmission);
     [branch] if (directFallback)
     {
+        ground = Ground(eye, ray);
         float2 directDepth;
         IntegrateAtmosphere(eye, ray, mu, ground, light, directDepth);
         transmission = ground > 1e9 ? Transmission(directDepth) : 1;
     }
 #else
+    ground = Ground(eye, ray);
     float2 viewDepth;
     IntegrateAtmosphere(eye, ray, mu, ground, light, viewDepth);
 #endif
