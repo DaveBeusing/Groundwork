@@ -170,6 +170,22 @@ float3 LookupGridRay(int2 cell)
         (screen.x * RightAspect.w * RightAspect.xyz + screen.y * UpDisk.xyz));
 }
 
+float LookupGeometryClass(float3 eye, float3 ray, float ground)
+{
+    uint geometry = ground < 1e9 ? 1u : 0u;
+    float2 segment;
+    if (Sphere(eye, ray, EyeOuter.w, segment))
+    {
+        // Use the direct integrator's positive forward, ground-clipped
+        // interval verbatim, including its tangent and behind-eye rules.
+        float start = max(segment.x, 0);
+        float stepSize = max(0, min(segment.y, ground) - start) / 8;
+        if (stepSize > 0)
+            geometry |= 2u;
+    }
+    return float(geometry);
+}
+
 [numthreads(8,8,1)]
 void SkyLookupCS(uint3 id : SV_DispatchThreadID)
 {
@@ -180,19 +196,22 @@ void SkyLookupCS(uint3 id : SV_DispatchThreadID)
     float3 light;
     float2 depth;
     float ground = Ground(eye, ray);
-    bool hitsGround = ground < 1e9;
+    float geometry = LookupGeometryClass(eye, ray, ground);
     const int2 neighbors[4] = { int2(-1,0), int2(1,0), int2(0,-1), int2(0,1) };
     bool edge = false;
     [unroll] for (uint n = 0; n < 4; ++n)
-        edge = edge || ((Ground(eye, LookupGridRay(int2(id.xy) + neighbors[n])) < 1e9) != hitsGround);
+    {
+        float3 neighborRay = LookupGridRay(int2(id.xy) + neighbors[n]);
+        edge = edge || LookupGeometryClass(eye, neighborRay, Ground(eye, neighborRay)) != geometry;
+    }
     IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), ground, light, depth);
     // Alpha carries geometry, not an error tolerance: classify the ray and
-    // mark adjacent cells crossing the planet horizon before interpolation.
-    LookupRadianceOut[id.xy] = float4(light, hitsGround ? 1 : 0);
+    // mark adjacent cells crossing either the ground or outer air limb.
+    LookupRadianceOut[id.xy] = float4(light, geometry);
     LookupTransmissionOut[id.xy] = float4(Transmission(depth), edge ? 1 : 0);
 }
 
-bool SampleLookup(float2 screen, float ground, out float3 light, out float3 transmission)
+bool SampleLookup(float2 screen, float3 eye, float3 ray, float ground, out float3 light, out float3 transmission)
 {
     // Compute texel centres and the pixel's NDC-derived UV share the same
     // convention. Clamp only the outer half-texel; no per-pixel angular inverse.
@@ -201,9 +220,9 @@ bool SampleLookup(float2 screen, float ground, out float3 light, out float3 tran
     float4 transmissionField = LookupTransmission.SampleLevel(LookupLinearClamp, coordinate, 0);
     light = radianceField.rgb;
     transmission = transmissionField.rgb;
-    // A full-resolution ray can hit a small silhouette between grid centres.
-    // Its exact classification must agree even if no grid neighbour hit it.
-    return transmissionField.a > 0 || radianceField.a != (ground < 1e9 ? 1 : 0);
+    // A full-resolution ray can hit a small planet or atmosphere silhouette
+    // between grid centres. Classify both with the original sphere solver.
+    return transmissionField.a > 0 || radianceField.a != LookupGeometryClass(eye, ray, ground);
 }
 #endif
 
@@ -222,7 +241,7 @@ float4 SkyPS(SkyVertex input) : SV_Target
     float3 light;
 #ifdef SKY_LOOKUP
     float3 transmission;
-    bool directFallback = SampleLookup(input.Screen, ground, light, transmission);
+    bool directFallback = SampleLookup(input.Screen, eye, ray, ground, light, transmission);
     [branch] if (directFallback)
     {
         float2 directDepth;

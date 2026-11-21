@@ -71,6 +71,25 @@ public sealed partial class PresentationSmokeTests
                 Up = new(0, MathF.Cos(pitch), MathF.Sin(pitch)),
             }));
         }
+        // Repeat the same continuous half-pixel sweep across the outer limb
+        // at ordinary orbit and the maximum validated eye radius.
+        for (var flight = 0; flight < 2; flight++)
+        {
+            var phaseName = flight == 0 ? "orbit-limb" : "far-64r-limb";
+            var prefix = flight == 0 ? "orbit-motion" : "far-motion";
+            var basis = cases.Single(item => item.Name == phaseName).Sky;
+            for (var motion = 0; motion < 5; motion++)
+            {
+                var pitch = (motion - 2) * 0.5f * (2 * MathF.Tan(basis.VerticalFieldOfView * 0.5f) / height);
+                var sine = MathF.Sin(pitch);
+                var cosine = MathF.Cos(pitch);
+                cases.Add(($"{prefix}-{motion:00}", basis with
+                {
+                    Forward = Vector3.Normalize(basis.Forward * cosine + basis.Up * sine),
+                    Up = Vector3.Normalize(basis.Up * cosine - basis.Forward * sine),
+                }));
+            }
+        }
         ulong sequence = 0;
         byte[]? first = null;
         foreach (var item in cases)
@@ -256,8 +275,8 @@ public sealed partial class PresentationSmokeTests
         File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(new
         {
             DiagnosticOnly = true, QualityApproved = false, PerformanceQualified = false,
-            Scope = "Direct 8x4 oracle versus boundary-aware fixed view-ray field/direct hybrid; not WYU gameplay acceptance",
-            LookupMappingVersion = 4,
+            Scope = "Direct 8x4 oracle versus ground/atmosphere/vacuum boundary-aware view-ray/direct hybrid; not WYU gameplay acceptance",
+            LookupMappingVersion = 5,
             Width = width, Height = height, Parameters = sky, gpu.Adapter,
             LookupWidth = gpu.SkyLookupWidthForTests, LookupHeight = gpu.SkyLookupHeightForTests,
             AllocationBytes = gpu.SkyLookupAllocatedBytesForTests, Dispatches = gpu.SkyLookupDispatchesForTests,
