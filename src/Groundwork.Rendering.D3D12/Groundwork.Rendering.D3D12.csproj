@@ -42,6 +42,8 @@
       <EmbeddedResource Include="$(_ShaderDirectory)/Cube.ps.dxil" LogicalName="Cube.ps.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Sky.vs.dxil" LogicalName="Sky.vs.dxil" WithCulture="false" />
       <EmbeddedResource Include="$(_ShaderDirectory)/Sky.ps.dxil" LogicalName="Sky.ps.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/SkyLookup.ps.dxil" LogicalName="SkyLookup.ps.dxil" WithCulture="false" />
+      <EmbeddedResource Include="$(_ShaderDirectory)/SkyLookup.cs.dxil" LogicalName="SkyLookup.cs.dxil" WithCulture="false" />
     </ItemGroup>
   </Target>
   <Target Name="PackShaderProvenance">

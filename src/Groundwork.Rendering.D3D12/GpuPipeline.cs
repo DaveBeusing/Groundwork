@@ -230,11 +230,11 @@ internal sealed unsafe partial class GpuDevice
 
     private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false,
         bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false,
-        bool terrainPbr = false, bool terrainAppearance = false)
+        bool terrainPbr = false, bool terrainAppearance = false, bool skyLookup = false)
     {
         var vertexShader = LoadShader(terrainAppearance ? "TerrainAppearance.vs.dxil" : props ? "Props.vs.dxil" :
             depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
-        var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" :
+        var pixelShader = depthOnly ? [] : LoadShader(sky ? skyLookup ? "SkyLookup.ps.dxil" : "Sky.ps.dxil" :
             terrainAppearance ? shadow ? "TerrainAppearanceShadow.ps.dxil" : "TerrainAppearance.ps.dxil" :
             terrainPbr ? shadow ? "PbrShadowTerrain.ps.dxil" : "PbrTerrain.ps.dxil" :
             texture ? shadow ? "TextureShadowTerrain.ps.dxil" : "TextureTerrain.ps.dxil" :
@@ -300,9 +300,10 @@ internal sealed unsafe partial class GpuDevice
                 },
                 DepthStencilState = new D3D12_DEPTH_STENCIL_DESC
                 {
-                    DepthEnable = !sky,
+                    DepthEnable = true,
                     DepthWriteMask = sky ? D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ALL,
-                    DepthFunc = D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS,
+                    DepthFunc = sky ? D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS_EQUAL :
+                        D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS,
                 },
                 PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
                 NumRenderTargets = depthOnly ? 0u : 1u,
@@ -377,12 +378,42 @@ internal sealed unsafe partial class GpuDevice
         return shader;
     }
 
+    private ID3D12DescriptorHeap* CreateDepthAttachmentHeap()
+    {
+        // Two CPU descriptors reference the same depth resource: normal writes
+        // and the read-only background pass. No extra depth target is created.
+        var description = new D3D12_DESCRIPTOR_HEAP_DESC
+        {
+            Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV,
+            NumDescriptors = 2,
+        };
+        ID3D12DescriptorHeap* heap = null;
+        Check(_device->CreateDescriptorHeap(&description, __uuidof<ID3D12DescriptorHeap>(), (void**)&heap),
+            "Create depth attachment descriptors");
+        return heap;
+    }
+
+    private void CreateDepthAttachmentViews()
+    {
+        var view = _depthHeap->GetCPUDescriptorHandleForHeapStart();
+        _device->CreateDepthStencilView(_depth, null, view);
+        view.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+        var readOnly = new D3D12_DEPTH_STENCIL_VIEW_DESC
+        {
+            Format = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT,
+            ViewDimension = D3D12_DSV_DIMENSION.D3D12_DSV_DIMENSION_TEXTURE2D,
+            Flags = D3D12_DSV_FLAGS.D3D12_DSV_FLAG_READ_ONLY_DEPTH,
+        };
+        _device->CreateDepthStencilView(_depth, &readOnly, view);
+    }
+
     private void Record(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderFrame frame,
         RenderScene? subsequent, Readback? readback, in ShadowWork shadows, ValidatedRenderPlan plan,
         bool terrainPbr, bool terrainAppearance, out ShadowTimingLayout timingLayout)
     {
         timingLayout = default;
         var shadowTiming = _terrainTiming is { MeasuresShadows: true } timing ? timing : null;
+        ResetSkyRecordMeasurementForTests();
         shadowTiming?.Stamp(commands, ref timingLayout);
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
@@ -416,14 +447,30 @@ internal sealed unsafe partial class GpuDevice
             }
             else if (pass.Id == GpuPassPlan.Sky)
             {
+                if (shadowTiming is { MeasuresSky: true })
+                    timingLayout.SkyStart = shadowTiming.Stamp(commands, ref timingLayout);
                 ObserveUse(target.Buffer);
-                BindFrameTargets(commands, target, rtv, dsv);
-                DrawSky(commands, target, frame.Sky!.Value);
+                ObserveUse(_depth);
+                _retirementHooks?.BeforeSkyRecord?.Invoke();
+                BeginSkyRecordMeasurementForTests();
+                RecordTransition(commands, _depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                    D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_READ);
+                var readOnlyDsv = dsv;
+                readOnlyDsv.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+                BindFrameTargets(commands, target, rtv, readOnlyDsv);
+                DrawSky(commands, target, frame.Sky!.Value, ref timingLayout);
+                // As with the packed readback pass, restore the fixed route's
+                // canonical depth state for readback and the next recording.
+                RecordTransition(commands, _depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_READ,
+                    D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE);
+                EndSkyRecordMeasurementForTests();
+                _retirementHooks?.AfterSkyRecord?.Invoke();
+                if (shadowTiming is { MeasuresSky: true })
+                    timingLayout.SkyEnd = shadowTiming.Stamp(commands, ref timingLayout);
             }
             else if (pass.Id == GpuPassPlan.Terrain)
             {
-                if (!frame.Sky.HasValue)
-                    BindFrameTargets(commands, target, rtv, dsv);
+                BindFrameTargets(commands, target, rtv, dsv);
                 _terrainTiming?.BeginTerrain(commands, ref timingLayout);
                 RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr, terrainAppearance);
                 _terrainTiming?.EndTerrain(commands, ref timingLayout);

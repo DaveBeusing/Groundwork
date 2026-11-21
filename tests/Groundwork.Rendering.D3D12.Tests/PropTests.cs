@@ -11,6 +11,68 @@ public sealed partial class PresentationSmokeTests
     public void WarpPropInstancingReadbackSurvivesRebaseAndSaturation() => VerifyProps(true, false);
 
     [TestMethod]
+    public void WarpPropIrradiancePreservesDayTintAndDimsNightWithoutInstanceUploads()
+    {
+        var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
+        var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
+            [new(new(1, 1, 2, 40, 20, 24), mesh, mesh)]);
+        var key = default(PropCellKey);
+        props.Publish(new(Guid.NewGuid(), 1, 1, 1), [key]);
+        Assert.AreEqual(PropCellResult.Accepted, props.TryRequest(key, 1, out var request));
+        Assert.AreEqual(PropCellResult.Accepted, props.TryStage(request, new(0, 0, -5),
+            [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, uint.MaxValue)]));
+        var gpu = new GpuDevice(true, enableDebugLayer: true, enableDred: true,
+            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]));
+        using (gpu)
+        {
+            Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
+            gpu.PropStream = props;
+            var view = new VolumeViewIdentity(1, 1, PlanetLocalFrame.Create(default));
+            gpu.PropTerrain = new(1, 1, view, default, 1, "props");
+            var camera = new VolumeCamera(view, default, -Vector3.UnitZ, Vector3.UnitY,
+                MathF.PI / 4, 0.1f, 100, new(0.8f, 0.8f, 0.8f, 0.6f), Vector4.Zero);
+            var legacy = Draw(camera, 1);
+            Assert.IsGreaterThanOrEqualTo(PropInstanceData.ByteSize, props.ReadStatistics().PayloadBytes);
+            var daylight = camera with { Sunlight = new(Vector3.UnitY, new(0.8f), new(0.2f)) };
+            var day = Draw(daylight, 2);
+            Assert.IsTrue(legacy.ColorAt(32, 32).SequenceEqual(day.ColorAt(32, 32)));
+            RequireResidentProps();
+            var night = Draw(camera with { Sunlight = new(Vector3.UnitY, Vector3.Zero, new(0.08f, 0.12f, 0.18f)) }, 3);
+            RequireResidentProps();
+            var lit = day.ColorAt(32, 32);
+            var dark = night.ColorAt(32, 32);
+            Assert.AreEqual((byte)204, lit[0]);
+            Assert.AreEqual((byte)153, lit[3]);
+            Assert.AreEqual(lit[3], dark[3]);
+            Assert.IsGreaterThan((byte)0, dark[0]);
+            Assert.IsLessThan(lit[0] / 4, (int)dark[0]);
+            Assert.IsGreaterThan(dark[0], dark[1]);
+            Assert.IsGreaterThan(dark[1], dark[2]);
+            Assert.AreEqual(day.DepthAt(32, 32), night.DepthAt(32, 32), 0.000001f);
+            var restored = Draw(daylight, 4);
+            RequireResidentProps();
+            Assert.IsTrue(day.ColorAt(32, 32).SequenceEqual(restored.ColorAt(32, 32)));
+            Assert.IsNull(gpu.CaptureDred());
+
+            OffscreenFrame Draw(VolumeCamera sample, ulong sequence)
+            {
+                Assert.IsTrue(D3D12Renderer.TryCreateVolumeFrame(sample, sequence, out var frame));
+                return GpuDevice.RenderOffscreen(gpu, 64, 64, frame);
+            }
+
+            void RequireResidentProps()
+            {
+                var stats = props.ReadStatistics();
+                Assert.AreEqual(1, stats.Draws);
+                Assert.AreEqual(1, stats.Instances);
+                Assert.AreEqual(0, stats.PayloadBytes);
+            }
+        }
+        Assert.AreEqual(0L, props.ReadStatistics().NativeBytes);
+        AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
+    }
+
+    [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
     [DataRow(true)]
     [DataRow(false)]
