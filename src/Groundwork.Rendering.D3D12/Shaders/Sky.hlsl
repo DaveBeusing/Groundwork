@@ -45,8 +45,13 @@ bool Sphere(float3 eye, float3 ray, float radius, out float2 roots)
 
 float Ground(float3 eye, float3 ray)
 {
+    float b = dot(eye, ray);
+    // The stable root q = -b-d is negative for b >= 0, so the original
+    // minimum-root test cannot report a forward ground intersection.
+    if (b >= 0)
+        return 1e10;
     float2 hit;
-    if (dot(eye, eye) <= 1.0000003 && dot(eye, ray) < 0)
+    if (dot(eye, eye) <= 1.0000003 && b < 0)
         return 0;
     return Sphere(eye, ray, 1, hit) && hit.x >= 0 && hit.y > 0 ? hit.x : 1e10;
 }
