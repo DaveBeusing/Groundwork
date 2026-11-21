@@ -7,6 +7,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($env:GROUNDWORK_SKY_LOOKUP_PROTOTYPE -eq '1') {
+    throw 'Sky lookup prototype is diagnostic only and cannot enter sky qualification. Use the explicit lookup oracle fixture.'
+}
 if (-not $IsWindows -or [Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture -ne 'X64') {
     throw 'Sky qualification requires Windows x64, PowerShell 7, .NET SDK 10, and a D3D12 NVIDIA adapter.'
 }

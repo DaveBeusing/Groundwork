@@ -160,6 +160,7 @@ public sealed partial class PresentationSmokeTests
     [TestCategory("WindowsDesktopSmoke")]
     public void NvidiaSkyPassQualificationCollectsRetired1080pTimestamps()
     {
+        RequireDirectSkyQualification(Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1");
         if (Environment.GetEnvironmentVariable("GROUNDWORK_SKY_MEASURE") != "1")
             Assert.Inconclusive("Set GROUNDWORK_SKY_MEASURE=1; run exclusively, without other GPU work.");
 
@@ -191,7 +192,8 @@ public sealed partial class PresentationSmokeTests
             },
             SkyDrawRecorded: () => draws++);
         var ledger = new ResourceDiagnostics();
-        var gpu = new GpuDevice(warp: false, retirementHooks: hooks, resourceDiagnostics: ledger);
+        var gpu = new GpuDevice(warp: false, retirementHooks: hooks, resourceDiagnostics: ledger, skyLookupPrototype: false);
+        Assert.IsFalse(gpu.SkyLookupPrototypeEnabledForTests);
         GpuTarget? target = null;
         D3D12ResourceSnapshot before = default, after = default;
         ulong sequence = 0;

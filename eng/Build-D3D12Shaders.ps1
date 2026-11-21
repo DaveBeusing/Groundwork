@@ -33,7 +33,9 @@ $shaders = @(
     @{ EntryPoint = 'PSPbrShadowTerrain'; Profile = 'ps_6_0'; Output = 'TerrainAppearanceShadow.ps.dxil'; Source = 'Cube.hlsl'; Defines = @('-D', 'TERRAIN_PBR=1', '-D', 'TERRAIN_APPEARANCE=1') },
     @{ EntryPoint = 'PSMain'; Profile = 'ps_6_0'; Output = 'Cube.ps.dxil'; Source = 'Cube.hlsl' },
     @{ EntryPoint = 'SkyVS'; Profile = 'vs_6_0'; Output = 'Sky.vs.dxil'; Source = 'Sky.hlsl' },
-    @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'Sky.ps.dxil'; Source = 'Sky.hlsl' }
+    @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'Sky.ps.dxil'; Source = 'Sky.hlsl' },
+    @{ EntryPoint = 'SkyPS'; Profile = 'ps_6_0'; Output = 'SkyLookup.ps.dxil'; Source = 'Sky.hlsl'; Defines = @('-D', 'SKY_LOOKUP=1') },
+    @{ EntryPoint = 'SkyLookupCS'; Profile = 'cs_6_0'; Output = 'SkyLookup.cs.dxil'; Source = 'Sky.hlsl'; Defines = @('-D', 'SKY_LOOKUP=1') }
 )
 $toolFiles = @('dxc.exe', 'dxcompiler.dll', 'dxil.dll', 'dxv.exe')
 $licenses = @('LICENSE-LLVM.txt', 'LICENSE-MS.txt')

@@ -36,13 +36,15 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
         GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null, D3D12DeviceSession? session = null,
-        ResourceDiagnostics? resourceDiagnostics = null)
+        ResourceDiagnostics? resourceDiagnostics = null, bool? skyLookupPrototype = null)
     {
         if (meshes is not null && region is not null)
             throw new ArgumentException("Only one initial mesh set may be supplied.", nameof(region));
 
         _retirementHooks = retirementHooks;
         _resourceDiagnostics = resourceDiagnostics;
+        SkyLookupPrototypeEnabledForTests = skyLookupPrototype ??
+            Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1";
         try
         {
             fixed (IDXGIFactory4** factory = &_factory)
@@ -460,6 +462,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         ActiveMeshGeometry?.Dispose();
         ActiveMeshGeometry = null;
         ReleaseObservedResource(_cubeGeometry);
+        ReleaseSkyLookup();
         Release(_skyPipeline);
         Release(_skyRoot);
         _skyPipeline = null;

@@ -16,7 +16,7 @@ internal sealed unsafe partial class GpuDevice
         {
             var started = _retirementHooks?.AfterSkyPipelineReady is not null ? Stopwatch.GetTimestamp() : 0;
             var reused = false;
-            if (_session is not null && _session.TryAcquireSkyPipeline(out var root, out var pipeline))
+            if (!SkyLookupPrototypeEnabledForTests && _session is not null && _session.TryAcquireSkyPipeline(out var root, out var pipeline))
             {
                 _skyRoot = root;
                 _skyPipeline = pipeline;
@@ -25,9 +25,10 @@ internal sealed unsafe partial class GpuDevice
             else
             {
                 if (_skyRoot == null)
-                    _skyRoot = CreateFrameRoot(SkyConstantCount);
-                _skyPipeline = CreateFramePipeline(_skyRoot, sky: true);
-                _session?.RetainSkyPipeline(_skyRoot, _skyPipeline);
+                    _skyRoot = SkyLookupPrototypeEnabledForTests ? CreateSkyLookupRoot() : CreateFrameRoot(SkyConstantCount);
+                _skyPipeline = CreateFramePipeline(_skyRoot, sky: true, skyLookup: SkyLookupPrototypeEnabledForTests);
+                if (!SkyLookupPrototypeEnabledForTests)
+                    _session?.RetainSkyPipeline(_skyRoot, _skyPipeline);
             }
             _retirementHooks?.AfterSkyPipelineReady?.Invoke(started, Stopwatch.GetTimestamp(), reused);
         }
@@ -48,10 +49,16 @@ internal sealed unsafe partial class GpuDevice
             new(sky.AerosolScattering * radius, 1f / (sky.AerosolHeightMeters / radius)),
             new(sky.RayleighExtinction * radius, 0),
             new(sky.AerosolExtinction * radius, 0), sky.StarSeed, 0, 0, 0);
+        if (SkyLookupPrototypeEnabledForTests)
+            BuildSkyLookup(commands, in constants);
         commands->SetPipelineState(_skyPipeline);
         commands->SetGraphicsRootSignature(_skyRoot);
         commands->SetGraphicsRoot32BitConstants(0, SkyConstantCount, &constants, 0);
+        if (SkyLookupPrototypeEnabledForTests)
+            commands->SetGraphicsRootDescriptorTable(2, SkyLookupSrv());
         commands->DrawInstanced(3, 1, 0, 0);
+        if (SkyLookupPrototypeEnabledForTests)
+            FinishSkyLookup(commands);
         _retirementHooks?.SkyDrawRecorded?.Invoke();
         if (_retirementHooks?.AfterSkyRecordMeasured is not null)
             _skyRecordDrawCount++;

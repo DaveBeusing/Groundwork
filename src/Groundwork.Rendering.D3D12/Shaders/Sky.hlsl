@@ -107,23 +107,21 @@ float Stars(float3 ray)
     return (h >> 24) < 9 ? 1 - smoothstep(0.045 - aa * 0.3, 0.045 + aa, distance) : 0;
 }
 
-[earlydepthstencil]
-float4 SkyPS(SkyVertex input) : SV_Target
+float3 SkyEye()
 {
-    float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
-        (input.Screen.x * RightAspect.w * RightAspect.xyz + input.Screen.y * UpDisk.xyz));
-    float mu = dot(ray, SunEnergy.xyz);
-    float sine = length(cross(ray, SunEnergy.xyz));
-    float diskAA = max(length(fwidth(ray)), 0.00001);
-    float disk = mu > 0 ? 1 - smoothstep(max(0, UpDisk.w - diskAA), UpDisk.w + diskAA, sine) : 0;
-    float stars = Stars(ray);
     float3 eye = EyeOuter.xyz;
     if (dot(eye, eye) < 1)
         eye = normalize(eye);
-    float ground = Ground(eye, ray);
+    return eye;
+}
+
+// Shared direct oracle: both the fullscreen direct path and every lookup
+// texel retain all eight view samples and four solar quadrature samples.
+void IntegrateAtmosphere(float3 eye, float3 ray, float mu, float ground, out float3 light, out float2 viewDepth)
+{
     float2 segment;
-    float3 light = 0;
-    float2 viewDepth = 0;
+    light = 0;
+    viewDepth = 0;
     if (Sphere(eye, ray, EyeOuter.w, segment))
     {
         float start = max(segment.x, 0);
@@ -148,11 +146,125 @@ float4 SkyPS(SkyVertex input) : SV_Target
             }
         }
     }
+}
+
+#ifdef SKY_LOOKUP
+// Fixed angular tables, independent of the output target. No history is used:
+// the compute dispatch refreshes both fields with this frame's constants.
+static const uint LookupWidth = 256;
+static const uint LookupHeight = 128;
+static const float Pi = 3.14159265358979323846;
+RWTexture2D<float4> LookupRadianceOut : register(u0);
+RWTexture2D<float4> LookupTransmissionOut : register(u1);
+Texture2D<float4> LookupRadiance : register(t0);
+Texture2D<float4> LookupTransmission : register(t1);
+SamplerState LookupLinearWrapClamp : register(s0);
+
+void LookupBasis(float3 eye, out float3 up, out float3 x, out float3 y,
+    out float horizon, out float ceiling, out bool outside)
+{
+    up = normalize(eye);
+    x = SunEnergy.xyz - up * dot(up, SunEnergy.xyz);
+    if (dot(x, x) < 0.000001)
+        x = cross(abs(up.y) < 0.9 ? float3(0,1,0) : float3(1,0,0), up);
+    x = normalize(x);
+    y = cross(up, x);
+    float radius = length(eye);
+    horizon = -acos(saturate(1 / radius));
+    outside = radius >= EyeOuter.w;
+    ceiling = outside ? -acos(saturate(EyeOuter.w / radius)) : Pi * 0.5;
+}
+
+float LookupElevation(float v, float horizon, float ceiling, bool outside)
+{
+    float s = 2 * v - 1;
+    // Outside the shell, half the rows resolve the entire thin atmospheric
+    // annulus rather than spending them on empty space up to the zenith.
+    if (outside && s >= 0)
+        return lerp(horizon, ceiling, s);
+    return horizon + s * abs(s) * (s < 0 ? horizon + Pi * 0.5 : Pi * 0.5 - horizon);
+}
+
+[numthreads(8,8,1)]
+void SkyLookupCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= LookupWidth || id.y >= LookupHeight)
+        return;
+    float3 eye = SkyEye();
+    float3 up, x, y;
+    float horizon, ceiling;
+    bool outside;
+    LookupBasis(eye, up, x, y, horizon, ceiling, outside);
+    float azimuth = (float(id.x) / LookupWidth) * (2 * Pi);
+    float elevation = LookupElevation(float(id.y) / (LookupHeight - 1), horizon, ceiling, outside);
+    float3 ray = cos(elevation) * (cos(azimuth) * x + sin(azimuth) * y) + sin(elevation) * up;
+    float3 light;
+    float2 depth;
+    ray = normalize(ray);
+    IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), Ground(eye, ray), light, depth);
+    LookupRadianceOut[id.xy] = float4(light, 1);
+    LookupTransmissionOut[id.xy] = float4(Transmission(depth), 1);
+}
+
+void SampleLookup(float3 eye, float3 ray, out float3 light, out float3 transmission)
+{
+    float3 up, x, y;
+    float horizon, ceiling;
+    bool outside;
+    LookupBasis(eye, up, x, y, horizon, ceiling, outside);
+    float2 horizontal = float2(dot(ray, x), dot(ray, y));
+    float azimuth = dot(horizontal, horizontal) > 0 ? atan2(horizontal.y, horizontal.x) : 0;
+    float u = frac(azimuth / (2 * Pi) + 1);
+    float elevation = asin(clamp(dot(ray, up), -1, 1));
+    if (outside && elevation >= ceiling)
+    {
+        light = 0;
+        transmission = 1;
+        return;
+    }
+    float delta = elevation - horizon;
+    float span = delta < 0 ? horizon + Pi * 0.5 : ceiling - horizon;
+    float offset = saturate(abs(delta) / span);
+    if (!outside || delta < 0)
+        offset = sqrt(offset);
+    float v = 0.5 + (delta < 0 ? -0.5 : 0.5) * offset;
+    // U samples are periodic; V includes both poles. Address texel centres so
+    // fixed-function bilinear filtering matches the angular grid exactly.
+    float2 coordinate = float2((u * LookupWidth + 0.5) / LookupWidth,
+        (v * (LookupHeight - 1) + 0.5) / LookupHeight);
+    light = LookupRadiance.SampleLevel(LookupLinearWrapClamp, coordinate, 0).rgb;
+    transmission = LookupTransmission.SampleLevel(LookupLinearWrapClamp, coordinate, 0).rgb;
+}
+#endif
+
+[earlydepthstencil]
+float4 SkyPS(SkyVertex input) : SV_Target
+{
+    float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
+        (input.Screen.x * RightAspect.w * RightAspect.xyz + input.Screen.y * UpDisk.xyz));
+    float mu = dot(ray, SunEnergy.xyz);
+    float sine = length(cross(ray, SunEnergy.xyz));
+    float diskAA = max(length(fwidth(ray)), 0.00001);
+    float disk = mu > 0 ? 1 - smoothstep(max(0, UpDisk.w - diskAA), UpDisk.w + diskAA, sine) : 0;
+    float stars = Stars(ray);
+    float3 eye = SkyEye();
+    float ground = Ground(eye, ray);
+    float3 light;
+#ifdef SKY_LOOKUP
+    float3 transmission;
+    SampleLookup(eye, ray, light, transmission);
+#else
+    float2 viewDepth;
+    IntegrateAtmosphere(eye, ray, mu, ground, light, viewDepth);
+#endif
     light *= SunEnergy.w;
     if (ground > 1e9)
     {
         float fade = exp(-8 * dot(light, float3(0.2126, 0.7152, 0.0722)));
-        light += Transmission(viewDepth) * (disk * SunEnergy.w + stars * fade * 1.6);
+#ifndef SKY_LOOKUP
+        float3 transmission = Transmission(viewDepth);
+#endif
+        light += transmission * (disk * SunEnergy.w + stars * fade * 1.6);
     }
     return float4(light / (1 + light), 1);
 }

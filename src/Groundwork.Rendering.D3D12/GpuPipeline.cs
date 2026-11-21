@@ -230,11 +230,11 @@ internal sealed unsafe partial class GpuDevice
 
     private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false,
         bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false,
-        bool terrainPbr = false, bool terrainAppearance = false)
+        bool terrainPbr = false, bool terrainAppearance = false, bool skyLookup = false)
     {
         var vertexShader = LoadShader(terrainAppearance ? "TerrainAppearance.vs.dxil" : props ? "Props.vs.dxil" :
             depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
-        var pixelShader = depthOnly ? [] : LoadShader(sky ? "Sky.ps.dxil" :
+        var pixelShader = depthOnly ? [] : LoadShader(sky ? skyLookup ? "SkyLookup.ps.dxil" : "Sky.ps.dxil" :
             terrainAppearance ? shadow ? "TerrainAppearanceShadow.ps.dxil" : "TerrainAppearance.ps.dxil" :
             terrainPbr ? shadow ? "PbrShadowTerrain.ps.dxil" : "PbrTerrain.ps.dxil" :
             texture ? shadow ? "TextureShadowTerrain.ps.dxil" : "TextureTerrain.ps.dxil" :
