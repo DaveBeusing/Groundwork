@@ -7,10 +7,13 @@ namespace Groundwork.Rendering.D3D12;
 internal readonly record struct ShadowGpuTiming(double FrameMicroseconds, double TerrainMicroseconds,
     double NearShadowMicroseconds, double FarShadowMicroseconds, int ShadowPassCount);
 
+internal readonly record struct SkyGpuPassEdges(ulong TerrainStart, ulong TerrainEnd, ulong DrawStart, ulong DrawEnd);
+
 internal readonly record struct SkyGpuTiming(double FrameMicroseconds, double SkyMicroseconds, bool HasSky,
     ulong FrameStart = 0, ulong FrameEnd = 0, ulong SkyStart = 0, ulong SkyEnd = 0, ulong Frequency = 0,
     bool HasLookupSplit = false, double LookupComputeMicroseconds = 0, double LookupDrawBarrierMicroseconds = 0,
-    double TerrainMicroseconds = 0, double NearShadowMicroseconds = 0, double FarShadowMicroseconds = 0);
+    double TerrainMicroseconds = 0, double NearShadowMicroseconds = 0, double FarShadowMicroseconds = 0,
+    SkyGpuPassEdges PassEdges = default);
 
 internal sealed unsafe partial class GpuDevice
 {
@@ -32,7 +35,8 @@ internal sealed unsafe partial class GpuDevice
         if (_device == null || _queue == null || !IsIdle || _terrainTiming is not null)
             throw new InvalidOperationException("Timing requires an idle device without an active query heap.");
 
-        _terrainTiming = new(_device, _queue, measureShadows, measureSky);
+        var measurePassEdges = measureSky && _retirementHooks?.AfterSkyGpuPassDetailsRetired is not null;
+        _terrainTiming = new(_device, _queue, measureShadows, measureSky, measurePassEdges);
         if (measureSky && _retirementHooks?.AfterSkyClockCalibration is { } calibrated)
         {
             ulong gpu = 0, cpu = 0;
@@ -76,6 +80,8 @@ internal sealed unsafe partial class GpuDevice
         internal uint SkyStart;
         internal uint SkyEnd;
         internal uint SkyLookupComputeEnd;
+        internal uint SkyDrawStart;
+        internal uint SkyDrawEnd;
     }
 
     private sealed class TerrainTiming : IDisposable
@@ -88,7 +94,8 @@ internal sealed unsafe partial class GpuDevice
         private ID3D12Resource* _results;
         private ShadowTimingLayout _submitted;
 
-        internal TerrainTiming(ID3D12Device* device, ID3D12CommandQueue* queue, bool measureShadows, bool measureSky)
+        internal TerrainTiming(ID3D12Device* device, ID3D12CommandQueue* queue, bool measureShadows, bool measureSky,
+            bool measurePassEdges)
         {
             ulong frequency = 0;
             Check(queue->GetTimestampFrequency(&frequency), "Get direct queue timestamp frequency");
@@ -97,8 +104,11 @@ internal sealed unsafe partial class GpuDevice
             _frequency = frequency;
             MeasuresShadows = measureShadows;
             MeasuresSky = measureSky;
+            MeasuresPassEdges = measurePassEdges;
 
             var queryCount = measureSky ? ShadowQueryCount + 3 : measureShadows ? ShadowQueryCount : TerrainQueryCount;
+            if (measurePassEdges)
+                queryCount += 2;
             var description = new D3D12_QUERY_HEAP_DESC
             {
                 Type = D3D12_QUERY_HEAP_TYPE.D3D12_QUERY_HEAP_TYPE_TIMESTAMP,
@@ -121,6 +131,7 @@ internal sealed unsafe partial class GpuDevice
 
         internal bool MeasuresShadows { get; }
         internal bool MeasuresSky { get; }
+        internal bool MeasuresPassEdges { get; }
         internal ulong Frequency => _frequency;
         internal ulong Sequence { get; private set; }
 
@@ -207,7 +218,11 @@ internal sealed unsafe partial class GpuDevice
                     layout.SkyLookupComputeEnd == 0 ? 0 : Microseconds(ticks, layout.SkyLookupComputeEnd, layout.SkyEnd),
                     includePrepass ? OptionalPassMicroseconds(ticks, layout.TerrainStart) : 0,
                     includePrepass ? OptionalPassMicroseconds(ticks, layout.NearStart) : 0,
-                    includePrepass ? OptionalPassMicroseconds(ticks, layout.FarStart) : 0);
+                    includePrepass ? OptionalPassMicroseconds(ticks, layout.FarStart) : 0,
+                    MeasuresPassEdges ? new SkyGpuPassEdges(
+                        OptionalTick(ticks, layout.TerrainStart),
+                        layout.TerrainStart == 0 ? 0 : ticks[layout.TerrainStart + 1],
+                        OptionalTick(ticks, layout.SkyDrawStart), OptionalTick(ticks, layout.SkyDrawEnd)) : default);
             }
             finally
             {
@@ -234,6 +249,8 @@ internal sealed unsafe partial class GpuDevice
 
         private double OptionalPassMicroseconds(ulong* ticks, uint start) =>
             start == 0 ? 0 : Microseconds(ticks, start, start + 1);
+
+        private static ulong OptionalTick(ulong* ticks, uint index) => index == 0 ? 0 : ticks[index];
 
         private double Microseconds(ulong* ticks, uint start, uint end)
         {

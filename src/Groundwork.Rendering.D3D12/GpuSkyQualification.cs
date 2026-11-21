@@ -62,7 +62,8 @@ internal sealed unsafe partial class GpuDevice
             _retirementHooks?.AfterSkyLookupRecordMeasured?.Invoke(sequence, fence, _skyLookupRecordComputeMicroseconds,
                 _skyRecordMicroseconds - _skyLookupRecordComputeMicroseconds);
         if ((_retirementHooks?.AfterSkyTimingRetired is null && _retirementHooks?.AfterSkyTimingDetailsRetired is null &&
-            _retirementHooks?.AfterSkyLookupGpuTimingRetired is null && _retirementHooks?.AfterSkyPrepassTimingRetired is null) ||
+            _retirementHooks?.AfterSkyLookupGpuTimingRetired is null && _retirementHooks?.AfterSkyPrepassTimingRetired is null &&
+            _retirementHooks?.AfterSkyGpuPassDetailsRetired is null) ||
             _terrainTiming is not { MeasuresSky: true })
             return;
         if (_skyTimingPendingFence != 0)
@@ -91,6 +92,8 @@ internal sealed unsafe partial class GpuDevice
             result.FrameEnd, result.SkyStart, result.SkyEnd, result.Frequency);
         prepass?.Invoke(sequence, fence, result.TerrainMicroseconds, result.NearShadowMicroseconds,
             result.FarShadowMicroseconds);
+        _retirementHooks?.AfterSkyGpuPassDetailsRetired?.Invoke(sequence, fence,
+            result.PassEdges.TerrainStart, result.PassEdges.TerrainEnd, result.PassEdges.DrawStart, result.PassEdges.DrawEnd);
         if (result.HasLookupSplit)
             _retirementHooks?.AfterSkyLookupGpuTimingRetired?.Invoke(sequence, fence, result.LookupComputeMicroseconds,
                 result.LookupDrawBarrierMicroseconds);

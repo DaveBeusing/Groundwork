@@ -171,6 +171,89 @@ public sealed partial class PresentationSmokeTests
     }
 
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void WarpSkyPassEdgesMatchRetiredTerrainAndSkyFrame(bool useLookup)
+    {
+        var exposeCompletion = true;
+        var rejectNext = false;
+        var edges = new List<(ulong Sequence, ulong Fence, SkyGpuPassEdges Passes)>();
+        var overall = new Dictionary<(ulong Sequence, ulong Fence),
+            (ulong FrameStart, ulong FrameEnd, ulong SkyStart, ulong SkyEnd, ulong Frequency)>();
+        var prepass = new Dictionary<(ulong Sequence, ulong Fence), double>();
+        var hooks = new GpuRetirementTestHooks(
+            CompletedValue: (_, actual) => exposeCompletion ? actual : 0,
+            RejectRecordedPlan: _ => rejectNext,
+            AfterSkyTimingDetailsRetired: (sequence, fence, frameStart, frameEnd, skyStart, skyEnd, frequency) =>
+                overall.Add((sequence, fence), (frameStart, frameEnd, skyStart, skyEnd, frequency)),
+            AfterSkyPrepassTimingRetired: (sequence, fence, terrain, _, _) => prepass.Add((sequence, fence), terrain),
+            AfterSkyGpuPassDetailsRetired: (sequence, fence, terrainStart, terrainEnd, drawStart, drawEnd) =>
+                edges.Add((sequence, fence, new(terrainStart, terrainEnd, drawStart, drawEnd))));
+        using var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true,
+            region: CreateWp15Region(), retirementHooks: hooks, skyLookupPrototype: useLookup);
+        gpu.EnableSkyTimingForTests();
+        using var target = gpu.CreateSkyTimingTargetForTests(64, 64);
+        var frame = CreateWp15Frame("midday", 0, 1, shadows: true) with { Sky = SkyFixture() };
+
+        exposeCompletion = false;
+        try
+        {
+            Assert.AreEqual(GpuFrameSubmitResult.Submitted, gpu.TryRenderSkyTimingForTests(target, frame));
+            Assert.IsFalse(gpu.IsIdle);
+            Assert.IsEmpty(edges);
+        }
+        finally
+        {
+            exposeCompletion = true;
+            Retire();
+        }
+
+        Assert.HasCount(1, edges);
+        var first = edges[0];
+        var key = (first.Sequence, first.Fence);
+        Assert.AreEqual(frame.Sequence, first.Sequence);
+        Assert.IsGreaterThan(0UL, first.Fence);
+        var stamps = overall[key];
+        Assert.IsGreaterThan(0UL, stamps.Frequency);
+        Assert.IsGreaterThanOrEqualTo(stamps.FrameStart, first.Passes.TerrainStart);
+        Assert.IsGreaterThanOrEqualTo(first.Passes.TerrainStart, first.Passes.TerrainEnd);
+        Assert.IsGreaterThanOrEqualTo(first.Passes.TerrainEnd, stamps.FrameEnd);
+        Assert.IsGreaterThanOrEqualTo(stamps.SkyStart, first.Passes.DrawStart);
+        Assert.IsGreaterThanOrEqualTo(first.Passes.DrawStart, first.Passes.DrawEnd);
+        Assert.IsGreaterThanOrEqualTo(first.Passes.DrawEnd, stamps.SkyEnd);
+        Assert.IsGreaterThan(0UL, first.Passes.DrawStart);
+        Assert.AreEqual(prepass[key],
+            (first.Passes.TerrainEnd - first.Passes.TerrainStart) * 1_000_000d / stamps.Frequency);
+
+        rejectNext = true;
+        Assert.AreEqual(GpuFrameSubmitResult.Rejected, gpu.TryRenderSkyTimingForTests(target, frame with { Sequence = 2 }));
+        Assert.IsTrue(gpu.IsIdle);
+        Assert.HasCount(1, edges, "A rejected command list cannot retire its pass edges.");
+        rejectNext = false;
+        Assert.AreEqual(GpuFrameSubmitResult.Submitted,
+            gpu.TryRenderSkyTimingForTests(target, new RenderFrame(2, Vector4.Zero)));
+        Retire();
+        Assert.IsTrue(gpu.IsIdle);
+        Assert.HasCount(2, edges, "A retry must retire only its submitted command list.");
+        var retry = edges[1];
+        Assert.AreEqual(2UL, retry.Sequence);
+        Assert.IsGreaterThan(first.Fence, retry.Fence);
+        Assert.AreEqual(default(SkyGpuPassEdges), retry.Passes, "Absent passes must not reuse previous timestamp slots.");
+        Assert.AreEqual(0d, prepass[(retry.Sequence, retry.Fence)]);
+        Assert.IsTrue(overall.ContainsKey((retry.Sequence, retry.Fence)));
+
+        void Retire()
+        {
+            var start = Stopwatch.GetTimestamp();
+            while (!gpu.IsIdle)
+            {
+                Assert.IsLessThan(TimeSpan.FromSeconds(10), Stopwatch.GetElapsedTime(start));
+                Thread.Sleep(1);
+            }
+        }
+    }
+
+    [TestMethod]
     public void WarpSkyTimestampsRequireRetiredIdentityAndDistinguishDisabledPass()
     {
         using var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true);

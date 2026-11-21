@@ -65,7 +65,12 @@ internal sealed unsafe partial class GpuDevice
         commands->SetGraphicsRoot32BitConstants(0, SkyConstantCount, &constants, 0);
         if (SkyLookupPrototypeEnabledForTests)
             commands->SetGraphicsRootDescriptorTable(2, SkyLookupSrv());
+        var drawTiming = _terrainTiming is { MeasuresPassEdges: true } timing ? timing : null;
+        if (drawTiming is not null)
+            timingLayout.SkyDrawStart = drawTiming.Stamp(commands, ref timingLayout);
         commands->DrawInstanced(3, 1, 0, 0);
+        if (drawTiming is not null)
+            timingLayout.SkyDrawEnd = drawTiming.Stamp(commands, ref timingLayout);
         if (SkyLookupPrototypeEnabledForTests)
             FinishSkyLookup(commands);
         _retirementHooks?.SkyDrawRecorded?.Invoke();
