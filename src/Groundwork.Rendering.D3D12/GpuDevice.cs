@@ -36,7 +36,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
         GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null, D3D12DeviceSession? session = null,
-        ResourceDiagnostics? resourceDiagnostics = null, bool? skyLookupPrototype = null)
+        ResourceDiagnostics? resourceDiagnostics = null, bool? skyLookupPrototype = null, bool? skyLookupResourceReuse = null)
     {
         if (meshes is not null && region is not null)
             throw new ArgumentException("Only one initial mesh set may be supplied.", nameof(region));
@@ -45,6 +45,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         _resourceDiagnostics = resourceDiagnostics;
         SkyLookupPrototypeEnabledForTests = skyLookupPrototype ??
             Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1";
+        SkyLookupResourceReuseEnabledForTests = SkyLookupPrototypeEnabledForTests && (skyLookupResourceReuse ??
+            Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_REUSE_RESOURCES") == "1");
         try
         {
             fixed (IDXGIFactory4** factory = &_factory)
@@ -68,7 +70,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 if (session is not null)
                 {
-                    _device = session.Attach(out var adapter, out _queue);
+                    _device = session.Attach(out var adapter, out _queue, SkyLookupResourceReuseEnabledForTests);
                     _session = session;
                     reused = _device != null;
                     if (adapter is not null)
@@ -113,6 +115,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         }
         catch
         {
+            if (SkyLookupResourceReuseEnabledForTests)
+                _session?.DiscardParkedSkyLookup();
             ReleaseResources();
             throw;
         }
@@ -372,13 +376,36 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         _ = _fence->SetEventOnCompletion(_retirement.Submitted, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle());
     }
 
-    public void Dispose()
+    public void Dispose() => DisposeCore(healthyStop: false);
+
+    internal ulong DisposeAfterHealthyStop() => DisposeCore(healthyStop: true);
+
+    private ulong DisposeCore(bool healthyStop)
     {
-        if (_fence != null && !IsIdle && !IsRemoved)
+        var idle = IsIdle;
+        var removed = (_fence != null && !idle || _resourceDiagnostics is not null || healthyStop) && IsRemoved;
+        if (_fence != null && !idle && !removed)
             throw new InvalidOperationException("GPU resources are still owned by an unretired submission.");
-        if (_resourceDiagnostics is not null && IsRemoved)
+        if (_resourceDiagnostics is not null && removed)
             _resourceDiagnostics.NoteCustody(D3D12CustodyStatus.ConfirmedRemoval);
-        ReleaseResources();
+        var session = _session;
+        ulong parkedStamp = 0;
+        if (healthyStop && SkyLookupResourceReuseEnabledForTests && idle && !removed &&
+            ReadObservedCustody() == D3D12CustodyStatus.None)
+            parkedStamp = TryParkSkyLookupStorage();
+        if (parkedStamp == 0 && SkyLookupResourceReuseEnabledForTests)
+            session?.DiscardParkedSkyLookup();
+        try
+        {
+            ReleaseResources();
+            return parkedStamp;
+        }
+        catch
+        {
+            if (parkedStamp != 0)
+                session?.DiscardParkedSkyLookup(parkedStamp);
+            throw;
+        }
     }
 
     private ID3D12Device* OpenDevice(bool warp)

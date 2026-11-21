@@ -306,10 +306,8 @@ public sealed partial class D3D12Renderer : IRenderer
             var remaining = deadline.GetRemainingForSettlement(context.Clock);
             if (remaining == TimeSpan.Zero)
             {
-                if (_settled.Task.IsCompleted)
+                if (!RecordIncomplete(new IncompleteCleanupException(FaultSubsystem.Host), onlyIfUnsettled: true))
                     return;
-
-                RecordIncomplete(new IncompleteCleanupException(FaultSubsystem.Host));
                 throw Volatile.Read(ref _incomplete)!;
             }
 
@@ -344,7 +342,7 @@ public sealed partial class D3D12Renderer : IRenderer
             _wake?.Set();
     }
 
-    private void Finish()
+    private void Finish(ulong parkedSkyLookup = 0)
     {
         _textures?.Close();
         lock (_lifecycle)
@@ -355,6 +353,14 @@ public sealed partial class D3D12Renderer : IRenderer
             _wake?.Dispose();
             _wake = null;
             _ready.TrySetResult();
+            if (parkedSkyLookup != 0)
+            {
+                if (Volatile.Read(ref _primary) is null && Volatile.Read(ref _incomplete) is null &&
+                    Read() is { FirstFault: null, FirstCleanupFault: null, IncompleteCleanup: false })
+                    _deviceSession?.ConfirmParkedSkyLookup(parkedSkyLookup);
+                else
+                    _deviceSession?.DiscardParkedSkyLookup(parkedSkyLookup);
+            }
             _settled.TrySetResult();
         }
     }
@@ -392,16 +398,24 @@ public sealed partial class D3D12Renderer : IRenderer
         }
     }
 
-    private void RecordIncomplete(Exception error)
+    private bool RecordIncomplete(Exception error, bool onlyIfUnsettled = false)
     {
         var incomplete = error as IncompleteCleanupException ?? new IncompleteCleanupException(
             "The renderer still owns native resources after cleanup failed.", error);
-        if (Interlocked.CompareExchange(ref _incomplete, incomplete, null) is not null)
-            return;
-        LatchObservedGpuCustody();
-
-        _admission.RecordCleanupFault(new RenderFaultSummary((uint)RendererStage.Cleanup, error.HResult, null, null), incomplete: true);
+        lock (_lifecycle)
+        {
+            // The deadline and Finish must agree whether cleanup completed.
+            // In particular, a timed-out owner cannot confirm storage.
+            if (onlyIfUnsettled && _settled.Task.IsCompleted)
+                return false;
+            if (_incomplete is not null)
+                return true;
+            Volatile.Write(ref _incomplete, incomplete);
+            LatchObservedGpuCustody();
+            _admission.RecordCleanupFault(new RenderFaultSummary((uint)RendererStage.Cleanup, error.HResult, null, null), incomplete: true);
+        }
         Report(FaultClass.IncompleteCleanup, FaultOrigin.Cleanup, error);
+        return true;
     }
 
     private void Report(FaultClass classification, FaultOrigin origin, Exception error)

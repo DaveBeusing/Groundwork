@@ -7,8 +7,9 @@ namespace Groundwork.Rendering.D3D12;
 
 internal sealed unsafe partial class GpuDevice
 {
-    // Diagnostic prototype only. Two fixed RGBA32F view-ray fields share an
-    // owner-local array. Preparation rejects native allocations above 1 MiB.
+    // Diagnostic prototype only. Two fixed RGBA32F view-ray fields share one
+    // array. Preparation rejects native allocations above 1 MiB.
+    internal const ulong SkyLookupStorageLimit = 1024 * 1024;
     private const int SkyLookupWidth = 256;
     private const int SkyLookupHeight = 128;
     private const ushort SkyLookupFields = 2;
@@ -18,12 +19,14 @@ internal sealed unsafe partial class GpuDevice
     private bool _skyLookupFallbackMaskForTests;
     private bool _skyLookupPrepared;
     internal bool SkyLookupPrototypeEnabledForTests { get; }
+    internal bool SkyLookupResourceReuseEnabledForTests { get; }
     internal int SkyLookupWidthForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupWidth : 0;
     internal int SkyLookupHeightForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupHeight : 0;
     internal ulong SkyLookupAllocatedBytesForTests { get; private set; }
     internal ulong SkyLookupDispatchesForTests { get; private set; }
     internal (nint Root, nint Graphics, nint Compute) SkyLookupPipelineHandlesForTests =>
         ((nint)_skyRoot, (nint)_skyPipeline, (nint)_skyLookupCompute);
+    internal (nint Fields, nint Views) SkyLookupStorageHandlesForTests => ((nint)_skyLookupFields, (nint)_skyLookupDescriptors);
 
     internal void SetSkyLookupFallbackMaskForTests(bool enabled)
     {
@@ -86,48 +89,18 @@ internal sealed unsafe partial class GpuDevice
             return;
         var observed = _retirementHooks?.AfterSkyLookupPreparationStage;
         var preparationStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
-        // Partial preparation is owned immediately and released on any failure;
-        // none of these resources are published into the direct session cache.
+        // Partial preparation is owned immediately and released on any failure.
         try
         {
-            var texture = Texture(SkyLookupWidth, SkyLookupHeight, DXGI_FORMAT.DXGI_FORMAT_R32G32B32A32_FLOAT,
-                D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
-            texture.DepthOrArraySize = SkyLookupFields;
-            var allocation = _device->GetResourceAllocationInfo(1, 1, &texture).SizeInBytes;
-            if (allocation == 0 || allocation > 1024 * 1024)
-                throw new InvalidOperationException("Sky lookup native allocation exceeds its fixed two-owner resource budget.");
-            _skyLookupFields = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, texture,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            ObserveResource(_skyLookupFields, D3D12ResourceOwner.Texture, allocation);
-            SkyLookupAllocatedBytesForTests = allocation;
-            _retirementHooks?.AfterSkyLookupFirstAllocation?.Invoke();
-            observed?.Invoke("textures", preparationStarted, Stopwatch.GetTimestamp(), false);
-            var descriptorsStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
-            var heapDescription = new D3D12_DESCRIPTOR_HEAP_DESC
+            if (SkyLookupResourceReuseEnabledForTests && _session is { } session &&
+                session.TryTakeSkyLookup(_device, out _skyLookupFields, out _skyLookupDescriptors, out var bytes))
             {
-                Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                NumDescriptors = 2, Flags = D3D12_DESCRIPTOR_HEAP_FLAGS.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
-            };
-            fixed (ID3D12DescriptorHeap** heap = &_skyLookupDescriptors)
-                Check(_device->CreateDescriptorHeap(&heapDescription, __uuidof<ID3D12DescriptorHeap>(), (void**)heap),
-                    "Create sky lookup descriptors");
-            var increment = _device->GetDescriptorHandleIncrementSize(heapDescription.Type);
-            var handle = _skyLookupDescriptors->GetCPUDescriptorHandleForHeapStart();
-            var uav = new D3D12_UNORDERED_ACCESS_VIEW_DESC
-            {
-                Format = texture.Format, ViewDimension = D3D12_UAV_DIMENSION.D3D12_UAV_DIMENSION_TEXTURE2DARRAY,
-                Texture2DArray = new() { ArraySize = SkyLookupFields },
-            };
-            _device->CreateUnorderedAccessView(_skyLookupFields, null, &uav, handle);
-            handle.ptr += increment;
-            var srv = new D3D12_SHADER_RESOURCE_VIEW_DESC
-            {
-                Format = texture.Format, ViewDimension = D3D12_SRV_DIMENSION.D3D12_SRV_DIMENSION_TEXTURE2DARRAY,
-                Shader4ComponentMapping = 5768, // Identity component mapping.
-                Texture2DArray = new() { ArraySize = SkyLookupFields, MipLevels = 1 },
-            };
-            _device->CreateShaderResourceView(_skyLookupFields, &srv, handle);
-            observed?.Invoke("descriptors", descriptorsStarted, Stopwatch.GetTimestamp(), false);
+                ObserveResource(_skyLookupFields, D3D12ResourceOwner.Texture, bytes);
+                SkyLookupAllocatedBytesForTests = bytes;
+                observed?.Invoke("resources-reused", preparationStarted, Stopwatch.GetTimestamp(), true);
+            }
+            else
+                CreateSkyLookupStorage(observed, preparationStarted);
             var computeStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
             var reusedCompute = _skyLookupCompute != null;
             if (!reusedCompute)
@@ -145,13 +118,69 @@ internal sealed unsafe partial class GpuDevice
                 }
             }
             observed?.Invoke("compute-pipeline", computeStarted, Stopwatch.GetTimestamp(), reusedCompute);
-            // Publish only after all three immutable objects exist. Every owner
-            // still prepares its own textures/views, including cache hits.
+            // Publish only after all three immutable objects exist.
             _session?.RetainSkyLookupPipelines(_skyRoot, _skyPipeline, _skyLookupCompute);
             _skyLookupPrepared = true;
             observed?.Invoke("ready", preparationStarted, Stopwatch.GetTimestamp(), reusedCompute);
         }
         catch { ReleaseSkyLookup(); throw; }
+    }
+
+    private void CreateSkyLookupStorage(Action<string, long, long, bool>? observed, long preparationStarted)
+    {
+        var texture = Texture(SkyLookupWidth, SkyLookupHeight, DXGI_FORMAT.DXGI_FORMAT_R32G32B32A32_FLOAT,
+            D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+        texture.DepthOrArraySize = SkyLookupFields;
+        var allocation = _device->GetResourceAllocationInfo(1, 1, &texture).SizeInBytes;
+        if (allocation is 0 or > SkyLookupStorageLimit)
+            throw new InvalidOperationException("Sky lookup native allocation exceeds its fixed two-owner resource budget.");
+        _skyLookupFields = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, texture,
+            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        ObserveResource(_skyLookupFields, D3D12ResourceOwner.Texture, allocation);
+        SkyLookupAllocatedBytesForTests = allocation;
+        _retirementHooks?.AfterSkyLookupFirstAllocation?.Invoke();
+        observed?.Invoke("textures", preparationStarted, Stopwatch.GetTimestamp(), false);
+        var descriptorsStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
+        var heapDescription = new D3D12_DESCRIPTOR_HEAP_DESC
+        {
+            Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
+            NumDescriptors = 2, Flags = D3D12_DESCRIPTOR_HEAP_FLAGS.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+        };
+        fixed (ID3D12DescriptorHeap** heap = &_skyLookupDescriptors)
+            Check(_device->CreateDescriptorHeap(&heapDescription, __uuidof<ID3D12DescriptorHeap>(), (void**)heap),
+                "Create sky lookup descriptors");
+        var increment = _device->GetDescriptorHandleIncrementSize(heapDescription.Type);
+        var handle = _skyLookupDescriptors->GetCPUDescriptorHandleForHeapStart();
+        var uav = new D3D12_UNORDERED_ACCESS_VIEW_DESC
+        {
+            Format = texture.Format, ViewDimension = D3D12_UAV_DIMENSION.D3D12_UAV_DIMENSION_TEXTURE2DARRAY,
+            Texture2DArray = new() { ArraySize = SkyLookupFields },
+        };
+        _device->CreateUnorderedAccessView(_skyLookupFields, null, &uav, handle);
+        handle.ptr += increment;
+        var srv = new D3D12_SHADER_RESOURCE_VIEW_DESC
+        {
+            Format = texture.Format, ViewDimension = D3D12_SRV_DIMENSION.D3D12_SRV_DIMENSION_TEXTURE2DARRAY,
+            Shader4ComponentMapping = 5768, // Identity component mapping.
+            Texture2DArray = new() { ArraySize = SkyLookupFields, MipLevels = 1 },
+        };
+        _device->CreateShaderResourceView(_skyLookupFields, &srv, handle);
+        observed?.Invoke("descriptors", descriptorsStarted, Stopwatch.GetTimestamp(), false);
+    }
+
+    private ulong TryParkSkyLookupStorage()
+    {
+        if (!_skyLookupPrepared || _session is not { } session)
+            return 0;
+        var stamp = session.TryParkSkyLookup(_device, _skyLookupFields, _skyLookupDescriptors, SkyLookupAllocatedBytesForTests);
+        if (stamp == 0)
+            return 0;
+        var fields = (nint)_skyLookupFields;
+        _skyLookupFields = null;
+        _skyLookupDescriptors = null;
+        SkyLookupAllocatedBytesForTests = 0;
+        _resourceDiagnostics?.ForgetTransferred(fields);
+        return stamp;
     }
 
     private void BuildSkyLookup(ID3D12GraphicsCommandList* commands, in SkyConstants constants,

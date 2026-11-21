@@ -637,6 +637,7 @@ public sealed partial class D3D12Renderer
     private void SettleOwner(GpuDevice? gpu, WindowsSwapChain? chain, WindowsPresentationTargetLease? target,
         IRuntimeWorkLease? lifetime, RendererWatchdog watchdog)
     {
+        ulong parkedSkyLookup = 0;
         try
         {
             // Signaling already-submitted work occurs in GpuDevice before it returns.
@@ -669,7 +670,11 @@ public sealed partial class D3D12Renderer
             chain?.Dispose();
             target?.Dispose();
             ReleasePrivateVolumeCustody();
-            gpu?.Dispose();
+            if (gpu?.SkyLookupResourceReuseEnabledForTests == true && _startupSucceeded &&
+                Read() is { FirstFault: null, FirstCleanupFault: null, IncompleteCleanup: false })
+                parkedSkyLookup = gpu.DisposeAfterHealthyStop();
+            else
+                gpu?.Dispose();
             _textureOwner?.SettleAfterDeviceDisposal();
             if (_textureOwner is not null && gpu is not null)
                 PublishTextureDiagnostics(gpu);
@@ -679,10 +684,12 @@ public sealed partial class D3D12Renderer
             if (gpu?.FinalDebugSummary is { } debugMessages)
                 Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
             lifetime?.Dispose();
-            Finish();
+            Finish(parkedSkyLookup);
         }
         catch (Exception cleanup)
         {
+            if (parkedSkyLookup != 0)
+                _deviceSession?.DiscardParkedSkyLookup(parkedSkyLookup);
             _custody = new RenderCustody(gpu, chain, target, lifetime, watchdog);
             RecordIncomplete(cleanup);
         }
