@@ -40,7 +40,7 @@ public sealed partial class PresentationSmokeTests
             ? Path.Combine("artifacts", "sky-lookup-prototype-captures") : captureBase), Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(capture);
         var sky = SkyFixture() with { EyeMeters = new(0, 4097, 0) };
-        (string Name, RenderSky Sky)[] cases =
+        List<(string Name, RenderSky Sky)> cases =
         [
             ("surface-day", sky with { SunDirection = Vector3.Normalize(new(0, 0.2f, -1)) }),
             ("surface-horizon", sky with { SunDirection = -Vector3.UnitZ }),
@@ -60,6 +60,17 @@ public sealed partial class PresentationSmokeTests
             ("atmosphere-edge-outside", sky with { EyeMeters = new(0, 0, 4352.25f),
                 Forward = Vector3.Normalize(new(0.94f, 0, -0.34f)), VerticalFieldOfView = 0.15f, SunDirection = Vector3.UnitX }),
         ];
+        // Half-pixel pitch steps cross a moving horizon and fallback boundary.
+        // Preserve the raw sequence for review; this creates no new tolerance.
+        for (var motion = 0; motion < 5; motion++)
+        {
+            var pitch = (motion - 2) * 0.5f * (2 * MathF.Tan(sky.VerticalFieldOfView * 0.5f) / height);
+            cases.Add(($"motion-{motion:00}", cases[2].Sky with
+            {
+                Forward = new(0, MathF.Sin(pitch), -MathF.Cos(pitch)),
+                Up = new(0, MathF.Cos(pitch), MathF.Sin(pitch)),
+            }));
+        }
         ulong sequence = 0;
         byte[]? first = null;
         foreach (var item in cases)
@@ -82,7 +93,11 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreEqual(1f, actual.DepthAt(x, y), "Sky must not write depth.");
                 Assert.AreEqual((byte)255, actual.ColorAt(x, y)[3]);
             }
-            WriteSkyLookupEvidence(Path.Combine(capture, item.Name), width, height, expected, actual, item.Sky, lookup);
+            lookup.SetSkyLookupFallbackMaskForTests(true);
+            var fallbackMask = GpuDevice.RenderOffscreen(lookup, width, height, frame with { Sequence = ++sequence });
+            lookup.SetSkyLookupFallbackMaskForTests(false);
+            Assert.AreEqual(sequence, lookup.SkyLookupDispatchesForTests);
+            WriteSkyLookupEvidence(Path.Combine(capture, item.Name), width, height, expected, actual, fallbackMask, item.Sky, lookup);
         }
         // Revisit the original input after altitude, atmosphere, light and seed
         // changes. No stale table or partial overwrite may survive the rebuild.
@@ -182,14 +197,16 @@ public sealed partial class PresentationSmokeTests
     }
 
     private static void WriteSkyLookupEvidence(string directory, int width, int height,
-        OffscreenFrame direct, OffscreenFrame lookup, RenderSky sky, GpuDevice gpu)
+        OffscreenFrame direct, OffscreenFrame lookup, OffscreenFrame fallbackMask, RenderSky sky, GpuDevice gpu)
     {
         Directory.CreateDirectory(directory);
         var expected = SkyLookupPixels(direct, width, height);
         var actual = SkyLookupPixels(lookup, width, height);
         var difference = new byte[actual.Length];
+        var maskPixels = new byte[actual.Length];
         var max = 0;
         long differentPixels = 0, differentChannels = 0;
+        long fallbackPixels = 0, fallbackDifferentPixels = 0;
         double squared = 0;
         for (var pixel = 0; pixel < width * height; pixel++)
         {
@@ -207,13 +224,28 @@ public sealed partial class PresentationSmokeTests
             }
             if (changed) differentPixels++;
             difference[pixel * 4 + 3] = 255;
+            var mask = fallbackMask.ColorAt(pixel % width, pixel / width);
+            if (!actual.AsSpan(pixel * 4, 3).SequenceEqual(mask[..3]))
+                Assert.Fail("Fallback-mask diagnostic changed RGB output.");
+            if (mask[3] is not (0 or 255))
+                Assert.Fail("Fallback-mask diagnostic did not export a Boolean branch decision.");
+            if (mask[3] != 0)
+            {
+                fallbackPixels++;
+                if (changed) fallbackDifferentPixels++;
+            }
+            maskPixels[pixel * 4] = maskPixels[pixel * 4 + 1] = maskPixels[pixel * 4 + 2] = mask[3];
+            maskPixels[pixel * 4 + 3] = 255;
         }
         File.WriteAllBytes(Path.Combine(directory, "direct.rgba8"), expected);
         File.WriteAllBytes(Path.Combine(directory, "lookup.rgba8"), actual);
+        File.WriteAllBytes(Path.Combine(directory, "fallback-mask.rgba8"), maskPixels);
         WriteSkyDepthBitmap(Path.Combine(directory, "direct.bmp"), width, height, direct);
         WriteSkyDepthBitmap(Path.Combine(directory, "lookup.bmp"), width, height, lookup);
         WriteSkyDepthBitmap(Path.Combine(directory, "difference.bmp"), width, height,
             new OffscreenFrame(width, difference, new float[width * height]));
+        WriteSkyDepthBitmap(Path.Combine(directory, "fallback-mask.bmp"), width, height,
+            new OffscreenFrame(width, maskPixels, new float[width * height]));
         var assembly = typeof(GpuDevice).Assembly;
         var shaderHashes = new Dictionary<string, string>();
         foreach (var name in new[] { "Sky.vs.dxil", "Sky.ps.dxil", "SkyLookup.ps.dxil", "SkyLookup.cs.dxil" })
@@ -224,13 +256,16 @@ public sealed partial class PresentationSmokeTests
         File.WriteAllText(Path.Combine(directory, "manifest.json"), JsonSerializer.Serialize(new
         {
             DiagnosticOnly = true, QualityApproved = false, PerformanceQualified = false,
-            Scope = "Direct 8x4 oracle versus fixed 256x128 frame-camera view-ray field; not WYU gameplay acceptance",
-            LookupMappingVersion = 3,
+            Scope = "Direct 8x4 oracle versus boundary-aware fixed view-ray field/direct hybrid; not WYU gameplay acceptance",
+            LookupMappingVersion = 4,
             Width = width, Height = height, Parameters = sky, gpu.Adapter,
             LookupWidth = gpu.SkyLookupWidthForTests, LookupHeight = gpu.SkyLookupHeightForTests,
             AllocationBytes = gpu.SkyLookupAllocatedBytesForTests, Dispatches = gpu.SkyLookupDispatchesForTests,
             MaxAbsoluteRgba8 = max, RmseRgba8 = Math.Sqrt(squared / actual.Length),
             DifferentPixels = differentPixels, DifferentChannels = differentChannels,
+            FallbackPixels = fallbackPixels, FallbackFraction = (double)fallbackPixels / (width * height),
+            FallbackOracleDifferentPixels = fallbackDifferentPixels,
+            FallbackCountScope = "Actual GPU branch exported in alpha of a separate idle-guarded diagnostic frame; RGB identity asserted; no UAV atomics",
             DirectRgba8Sha256 = Convert.ToHexString(SHA256.HashData(expected)),
             LookupRgba8Sha256 = Convert.ToHexString(SHA256.HashData(actual)),
             ShaderHashes = shaderHashes, AssemblySha256 = SkyDepthFileHash(assembly.Location),

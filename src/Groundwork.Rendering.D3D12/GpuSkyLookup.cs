@@ -14,11 +14,19 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12Resource* _skyLookupTransmission;
     private ID3D12DescriptorHeap* _skyLookupDescriptors;
     private ID3D12PipelineState* _skyLookupCompute;
+    private bool _skyLookupFallbackMaskForTests;
     internal bool SkyLookupPrototypeEnabledForTests { get; }
     internal int SkyLookupWidthForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupWidth : 0;
     internal int SkyLookupHeightForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupHeight : 0;
     internal ulong SkyLookupAllocatedBytesForTests { get; private set; }
     internal ulong SkyLookupDispatchesForTests { get; private set; }
+
+    internal void SetSkyLookupFallbackMaskForTests(bool enabled)
+    {
+        if (!SkyLookupPrototypeEnabledForTests || !IsIdle)
+            throw new InvalidOperationException("Lookup fallback capture requires an idle prototype device.");
+        _skyLookupFallbackMaskForTests = enabled;
+    }
 
     private ID3D12RootSignature* CreateSkyLookupRoot()
     {

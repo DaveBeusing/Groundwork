@@ -49,7 +49,7 @@ internal sealed unsafe partial class GpuDevice
             new(sky.RayleighScattering * radius, 1f / (sky.RayleighHeightMeters / radius)),
             new(sky.AerosolScattering * radius, 1f / (sky.AerosolHeightMeters / radius)),
             new(sky.RayleighExtinction * radius, 0),
-            new(sky.AerosolExtinction * radius, 0), sky.StarSeed, 0, 0, 0);
+            new(sky.AerosolExtinction * radius, 0), sky.StarSeed, _skyLookupFallbackMaskForTests ? 1u : 0u, 0, 0);
         if (SkyLookupPrototypeEnabledForTests)
             BuildSkyLookup(commands, in constants, ref timingLayout);
         commands->SetPipelineState(_skyPipeline);

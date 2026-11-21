@@ -161,30 +161,49 @@ Texture2D<float4> LookupRadiance : register(t0);
 Texture2D<float4> LookupTransmission : register(t1);
 SamplerState LookupLinearClamp : register(s0);
 
+float3 LookupGridRay(int2 cell)
+{
+    cell = clamp(cell, int2(0,0), int2(LookupWidth - 1, LookupHeight - 1));
+    float2 uv = (float2(cell) + 0.5) / float2(LookupWidth, LookupHeight);
+    float2 screen = float2(uv.x * 2 - 1, 1 - uv.y * 2);
+    return normalize(ForwardTan.xyz + ForwardTan.w *
+        (screen.x * RightAspect.w * RightAspect.xyz + screen.y * UpDisk.xyz));
+}
+
 [numthreads(8,8,1)]
 void SkyLookupCS(uint3 id : SV_DispatchThreadID)
 {
     if (id.x >= LookupWidth || id.y >= LookupHeight)
         return;
     float3 eye = SkyEye();
-    float2 uv = (float2(id.xy) + 0.5) / float2(LookupWidth, LookupHeight);
-    float2 screen = float2(uv.x * 2 - 1, 1 - uv.y * 2);
-    float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
-        (screen.x * RightAspect.w * RightAspect.xyz + screen.y * UpDisk.xyz));
+    float3 ray = LookupGridRay(int2(id.xy));
     float3 light;
     float2 depth;
-    IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), Ground(eye, ray), light, depth);
-    LookupRadianceOut[id.xy] = float4(light, 1);
-    LookupTransmissionOut[id.xy] = float4(Transmission(depth), 1);
+    float ground = Ground(eye, ray);
+    bool hitsGround = ground < 1e9;
+    const int2 neighbors[4] = { int2(-1,0), int2(1,0), int2(0,-1), int2(0,1) };
+    bool edge = false;
+    [unroll] for (uint n = 0; n < 4; ++n)
+        edge = edge || ((Ground(eye, LookupGridRay(int2(id.xy) + neighbors[n])) < 1e9) != hitsGround);
+    IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), ground, light, depth);
+    // Alpha carries geometry, not an error tolerance: classify the ray and
+    // mark adjacent cells crossing the planet horizon before interpolation.
+    LookupRadianceOut[id.xy] = float4(light, hitsGround ? 1 : 0);
+    LookupTransmissionOut[id.xy] = float4(Transmission(depth), edge ? 1 : 0);
 }
 
-void SampleLookup(float2 screen, out float3 light, out float3 transmission)
+bool SampleLookup(float2 screen, float ground, out float3 light, out float3 transmission)
 {
     // Compute texel centres and the pixel's NDC-derived UV share the same
     // convention. Clamp only the outer half-texel; no per-pixel angular inverse.
     float2 coordinate = float2(screen.x * 0.5 + 0.5, 0.5 - screen.y * 0.5);
-    light = LookupRadiance.SampleLevel(LookupLinearClamp, coordinate, 0).rgb;
-    transmission = LookupTransmission.SampleLevel(LookupLinearClamp, coordinate, 0).rgb;
+    float4 radianceField = LookupRadiance.SampleLevel(LookupLinearClamp, coordinate, 0);
+    float4 transmissionField = LookupTransmission.SampleLevel(LookupLinearClamp, coordinate, 0);
+    light = radianceField.rgb;
+    transmission = transmissionField.rgb;
+    // A full-resolution ray can hit a small silhouette between grid centres.
+    // Its exact classification must agree even if no grid neighbour hit it.
+    return transmissionField.a > 0 || radianceField.a != (ground < 1e9 ? 1 : 0);
 }
 #endif
 
@@ -203,7 +222,13 @@ float4 SkyPS(SkyVertex input) : SV_Target
     float3 light;
 #ifdef SKY_LOOKUP
     float3 transmission;
-    SampleLookup(input.Screen, light, transmission);
+    bool directFallback = SampleLookup(input.Screen, ground, light, transmission);
+    [branch] if (directFallback)
+    {
+        float2 directDepth;
+        IntegrateAtmosphere(eye, ray, mu, ground, light, directDepth);
+        transmission = ground > 1e9 ? Transmission(directDepth) : 1;
+    }
 #else
     float2 viewDepth;
     IntegrateAtmosphere(eye, ray, mu, ground, light, viewDepth);
@@ -217,5 +242,11 @@ float4 SkyPS(SkyVertex input) : SV_Target
 #endif
         light += transmission * (disk * SunEnergy.w + stars * fade * 1.6);
     }
+#ifdef SKY_LOOKUP
+    // Only the idle-guarded internal capture helper sets Star.y. Normal output
+    // remains opaque; the diagnostic export counts real branch decisions.
+    return float4(light / (1 + light), Star.y == 0 ? 1 : (directFallback ? 1 : 0));
+#else
     return float4(light / (1 + light), 1);
+#endif
 }
