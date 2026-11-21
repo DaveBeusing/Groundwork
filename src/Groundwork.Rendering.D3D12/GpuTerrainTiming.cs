@@ -9,7 +9,8 @@ internal readonly record struct ShadowGpuTiming(double FrameMicroseconds, double
 
 internal readonly record struct SkyGpuTiming(double FrameMicroseconds, double SkyMicroseconds, bool HasSky,
     ulong FrameStart = 0, ulong FrameEnd = 0, ulong SkyStart = 0, ulong SkyEnd = 0, ulong Frequency = 0,
-    bool HasLookupSplit = false, double LookupComputeMicroseconds = 0, double LookupDrawBarrierMicroseconds = 0);
+    bool HasLookupSplit = false, double LookupComputeMicroseconds = 0, double LookupDrawBarrierMicroseconds = 0,
+    double TerrainMicroseconds = 0, double NearShadowMicroseconds = 0, double FarShadowMicroseconds = 0);
 
 internal sealed unsafe partial class GpuDevice
 {
@@ -191,7 +192,7 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal SkyGpuTiming ReadSkyMicroseconds()
+        internal SkyGpuTiming ReadSkyMicroseconds(bool includePrepass = false)
         {
             var layout = _submitted;
             var ticks = Map(layout.QueryCount);
@@ -203,7 +204,10 @@ internal sealed unsafe partial class GpuDevice
                     layout.SkyStart == 0 ? 0 : ticks[layout.SkyEnd], _frequency,
                     layout.SkyLookupComputeEnd != 0,
                     layout.SkyLookupComputeEnd == 0 ? 0 : Microseconds(ticks, layout.SkyStart, layout.SkyLookupComputeEnd),
-                    layout.SkyLookupComputeEnd == 0 ? 0 : Microseconds(ticks, layout.SkyLookupComputeEnd, layout.SkyEnd));
+                    layout.SkyLookupComputeEnd == 0 ? 0 : Microseconds(ticks, layout.SkyLookupComputeEnd, layout.SkyEnd),
+                    includePrepass ? OptionalPassMicroseconds(ticks, layout.TerrainStart) : 0,
+                    includePrepass ? OptionalPassMicroseconds(ticks, layout.NearStart) : 0,
+                    includePrepass ? OptionalPassMicroseconds(ticks, layout.FarStart) : 0);
             }
             finally
             {

@@ -129,6 +129,48 @@ public sealed partial class PresentationSmokeTests
     }
 
     [TestMethod]
+    public void WarpSkyPrepassHookReportsExistingTerrainAndShadowsWithSkyOnAndOff()
+    {
+        var prepasses = new List<(ulong Sequence, ulong Fence, double Terrain, double NearShadow, double FarShadow)>();
+        var hooks = new GpuRetirementTestHooks(AfterSkyPrepassTimingRetired: (sequence, fence, terrain, near, far) =>
+            prepasses.Add((sequence, fence, terrain, near, far)));
+        using var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true,
+            region: CreateWp15Region(), retirementHooks: hooks, skyLookupPrototype: false);
+        gpu.EnableSkyTimingForTests();
+        // The only retirement subscriber is the prepass hook. Both measured
+        // variants still use the same native terrain and shadow queries.
+        var first = CreateWp15Frame("midday", 0, 1, shadows: true);
+        Check(first, expectedShadows: 2);
+        var changed = CreateWp15Frame("midday", 10, 2, shadows: true) with { Sky = SkyFixture() };
+        Check(changed, expectedShadows: 2);
+        // The identical lighting and view reuse the cascades. An absent
+        // stamp must not return the previous frame's shadow duration.
+        Check(changed with { Sequence = 3 }, expectedShadows: 0);
+        Assert.AreEqual(3, prepasses.Select(row => row.Fence).Distinct().Count());
+
+        void Check(RenderFrame frame, int expectedShadows)
+        {
+            GpuDevice.RenderOffscreen(gpu, 64, 64, frame);
+            Assert.IsTrue(gpu.IsIdle);
+            Assert.HasCount((int)frame.Sequence, prepasses);
+            var observed = prepasses[^1];
+            var native = gpu.ReadShadowTimingForTests(frame.Sequence);
+            Assert.AreEqual(frame.Sequence, observed.Sequence);
+            Assert.IsGreaterThan(0UL, observed.Fence);
+            Assert.AreEqual(expectedShadows, native.ShadowPassCount);
+            Assert.IsGreaterThan(0d, observed.Terrain);
+            Assert.AreEqual(native.TerrainMicroseconds, observed.Terrain);
+            Assert.AreEqual(native.NearShadowMicroseconds, observed.NearShadow);
+            Assert.AreEqual(native.FarShadowMicroseconds, observed.FarShadow);
+            if (expectedShadows == 0)
+            {
+                Assert.AreEqual(0d, observed.NearShadow);
+                Assert.AreEqual(0d, observed.FarShadow);
+            }
+        }
+    }
+
+    [TestMethod]
     public void WarpSkyTimestampsRequireRetiredIdentityAndDistinguishDisabledPass()
     {
         using var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true);

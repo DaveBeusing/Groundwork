@@ -26,7 +26,8 @@ internal sealed record GpuRetirementTestHooks(
     Action? AfterSkyLookupFirstAllocation = null,
     Action<ulong, ulong, double, double>? AfterSkyLookupGpuTimingRetired = null,
     Action<ulong, ulong, double, double>? AfterSkyLookupRecordMeasured = null,
-    Action<string, long, long, bool>? AfterSkyLookupPreparationStage = null)
+    Action<string, long, long, bool>? AfterSkyLookupPreparationStage = null,
+    Action<ulong, ulong, double, double, double>? AfterSkyPrepassTimingRetired = null)
 {
     internal const int SkyQualificationHookSchemaVersion = 2;
 }

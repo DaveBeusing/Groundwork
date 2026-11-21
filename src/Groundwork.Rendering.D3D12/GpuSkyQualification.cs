@@ -62,7 +62,7 @@ internal sealed unsafe partial class GpuDevice
             _retirementHooks?.AfterSkyLookupRecordMeasured?.Invoke(sequence, fence, _skyLookupRecordComputeMicroseconds,
                 _skyRecordMicroseconds - _skyLookupRecordComputeMicroseconds);
         if ((_retirementHooks?.AfterSkyTimingRetired is null && _retirementHooks?.AfterSkyTimingDetailsRetired is null &&
-            _retirementHooks?.AfterSkyLookupGpuTimingRetired is null) ||
+            _retirementHooks?.AfterSkyLookupGpuTimingRetired is null && _retirementHooks?.AfterSkyPrepassTimingRetired is null) ||
             _terrainTiming is not { MeasuresSky: true })
             return;
         if (_skyTimingPendingFence != 0)
@@ -78,7 +78,9 @@ internal sealed unsafe partial class GpuDevice
             return;
         var sequence = _skyTimingPendingSequence;
         var fence = _skyTimingPendingFence;
-        var result = timing.ReadSkyMicroseconds();
+        var prepass = _retirementHooks?.AfterSkyPrepassTimingRetired;
+        // Use the already-retired terrain/shadow pairs in the same mapping.
+        var result = timing.ReadSkyMicroseconds(includePrepass: prepass is not null);
         // Clear before calling the observer so a reentrant diagnostic read does
         // not emit twice. Results are never mapped before their actual fence.
         _skyTimingPendingFence = 0;
@@ -87,6 +89,8 @@ internal sealed unsafe partial class GpuDevice
             result.SkyMicroseconds, result.HasSky);
         _retirementHooks?.AfterSkyTimingDetailsRetired?.Invoke(sequence, fence, result.FrameStart,
             result.FrameEnd, result.SkyStart, result.SkyEnd, result.Frequency);
+        prepass?.Invoke(sequence, fence, result.TerrainMicroseconds, result.NearShadowMicroseconds,
+            result.FarShadowMicroseconds);
         if (result.HasLookupSplit)
             _retirementHooks?.AfterSkyLookupGpuTimingRetired?.Invoke(sequence, fence, result.LookupComputeMicroseconds,
                 result.LookupDrawBarrierMicroseconds);
