@@ -7,12 +7,12 @@ namespace Groundwork.Rendering.D3D12;
 
 internal sealed unsafe partial class GpuDevice
 {
-    // Diagnostic prototype only. Two fixed RGBA32F view-ray fields use 1 MiB
-    // per owner. Preparation rejects larger native texture alignment.
+    // Diagnostic prototype only. Two fixed RGBA32F view-ray fields share an
+    // owner-local array. Preparation rejects native allocations above 1 MiB.
     private const int SkyLookupWidth = 256;
     private const int SkyLookupHeight = 128;
-    private ID3D12Resource* _skyLookupRadiance;
-    private ID3D12Resource* _skyLookupTransmission;
+    private const ushort SkyLookupFields = 2;
+    private ID3D12Resource* _skyLookupFields;
     private ID3D12DescriptorHeap* _skyLookupDescriptors;
     private ID3D12PipelineState* _skyLookupCompute;
     private bool _skyLookupFallbackMaskForTests;
@@ -35,8 +35,8 @@ internal sealed unsafe partial class GpuDevice
     private ID3D12RootSignature* CreateSkyLookupRoot()
     {
         D3D12_DESCRIPTOR_RANGE* ranges = stackalloc D3D12_DESCRIPTOR_RANGE[2];
-        ranges[0] = new() { RangeType = D3D12_DESCRIPTOR_RANGE_TYPE.D3D12_DESCRIPTOR_RANGE_TYPE_UAV, NumDescriptors = 2 };
-        ranges[1] = new() { RangeType = D3D12_DESCRIPTOR_RANGE_TYPE.D3D12_DESCRIPTOR_RANGE_TYPE_SRV, NumDescriptors = 2 };
+        ranges[0] = new() { RangeType = D3D12_DESCRIPTOR_RANGE_TYPE.D3D12_DESCRIPTOR_RANGE_TYPE_UAV, NumDescriptors = 1 };
+        ranges[1] = new() { RangeType = D3D12_DESCRIPTOR_RANGE_TYPE.D3D12_DESCRIPTOR_RANGE_TYPE_SRV, NumDescriptors = 1 };
         D3D12_ROOT_PARAMETER* parameters = stackalloc D3D12_ROOT_PARAMETER[3];
         parameters[0] = new()
         {
@@ -92,24 +92,21 @@ internal sealed unsafe partial class GpuDevice
         {
             var texture = Texture(SkyLookupWidth, SkyLookupHeight, DXGI_FORMAT.DXGI_FORMAT_R32G32B32A32_FLOAT,
                 D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS);
+            texture.DepthOrArraySize = SkyLookupFields;
             var allocation = _device->GetResourceAllocationInfo(1, 1, &texture).SizeInBytes;
-            if (allocation == ulong.MaxValue || allocation > 512 * 1024)
+            if (allocation == 0 || allocation > 1024 * 1024)
                 throw new InvalidOperationException("Sky lookup native allocation exceeds its fixed two-owner resource budget.");
-            _skyLookupRadiance = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, texture,
+            _skyLookupFields = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, texture,
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            ObserveResource(_skyLookupRadiance, D3D12ResourceOwner.Texture, allocation);
-            SkyLookupAllocatedBytesForTests += allocation;
+            ObserveResource(_skyLookupFields, D3D12ResourceOwner.Texture, allocation);
+            SkyLookupAllocatedBytesForTests = allocation;
             _retirementHooks?.AfterSkyLookupFirstAllocation?.Invoke();
-            _skyLookupTransmission = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT, texture,
-                D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-            ObserveResource(_skyLookupTransmission, D3D12ResourceOwner.Texture, allocation);
-            SkyLookupAllocatedBytesForTests += allocation;
             observed?.Invoke("textures", preparationStarted, Stopwatch.GetTimestamp(), false);
             var descriptorsStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
             var heapDescription = new D3D12_DESCRIPTOR_HEAP_DESC
             {
                 Type = D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV,
-                NumDescriptors = 4, Flags = D3D12_DESCRIPTOR_HEAP_FLAGS.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
+                NumDescriptors = 2, Flags = D3D12_DESCRIPTOR_HEAP_FLAGS.D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE,
             };
             fixed (ID3D12DescriptorHeap** heap = &_skyLookupDescriptors)
                 Check(_device->CreateDescriptorHeap(&heapDescription, __uuidof<ID3D12DescriptorHeap>(), (void**)heap),
@@ -118,21 +115,18 @@ internal sealed unsafe partial class GpuDevice
             var handle = _skyLookupDescriptors->GetCPUDescriptorHandleForHeapStart();
             var uav = new D3D12_UNORDERED_ACCESS_VIEW_DESC
             {
-                Format = texture.Format, ViewDimension = D3D12_UAV_DIMENSION.D3D12_UAV_DIMENSION_TEXTURE2D,
+                Format = texture.Format, ViewDimension = D3D12_UAV_DIMENSION.D3D12_UAV_DIMENSION_TEXTURE2DARRAY,
+                Texture2DArray = new() { ArraySize = SkyLookupFields },
             };
-            _device->CreateUnorderedAccessView(_skyLookupRadiance, null, &uav, handle);
-            handle.ptr += increment;
-            _device->CreateUnorderedAccessView(_skyLookupTransmission, null, &uav, handle);
+            _device->CreateUnorderedAccessView(_skyLookupFields, null, &uav, handle);
             handle.ptr += increment;
             var srv = new D3D12_SHADER_RESOURCE_VIEW_DESC
             {
-                Format = texture.Format, ViewDimension = D3D12_SRV_DIMENSION.D3D12_SRV_DIMENSION_TEXTURE2D,
+                Format = texture.Format, ViewDimension = D3D12_SRV_DIMENSION.D3D12_SRV_DIMENSION_TEXTURE2DARRAY,
                 Shader4ComponentMapping = 5768, // Identity component mapping.
-                Texture2D = new() { MipLevels = 1 },
+                Texture2DArray = new() { ArraySize = SkyLookupFields, MipLevels = 1 },
             };
-            _device->CreateShaderResourceView(_skyLookupRadiance, &srv, handle);
-            handle.ptr += increment;
-            _device->CreateShaderResourceView(_skyLookupTransmission, &srv, handle);
+            _device->CreateShaderResourceView(_skyLookupFields, &srv, handle);
             observed?.Invoke("descriptors", descriptorsStarted, Stopwatch.GetTimestamp(), false);
             var computeStarted = observed is null ? 0 : Stopwatch.GetTimestamp();
             var reusedCompute = _skyLookupCompute != null;
@@ -164,8 +158,7 @@ internal sealed unsafe partial class GpuDevice
         ref ShadowTimingLayout timingLayout)
     {
         PrepareSkyLookup();
-        ObserveUse(_skyLookupRadiance);
-        ObserveUse(_skyLookupTransmission);
+        ObserveUse(_skyLookupFields);
         ID3D12DescriptorHeap* heap = _skyLookupDescriptors;
         commands->SetDescriptorHeaps(1, &heap);
         commands->SetPipelineState(_skyLookupCompute);
@@ -180,24 +173,20 @@ internal sealed unsafe partial class GpuDevice
         SkyLookupDispatchesForTests++;
         // The transition orders all UAV writes before sampling. Every recording
         // restores UAV state after the draw, even when admission later rejects it.
-        RecordTransition(commands, _skyLookupRadiance, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
-            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
-        RecordTransition(commands, _skyLookupTransmission, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+        RecordTransition(commands, _skyLookupFields, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE);
     }
 
     private D3D12_GPU_DESCRIPTOR_HANDLE SkyLookupSrv()
     {
         var handle = _skyLookupDescriptors->GetGPUDescriptorHandleForHeapStart();
-        handle.ptr += 2UL * _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+        handle.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
         return handle;
     }
 
     private void FinishSkyLookup(ID3D12GraphicsCommandList* commands)
     {
-        RecordTransition(commands, _skyLookupRadiance, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
-            D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
-        RecordTransition(commands, _skyLookupTransmission, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+        RecordTransition(commands, _skyLookupFields, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
 
@@ -205,11 +194,10 @@ internal sealed unsafe partial class GpuDevice
     {
         Release(_skyLookupCompute);
         Release(_skyLookupDescriptors);
-        ReleaseObservedResource(_skyLookupTransmission);
-        ReleaseObservedResource(_skyLookupRadiance);
+        ReleaseObservedResource(_skyLookupFields);
         _skyLookupCompute = null;
         _skyLookupDescriptors = null;
-        _skyLookupTransmission = _skyLookupRadiance = null;
+        _skyLookupFields = null;
         SkyLookupAllocatedBytesForTests = 0;
         _skyLookupPrepared = false;
     }

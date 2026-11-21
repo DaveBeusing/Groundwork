@@ -160,10 +160,10 @@ void IntegrateAtmosphere(float3 eye, float3 ray, float mu, float ground, out flo
 // the compute dispatch refreshes both fields with this frame's constants.
 static const uint LookupWidth = 256;
 static const uint LookupHeight = 128;
-RWTexture2D<float4> LookupRadianceOut : register(u0);
-RWTexture2D<float4> LookupTransmissionOut : register(u1);
-Texture2D<float4> LookupRadiance : register(t0);
-Texture2D<float4> LookupTransmission : register(t1);
+static const uint LookupRadianceSlice = 0;
+static const uint LookupTransmissionSlice = 1;
+RWTexture2DArray<float4> LookupFieldsOut : register(u0);
+Texture2DArray<float4> LookupFields : register(t0);
 SamplerState LookupLinearClamp : register(s0);
 
 float3 LookupGridRay(int2 cell)
@@ -212,8 +212,8 @@ void SkyLookupCS(uint3 id : SV_DispatchThreadID)
     IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), ground, light, depth);
     // Alpha carries geometry, not an error tolerance: classify the ray and
     // mark adjacent cells crossing either the ground or outer air limb.
-    LookupRadianceOut[id.xy] = float4(light, geometry);
-    LookupTransmissionOut[id.xy] = float4(Transmission(depth), edge ? 1 : 0);
+    LookupFieldsOut[uint3(id.xy, LookupRadianceSlice)] = float4(light, geometry);
+    LookupFieldsOut[uint3(id.xy, LookupTransmissionSlice)] = float4(Transmission(depth), edge ? 1 : 0);
 }
 
 float PixelLookupGeometryClass(float3 eye, float3 ray, out float ground)
@@ -244,8 +244,8 @@ bool SampleLookup(float2 screen, float geometry, out float3 light, out float3 tr
     // Compute texel centres and the pixel's NDC-derived UV share the same
     // convention. Clamp only the outer half-texel; no per-pixel angular inverse.
     float2 coordinate = float2(screen.x * 0.5 + 0.5, 0.5 - screen.y * 0.5);
-    float4 radianceField = LookupRadiance.SampleLevel(LookupLinearClamp, coordinate, 0);
-    float4 transmissionField = LookupTransmission.SampleLevel(LookupLinearClamp, coordinate, 0);
+    float4 radianceField = LookupFields.SampleLevel(LookupLinearClamp, float3(coordinate, LookupRadianceSlice), 0);
+    float4 transmissionField = LookupFields.SampleLevel(LookupLinearClamp, float3(coordinate, LookupTransmissionSlice), 0);
     light = radianceField.rgb;
     transmission = transmissionField.rgb;
     // A full-resolution ray can hit a small planet or atmosphere silhouette
