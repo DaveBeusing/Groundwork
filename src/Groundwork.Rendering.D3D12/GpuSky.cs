@@ -42,8 +42,10 @@ internal sealed unsafe partial class GpuDevice
             new(right, (float)target.Width / target.Height),
             new(up, MathF.Sin(sky.SunAngularRadius)),
             new(Vector3.Normalize(sky.SunDirection), sky.SunRadiance),
-            new(sky.RayleighScattering * radius, sky.RayleighHeightMeters / radius),
-            new(sky.AerosolScattering * radius, sky.AerosolHeightMeters / radius),
+            // Validated normalized scale heights are in [0.0001, 1], so
+            // their reciprocals are finite and can replace per-sample divides.
+            new(sky.RayleighScattering * radius, 1f / (sky.RayleighHeightMeters / radius)),
+            new(sky.AerosolScattering * radius, 1f / (sky.AerosolHeightMeters / radius)),
             new(sky.RayleighExtinction * radius, 0),
             new(sky.AerosolExtinction * radius, 0), sky.StarSeed, 0, 0, 0);
         commands->SetPipelineState(_skyPipeline);
@@ -56,6 +58,6 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private readonly record struct SkyConstants(Vector4 EyeOuter, Vector4 ForwardTan, Vector4 RightAspect,
-        Vector4 UpDisk, Vector4 SunEnergy, Vector4 RayleighHeight, Vector4 AerosolHeight,
+        Vector4 UpDisk, Vector4 SunEnergy, Vector4 RayleighInverseHeight, Vector4 AerosolInverseHeight,
         Vector4 RayleighLoss, Vector4 AerosolLoss, uint StarSeed, uint Pad0, uint Pad1, uint Pad2);
 }

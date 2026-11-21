@@ -5,8 +5,8 @@ cbuffer Atmosphere : register(b0)
     float4 RightAspect;
     float4 UpDisk;
     float4 SunEnergy;
-    float4 RayleighHeight;
-    float4 AerosolHeight;
+    float4 RayleighInverseHeight;
+    float4 AerosolInverseHeight;
     float4 RayleighLoss;
     float4 AerosolLoss;
     uint4 Star;
@@ -54,7 +54,7 @@ float Ground(float3 eye, float3 ray)
 float2 Density(float3 samplePosition)
 {
     float height = max(length(samplePosition) - 1, 0);
-    return exp(-min(height / float2(RayleighHeight.w, AerosolHeight.w), 80));
+    return exp(-min(height * float2(RayleighInverseHeight.w, AerosolInverseHeight.w), 80));
 }
 
 float3 Transmission(float2 depth)
@@ -65,10 +65,10 @@ float3 Transmission(float2 depth)
 float SolarVisibility(float3 position)
 {
     float radius = length(position);
-    float horizon = sqrt(max((radius - 1) * (radius + 1), 0)) / radius;
+    float horizon = sqrt(max((radius - 1) * (radius + 1), 0));
     // Approximate a finite solar disk's penumbra instead of switching the whole
     // atmosphere sample when its centre crosses the planet's tangent.
-    float elevation = dot(position / radius, SunEnergy.xyz) + horizon;
+    float elevation = (dot(position, SunEnergy.xyz) + horizon) / radius;
     return smoothstep(-UpDisk.w, UpDisk.w, elevation);
 }
 
@@ -142,7 +142,7 @@ float4 SkyPS(SkyVertex input) : SV_Target
                 {
                     float2 solarDepth = SolarDepth(samplePosition, solar.y);
                     light += Transmission(viewDepth + density * 0.5 + solarDepth) *
-                        (density.x * RayleighHeight.rgb * rayleighPhase + density.y * AerosolHeight.rgb * aerosolPhase) * visibility;
+                        (density.x * RayleighInverseHeight.rgb * rayleighPhase + density.y * AerosolInverseHeight.rgb * aerosolPhase) * visibility;
                 }
                 viewDepth += density;
             }
