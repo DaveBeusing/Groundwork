@@ -250,7 +250,16 @@ bool SampleLookup(float2 screen, float geometry, out float3 light, out float3 tr
     transmission = transmissionField.rgb;
     // A full-resolution ray can hit a small planet or atmosphere silhouette
     // between grid centres. Its exact geometry class must still agree.
-    return transmissionField.a > 0 || radianceField.a != geometry;
+    if (radianceField.a != geometry)
+        return true;
+    // The existing cardinal halo implies a potential edge, including cases
+    // where filtering class values can cancel. Check its actual 2x2 footprint.
+    [branch] if (transmissionField.a > 0)
+    {
+        float4 classes = LookupFields.GatherAlpha(LookupLinearClamp, float3(coordinate, LookupRadianceSlice));
+        return any(classes != geometry);
+    }
+    return false;
 }
 #endif
 
