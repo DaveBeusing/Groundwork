@@ -94,7 +94,7 @@ public struct D3D12ResourceSnapshot
     [InlineArray(Length)]
     internal struct PassObservations
     {
-        internal const int Length = 10;
+        internal const int Length = GpuPassPlan.LastPassId;
         private D3D12PassObservation _element;
     }
 }

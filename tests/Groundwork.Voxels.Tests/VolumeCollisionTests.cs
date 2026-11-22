@@ -108,6 +108,45 @@ public sealed class VolumeCollisionTests
     }
 
     [TestMethod]
+    public async Task StaticObstaclesCanSupportTheWalkerAndBlockWalking()
+    {
+        using var run = new Run(p => p.Z - 16); await run.Publish(); using var frame = await run.Open();
+        var state = new PlanetWalkState(P(0, 0, 20), P(1, 0, 0), default);
+        var terrainOnly = run.Coordinator.TryPlanMovement(state, 1, 0, out var status);
+        Assert.IsNotNull(terrainOnly);
+        Assert.IsFalse(terrainOnly.Result.Grounded);
+        Assert.IsGreaterThan(state.Position.X, terrainOnly.Result.State.Position.X);
+        Assert.IsLessThan(state.Position.Z, terrainOnly.Result.State.Position.Z);
+
+        var blocked = run.Coordinator.TryPlanMovementWithStaticObstacles(state, 1, 0,
+            static (start, end) => end.A.X > start.A.X ? new(VolumeQueryStatus.Contact, 0.5, P(-1, 0, 0), default, 0)
+                : end.A.Z < start.A.Z ? new(VolumeQueryStatus.Contact, 0, P(0, 0, 1), default, 0)
+                : new(VolumeQueryStatus.Clear, 1, default, default, 0), out status);
+        Assert.IsNotNull(blocked);
+        Assert.AreEqual(VolumeQueryStatus.Clear, status);
+        Assert.IsTrue(blocked.Result.Grounded);
+        Assert.AreEqual(state.Position, blocked.Result.State.Position);
+        Assert.IsNull(((VolumeWorldRoot)run.World.Publication.Committed.Read().Root).Player);
+    }
+
+    [TestMethod]
+    public async Task MalformedStaticObstacleContactHoldsWithoutPublishingMotion()
+    {
+        using var run = new Run(p => p.Z - 16); await run.Publish(); using var frame = await run.Open();
+        var state = new PlanetWalkState(P(0, 0, 20), P(1, 0, 0), default);
+        var committed = run.World.Publication.Committed.Read().Root;
+        foreach (var (fraction, normal) in new[]
+            { (double.NaN, P(-1, 0, 0)), (0.5, default(PlanetVector)), (0.5, P(2, 0, 1)) })
+        {
+            Assert.IsNull(run.Coordinator.TryPlanMovementWithStaticObstacles(state, 1, 0,
+                (start, end) => end.A.X > start.A.X ? new(VolumeQueryStatus.Contact, fraction, normal, default, 0)
+                    : new(VolumeQueryStatus.Clear, 1, default, default, 0), out var status));
+            Assert.AreEqual(VolumeQueryStatus.Invalid, status);
+            Assert.AreSame(committed, run.World.Publication.Committed.Read().Root);
+        }
+    }
+
+    [TestMethod]
     public async Task MissingCoverageInvalidInputAndExhaustionHoldWithoutAccumulatingMotion()
     {
         using var run = new Run(p => p.Z - 16); await run.Publish(); using var frame = await run.Open();

@@ -225,13 +225,15 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
         var shadows = frame.Scene is { } scene ? PrepareShadows(target, scene) : default;
         var terrainAppearance = PrepareFrameTerrainMaterials(frame.Scene is { World.IsIdentity: true }, shadows.Constants.Enabled);
+        var hasProps = frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null;
         var shape = new GpuPassShape(target.Width, target.Height,
             frame.Scene.HasValue ? ActiveMeshGeometry?.PackedBytes ?? checked((int)(VertexCount * VertexStride)) : 0,
             frame.Scene.HasValue, frame.Sky.HasValue,
-            frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null,
+            hasProps,
             frame.Scene.HasValue && subsequent.HasValue, shadows.NearKind, shadows.FarKind,
             readback is not null, owner is not null, frame.Scene.HasValue && !terrainAppearance ? FrameTextureImport() : default,
-            terrainAppearance, terrainAppearance ? _frameTerrainMaterials!.Imports : default);
+            terrainAppearance, terrainAppearance ? _frameTerrainMaterials!.Imports : default,
+            TransparentPropsAfterSky: hasProps && frame.Sky.HasValue && PropStream is { HasTransparentAssets: true });
         if (GetPassPlan(shape) is not { } plan)
         {
             if (!terrainAppearance)
@@ -293,7 +295,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;
                             _nextFrame = (_nextFrame + 1) % _frames.Length;
-                            PublishRecordedProps(deferredProps);
+                            PublishRecordedProps(deferredProps, frame.Sequence);
                             PublishShadows(shadows);
                             submitted = true;
                             PublishSkyQualificationForTests(frame.Sequence, next);
@@ -317,7 +319,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                     terrainAppearance = false;
                     shape = shape with { Texture = default, MaterialConstants = false, MaterialMaps = default };
                 }
-                if (attempt == maxRecordings - 1 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
+                if (attempt == maxRecordings - 1 || GetPassPlan(shape with { Props = false, TransparentPropsAfterSky = false }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
                 terrainPbr = !terrainAppearance && TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);

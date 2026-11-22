@@ -8,7 +8,8 @@ internal enum ShadowPassKind : byte { Disabled, Draw, Cached }
 internal readonly record struct GpuPassShape(
     int Width, int Height, int GeometryBytes, bool Scene, bool Sky, bool Props, bool FollowOn,
     ShadowPassKind Near, ShadowPassKind Far, bool Readback, bool Present, GpuFrameTextureImport Texture = default,
-    bool MaterialConstants = false, ImmutableArray<GpuFrameTextureImport> MaterialMaps = default);
+    bool MaterialConstants = false, ImmutableArray<GpuFrameTextureImport> MaterialMaps = default,
+    bool TransparentPropsAfterSky = false);
 
 /// <summary>Portable declarations for the existing recorder. Native bindings stay with the queue owner.</summary>
 internal static class GpuPassPlan
@@ -23,6 +24,8 @@ internal static class GpuPassPlan
     internal static readonly RenderPassId Copy = new(8);
     internal static readonly RenderPassId Present = new(9);
     internal static readonly RenderPassId Readback = new(10);
+    internal const int LastPassId = 11;
+    internal static readonly RenderPassId TransparentProps = new(LastPassId);
     private static readonly RenderSubresourceRange Whole = new(0, 1);
     private static readonly RenderResourceId Color = new(1, 1);
     private static readonly RenderResourceId Depth = new(2, 1);
@@ -46,12 +49,13 @@ internal static class GpuPassPlan
             !shape.MaterialMaps.IsDefaultOrEmpty && (!shape.MaterialConstants || shape.MaterialMaps.Length > GpuTerrainMaterialSet.Capacity) ||
             !shape.Scene && (shape.Props || shape.FollowOn || shape.GeometryBytes != 0 || shape.Texture != default ||
                 shape.MaterialConstants || shape.Near != ShadowPassKind.Disabled || shape.Far != ShadowPassKind.Disabled) ||
+            shape.TransparentPropsAfterSky && (!shape.Sky || !shape.Props) ||
             !shape.Readback && !shape.Present ||
             shape.Readback && (long)shape.Width * shape.Height * (sizeof(uint) + sizeof(float)) > RenderPlanLimits.BufferBytes)
             return false;
 
         var resources = ImmutableArray.CreateBuilder<RenderResourceDescriptor>(7);
-        var passes = ImmutableArray.CreateBuilder<RenderPassDescriptor>(10);
+        var passes = ImmutableArray.CreateBuilder<RenderPassDescriptor>(11);
         RenderPassId previous = default;
         var extent = new RenderExtent(RenderExtentClass.FrameTexture, shape.Width, shape.Height);
         var colorUsage = RenderResourceUsage.ColorAttachment |
@@ -124,6 +128,9 @@ internal static class GpuPassPlan
         // integration. Sky only reads depth and never changes its coverage.
         if (shape.Sky)
             Add(Sky, [Input(Depth, RenderResourceState.DepthRead)],
+                [Output(Color, RenderResourceState.ColorAttachment, RenderLoadAction.Load)]);
+        if (shape.TransparentPropsAfterSky)
+            Add(TransparentProps, [Input(Depth, RenderResourceState.DepthRead)],
                 [Output(Color, RenderResourceState.ColorAttachment, RenderLoadAction.Load)]);
         if (shape.Readback)
         {

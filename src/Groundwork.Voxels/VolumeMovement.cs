@@ -23,16 +23,29 @@ public sealed partial class VolumeStreamingCoordinator
     /// </summary>
     public VolumeMovementDraft? TryPlanMovement(PlanetWalkState state, double forward, double right,
         out VolumeQueryStatus status, VolumeQueryLimits? limits = null) =>
-        PlanMovement(state, forward, right, null, out status, limits);
+        PlanMovement(state, forward, right, null, null, out status, limits);
+
+    /// <summary>Combines the pinned terrain queries with an immutable host-owned static obstacle snapshot.</summary>
+    /// <remarks>The callback takes the start and end capsules, including radial changes to their axes.
+    /// It must use the obstacle state from the current committed root and return unit contact normals.
+    /// It runs synchronously under the coordinator lock and must be bounded, side-effect-free, and non-reentrant.</remarks>
+    public VolumeMovementDraft? TryPlanMovementWithStaticObstacles(PlanetWalkState state, double forward, double right,
+        Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult> sweepStatic, out VolumeQueryStatus status,
+        VolumeQueryLimits? limits = null)
+    {
+        ArgumentNullException.ThrowIfNull(sweepStatic);
+        return PlanMovement(state, forward, right, null, sweepStatic, out status, limits);
+    }
 
     /// <summary>Plans one collision-checked tick on a host-defined V2 climbing route.</summary>
     /// <remarks>The host owns attachment to the route and must leave it at a supported position.</remarks>
     public VolumeMovementDraft? TryPlanCaveClimb(PlanetWalkState state, PlanetVector displacement,
         out VolumeQueryStatus status, VolumeQueryLimits? limits = null) =>
-        PlanMovement(state, 0, 0, displacement, out status, limits);
+        PlanMovement(state, 0, 0, displacement, null, out status, limits);
 
     private VolumeMovementDraft? PlanMovement(PlanetWalkState state, double forward, double right,
-        PlanetVector? climb, out VolumeQueryStatus status, VolumeQueryLimits? limits)
+        PlanetVector? climb, Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult>? sweepStatic,
+        out VolumeQueryStatus status, VolumeQueryLimits? limits)
     {
         lock (_gate)
         {
@@ -48,7 +61,7 @@ public sealed partial class VolumeStreamingCoordinator
             var queryLimits = limits ?? VolumeQueryLimits.Default;
             var result = climb is { } displacement
                 ? VolumeWalker.Climb(active, state, displacement, queryLimits, out status)
-                : VolumeWalker.Step(active, state, forward, right, queryLimits, out status);
+                : VolumeWalker.Step(active, state, forward, right, queryLimits, out status, sweepStatic);
             return status == VolumeQueryStatus.Clear || climb is null && status == VolumeQueryStatus.Contact
                 ? new VolumeMovementDraft(root, committed.Stamp, new VolumeMovementEvidence(committed.Stamp, state, forward, right, result) { ClimbDisplacement = climb }) : null;
         }
@@ -158,7 +171,8 @@ internal static class VolumeWalker
     }
 
     internal static PlanetWalkResult Step(VolumeGeneration g, PlanetWalkState state, double forward, double right,
-        VolumeQueryLimits limits, out VolumeQueryStatus status)
+        VolumeQueryLimits limits, out VolumeQueryStatus status,
+        Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult>? sweepStatic = null)
     {
         var held = new PlanetWalkResult(state, PlanetWalkStatus.Held, false);
         status = VolumeQueryStatus.Invalid;
@@ -170,6 +184,8 @@ internal static class VolumeWalker
         heading /= heading.Length;
         var remaining = limits.TriangleTests;
         var valid = Validate(g, state, limits);
+        if (sweepStatic is not null && valid.Status == VolumeQueryStatus.Clear)
+            valid = CombineStatic(valid, Body(state), Body(state), sweepStatic);
         status = valid.Status;
         if (status != VolumeQueryStatus.Clear) return held;
         remaining -= valid.TriangleTests;
@@ -180,10 +196,11 @@ internal static class VolumeWalker
             if (!Valid(target) || CollisionVector.Dot(Up(pose.Position), Up(target.Position)) <= 0)
                 return new(VolumeQueryStatus.Invalid, 0, default, g.Info, 0);
             var targetBody = Body(target);
-            var result = VolumeCollision.Sweep(g, Body(pose), delta, new VolumeQueryLimits(remaining, limits.Iterations),
+            var source = Body(pose);
+            var result = VolumeCollision.Sweep(g, source, delta, new VolumeQueryLimits(remaining, limits.Iterations),
                 targetBody.A, targetBody.B);
             remaining -= result.TriangleTests;
-            return result;
+            return sweepStatic is null ? result : CombineStatic(result, source, targetBody, sweepStatic);
         }
         var support = Query(state, (up * -SupportReach).Planet);
         status = support.Status;
@@ -241,5 +258,24 @@ internal static class VolumeWalker
         next = next with { Heading = (heading / heading.Length).Planet, Velocity = (tangent + up * vertical).Planet };
         status = VolumeQueryStatus.Clear;
         return new(next, next.Position == state.Position ? PlanetWalkStatus.Held : PlanetWalkStatus.Moved, grounded);
+    }
+
+    private static VolumeSweepResult CombineStatic(VolumeSweepResult terrain, VolumeCapsule start, VolumeCapsule end,
+        Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult> sweepStatic)
+    {
+        if (terrain.Status is not (VolumeQueryStatus.Clear or VolumeQueryStatus.Contact))
+            return terrain;
+        var extra = sweepStatic(start, end);
+        if (extra.Status == VolumeQueryStatus.Contact)
+        {
+            var normal = new CollisionVector(extra.Normal);
+            if (!double.IsFinite(extra.Fraction) || extra.Fraction is < 0 or > 1 ||
+                !normal.Finite || Math.Abs(normal.Length - 1) > 1e-5)
+                return terrain with { Status = VolumeQueryStatus.Invalid };
+        }
+        if (extra.Status == VolumeQueryStatus.Clear || terrain.Status == VolumeQueryStatus.Contact &&
+            extra.Status == VolumeQueryStatus.Contact && terrain.Fraction <= extra.Fraction)
+            return terrain;
+        return terrain with { Status = extra.Status, Fraction = extra.Fraction, Normal = extra.Normal };
     }
 }

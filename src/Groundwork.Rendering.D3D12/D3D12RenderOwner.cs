@@ -503,6 +503,7 @@ public sealed partial class D3D12Renderer
             gpu.WakeOnQueueRetirement(_wake!);
             if (result == PresentResult.Presented)
             {
+                gpu.ConfirmPropPresentation(frame.Sequence);
                 if (refinementYield is { } yieldedView)
                     visualArbitration.RecordRefinementYield(yieldedView);
                 if (appearance is { } presented)
