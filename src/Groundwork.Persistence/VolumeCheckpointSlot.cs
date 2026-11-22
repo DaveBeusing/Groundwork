@@ -6,7 +6,7 @@ namespace Groundwork.Persistence;
 public enum VolumeSlotStatus
 {
     Empty, Loaded, ReadOnlyRecovery, Committed, AlreadyCommitted, Busy, Stale, Conflict,
-    Incompatible, Corrupt, InvalidCheckpoint, StorageError, Indeterminate, Canceled
+    Incompatible, Corrupt, InvalidCheckpoint, StorageError, Indeterminate, Canceled, Verified, Mismatch
 }
 
 public sealed record VolumeSlotResult(VolumeSlotStatus Status, VolumeCheckpoint? Checkpoint = null,
@@ -18,6 +18,7 @@ public sealed class VolumeCheckpointSlot
     private const string First = "volume.a";
     private const string Second = "volume.b";
     private const string Intent = "volume.intent";
+    private const string Lock = "volume.lock";
     private const string Staging = "staging";
     private readonly string _directory;
     private readonly Guid _slot;
@@ -51,7 +52,7 @@ public sealed class VolumeCheckpointSlot
             using var pin = new VolumeNtfsDirectory(root);
             VolumeNtfsDirectory.Reserve(_directory);
             using var reservedDirectory = new VolumeNtfsDirectory(_directory);
-            using var lease = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, "volume.lock"), lease: true);
+            using var lease = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, Lock), lease: true);
             VolumeNtfsDirectory.Reserve(Path.Combine(_directory, Staging));
             using var marker = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, Reservation), candidate: true);
             marker.Write(ReservationBytes());
@@ -106,6 +107,26 @@ public sealed class VolumeCheckpointSlot
     }
 
     public VolumeSlotResult Load() => WithLease(_ => ReadSettled().Result);
+
+    /// <summary>Compares the latest committed member with the expected checkpoint without changing the slot.</summary>
+    /// <remarks>A missing lease or unresolved publication yields <see cref="VolumeSlotStatus.Indeterminate"/>.</remarks>
+    public VolumeSlotResult VerifyCommitted(VolumeCheckpoint expected)
+    {
+        ArgumentNullException.ThrowIfNull(expected);
+        if (expected.Operation.SlotId != _slot || expected.Lineage != _lineage || expected.Planet != _planet)
+            return new(VolumeSlotStatus.Incompatible);
+        return WithLease(_ =>
+        {
+            var scan = ReadSettled(clearIntent: false);
+            if (scan.Result.Status != VolumeSlotStatus.Loaded)
+                return scan.Result;
+            var actual = scan.Result.Checkpoint!;
+            var member = actual.Generation % 2 == 1 ? scan.A : scan.B;
+            return member.Bytes.AsSpan().SequenceEqual(VolumeCheckpointCodec.Encode(expected))
+                ? new(VolumeSlotStatus.Verified, actual)
+                : new(VolumeSlotStatus.Mismatch, actual);
+        }, readOnly: true);
+    }
 
     /// <summary>Copies an explicitly recovered cut into a distinct reserved empty lineage.</summary>
     public VolumeSlotResult CopyRecoveredCut(VolumeSlotResult recovery, Guid nonce, CancellationToken token = default)
@@ -240,7 +261,7 @@ public sealed class VolumeCheckpointSlot
         return new(VolumeSlotStatus.Committed, checkpoint);
     }
 
-    private SlotScan ReadSettled()
+    private SlotScan ReadSettled(bool clearIntent = true)
     {
         var scan = Scan();
         if (scan.Result.Status is not (VolumeSlotStatus.Loaded or VolumeSlotStatus.Empty))
@@ -268,7 +289,8 @@ public sealed class VolumeCheckpointSlot
                 a.AsSpan().SequenceEqual(marker.AsSpan(marker[0] == 1 ? 65 : 1, 32)) &&
                 b.AsSpan().SequenceEqual(marker.AsSpan(marker[0] == 2 ? 65 : 33, 32))))
             return scan with { Result = new(VolumeSlotStatus.Indeterminate, Member: Intent) };
-        File.Delete(path);
+        if (clearIntent)
+            File.Delete(path);
         return scan;
     }
 
@@ -343,10 +365,11 @@ public sealed class VolumeCheckpointSlot
         try
         {
             using var file = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, name));
-            if (file.Length > VolumeCheckpointCodec.MaximumBytes)
+            var length = file.Length;
+            if (length > VolumeCheckpointCodec.MaximumBytes)
                 return new(VolumeSlotStatus.Incompatible);
             var identity = VolumeNtfsDirectory.Identify(file);
-            var bytes = new byte[(int)file.Length];
+            var bytes = new byte[(int)length];
             file.ReadExactly(bytes);
             var decoded = VolumeCheckpointCodec.Decode(bytes, _slot, _lineage, _planet);
             if (decoded.Status == VolumeCheckpointStatus.Incompatible)
@@ -367,14 +390,14 @@ public sealed class VolumeCheckpointSlot
         catch (Exception error) when (StorageException(error)) { return new(VolumeSlotStatus.StorageError, Error: error); }
     }
 
-    private VolumeSlotResult WithLease(Func<VolumeNtfsDirectory, VolumeSlotResult> action)
+    private VolumeSlotResult WithLease(Func<VolumeNtfsDirectory, VolumeSlotResult> action, bool readOnly = false)
     {
         if (!VolumeCheckpointCodec.Supports(_planet))
             return new(VolumeSlotStatus.Incompatible);
         try
         {
             using var directory = new VolumeNtfsDirectory(_directory);
-            using var lease = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, "volume.lock"), lease: true);
+            using var lease = VolumeNtfsDirectory.OpenFile(Path.Combine(_directory, Lock), lease: true, readOnlyLease: readOnly);
             try
             {
                 var expected = ReservationBytes();
@@ -393,6 +416,10 @@ public sealed class VolumeCheckpointSlot
         catch (IOException error) when ((error.HResult & 0xffff) is 32 or 33)
         {
             return new(VolumeSlotStatus.Busy, Error: error);
+        }
+        catch (IOException error) when (readOnly && (error.HResult & 0xffff) == 2)
+        {
+            return new(VolumeSlotStatus.Indeterminate, Member: Lock, Error: error);
         }
         catch (InvalidDataException error) { return new(VolumeSlotStatus.Incompatible, Error: error); }
         catch (Exception error) when (StorageException(error)) { return new(VolumeSlotStatus.StorageError, Error: error); }

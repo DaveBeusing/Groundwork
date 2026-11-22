@@ -294,6 +294,169 @@ public sealed class VolumeCollisionTests
     }
 
     [TestMethod]
+    public async Task RelocationCommitsRemoteCoverageAndVerifiedPoseTogether()
+    {
+        using var run = new Run(p => p.Z - 128, center: P(0, 0, 128));
+        var source = await CommitRelocationSourceAsync(run);
+        var requested = P(80, 0, 128.4);
+        var request = new VolumeRelocationRequest(source.Terrain, source.Player!.Value, requested);
+        using (var oldCoverage = run.Coordinator.TryRead())
+        {
+            Assert.IsNotNull(oldCoverage);
+            var hits = new VolumeRayHit[4];
+            Assert.AreEqual(VolumeQueryStatus.CoverageUnavailable,
+                oldCoverage.Raycast(requested, P(80, 0, 127), hits).Status);
+        }
+
+        var (work, candidates) = await StageRelocationAsync(run, source, requested);
+        using (work)
+        {
+            var prepared = run.Coordinator.TryPrepareRelocation(work.Generation, candidates, [], request,
+                out var status, out var destination);
+            Assert.AreEqual(VolumeRelocationStatus.Prepared, status);
+            Assert.IsNotNull(prepared);
+            Assert.IsTrue(destination.HasValue);
+            // The radial lower cap is tilted against this fixture's flat Z plane.
+            var upZ = requested.Z / Math.Sqrt(requested.X * requested.X + requested.Z * requested.Z);
+            var supportedZ = 128 + PlanetSurfaceWalker.BodyRadius * (1 - upZ);
+            Assert.AreEqual(supportedZ, destination.Value.Position.Z, 0.002);
+            Assert.AreEqual(requested.X * destination.Value.Position.Z / requested.Z, destination.Value.Position.X, 1e-9);
+            Assert.AreEqual(default, destination.Value.Velocity);
+            Assert.AreSame(source, run.World.Publication.Committed.Read().Root);
+
+            var outcome = run.World.Publication.Finalization.TryFinalize(prepared);
+            Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
+            CoreRuntimeFixture.PublishObserver(run.World, outcome.Stamp!.Value, (int)run.Tick);
+            var moved = (VolumeWorldRoot)run.World.Publication.Committed.Read().Root;
+            Assert.AreEqual(destination, moved.Player);
+            Assert.AreEqual(work.Generation, moved.Terrain.Generation);
+            Assert.AreEqual(source.Terrain.TerrainRevision, moved.Terrain.TerrainRevision);
+            Assert.AreSame(source.State, moved.State);
+            Assert.IsTrue(run.Coordinator.Statistics.MovementHeld);
+
+            using var frame = run.Coordinator.TryRegisterFrame(work.Generation, run.Coordinator.View, 2);
+            Assert.IsNotNull(frame);
+            Assert.IsTrue(run.Coordinator.AcknowledgeFrame(frame));
+            await run.Begin();
+            Assert.IsTrue(run.Coordinator.BeginTick(run.World.Publication.Committed.Read().Stamp));
+            Assert.IsNull(run.Coordinator.TryPlanMovement(source.Player.Value, 0, 0, out var walkStatus));
+            Assert.AreEqual(VolumeQueryStatus.Invalid, walkStatus);
+            var walk = run.Coordinator.TryPlanMovement(destination.Value, 0, 0, out walkStatus);
+            Assert.IsNotNull(walk, $"Destination was not walkable: {walkStatus}");
+            Assert.IsTrue(walk.Result.Grounded);
+        }
+    }
+
+    [TestMethod]
+    public async Task RelocationRejectsStaleSourceAndUnsafeDestinationsWithoutChangingCoverage()
+    {
+        using var run = new Run(p => p.Z - 128, center: P(0, 0, 128));
+        var source = await CommitRelocationSourceAsync(run);
+        var requested = P(4, 0, 128.4);
+        var request = new VolumeRelocationRequest(source.Terrain, source.Player!.Value, requested);
+        var (work, candidates) = await StageRelocationAsync(run, source, requested);
+        using (work)
+        {
+            Reject(request with { SourceTerrain = source.Terrain with { Generation = 99 } }, VolumeRelocationStatus.StaleSource);
+            Reject(request with { SourcePlayer = source.Player.Value with { Velocity = P(1, 0, 0) } }, VolumeRelocationStatus.StaleSource);
+            Reject(request with { Destination = P(double.NaN, 0, 128) }, VolumeRelocationStatus.InvalidDestination);
+            Reject(request with { Destination = P(513, 0, 128) }, VolumeRelocationStatus.InvalidDestination);
+            Reject(request with { Destination = default }, VolumeRelocationStatus.InvalidDestination);
+            Reject(request with { Destination = P(200, 0, 128) }, VolumeRelocationStatus.Unavailable);
+            Reject(request with { Destination = P(4, 0, 127) }, VolumeRelocationStatus.Obstructed);
+            Reject(request with { Destination = P(4, 0, 131) }, VolumeRelocationStatus.Unsupported);
+            Reject(request, VolumeRelocationStatus.Obstructed,
+                static (_, _) => new(VolumeQueryStatus.InitialOverlap, 0, default, default, 0));
+            Reject(request, VolumeRelocationStatus.Unavailable,
+                static (_, _) => new(VolumeQueryStatus.Contact, double.NaN, P(0, 0, 1), default, 0));
+
+            var unchanged = CoreRuntimeFixture.Prepare(run.World, candidates, []);
+            Assert.AreEqual(BarrierStatus.Unchanged, run.World.Publication.Finalization.TryFinalize(unchanged).Status);
+            Assert.AreSame(source, run.World.Publication.Committed.Read().Root);
+            Assert.IsTrue(run.Coordinator.Statistics.MovementHeld);
+            using var retained = run.Coordinator.TryRead();
+            Assert.IsNotNull(retained);
+            Assert.AreEqual(source.Terrain, retained.Info);
+        }
+
+        void Reject(VolumeRelocationRequest attempt, VolumeRelocationStatus expected,
+            Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult>? sweep = null)
+        {
+            Assert.IsNull(run.Coordinator.TryPrepareRelocation(work.Generation, candidates, [], attempt,
+                out var status, out var destination, sweep));
+            Assert.AreEqual(expected, status);
+            Assert.IsNull(destination);
+            Assert.AreSame(source, run.World.Publication.Committed.Read().Root);
+        }
+    }
+
+    [TestMethod]
+    public async Task RelocationCanSettleOnStaticSupportButNewViewRevokesThePreparedSwap()
+    {
+        using var run = new Run(p => p.Z - 128, center: P(0, 0, 128));
+        var source = await CommitRelocationSourceAsync(run);
+        var requested = P(0, 0, 130);
+        var request = new VolumeRelocationRequest(source.Terrain, source.Player!.Value, requested);
+        var (work, candidates) = await StageRelocationAsync(run, source, requested);
+        using (work)
+        {
+            var prepared = run.Coordinator.TryPrepareRelocation(work.Generation, candidates, [], request,
+                out var status, out var destination,
+                static (start, end) => end.A.Z < start.A.Z
+                    ? new(VolumeQueryStatus.Contact, 0.5, P(0, 0, 1), default, 0)
+                    : new(VolumeQueryStatus.Clear, 1, default, default, 0));
+            Assert.AreEqual(VolumeRelocationStatus.Prepared, status);
+            Assert.IsNotNull(prepared);
+            Assert.IsTrue(destination.HasValue);
+            Assert.AreEqual(129.501, destination.Value.Position.Z, 1e-9);
+
+            run.Coordinator.ChangeView(run.Coordinator.View.Frame, 2);
+            Assert.AreEqual(BarrierStatus.Unchanged, run.World.Publication.Finalization.TryFinalize(prepared).Status);
+            Assert.AreSame(source, run.World.Publication.Committed.Read().Root);
+            using var retained = run.Coordinator.TryRead();
+            Assert.IsNotNull(retained);
+            Assert.AreEqual(source.Terrain, retained.Info);
+        }
+    }
+
+    private static async Task<VolumeWorldRoot> CommitRelocationSourceAsync(Run run)
+    {
+        await run.Publish();
+        using var frame = await run.Open();
+        var initial = new PlanetWalkState(P(0, 0, 128), P(1, 0, 0), default);
+        var draft = run.Coordinator.TryPlanMovement(initial, 0, 0, out var status);
+        Assert.IsNotNull(draft, $"Initial support failed: {status}");
+        var candidates = await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults);
+        var prepared = run.Coordinator.TryPrepareMovement(draft, candidates, []);
+        Assert.IsNotNull(prepared);
+        var outcome = run.World.Publication.Finalization.TryFinalize(prepared);
+        Assert.AreEqual(BarrierStatus.Committed, outcome.Status);
+        CoreRuntimeFixture.PublishObserver(run.World, outcome.Stamp!.Value, (int)run.Tick);
+        return (VolumeWorldRoot)run.World.Publication.Committed.Read().Root;
+    }
+
+    private static async Task<(VolumeStreamingWork Work, CandidateSet Candidates)> StageRelocationAsync(
+        Run run, VolumeWorldRoot source, PlanetVector center)
+    {
+        var current = run.Coordinator.View;
+        Assert.IsTrue(current.Frame.TryRebase(center, out var frame));
+        run.Coordinator.ChangeView(frame, current.RendererEpoch);
+        Assert.IsTrue(run.Coordinator.ConfirmMask(run.Coordinator.View));
+        var work = run.StageRelocation(center, source.Terrain.TerrainRevision);
+        try
+        {
+            Assert.IsTrue(work.Execute());
+            await run.Begin();
+            return (work, await CoreRuntimeFixture.SealAsync(run.World, run.Tick, BarrierKind.CommitResults));
+        }
+        catch
+        {
+            work.Dispose();
+            throw;
+        }
+    }
+
+    [TestMethod]
     public async Task QuerySmokeReportsLatencyAndManagedAllocations()
     {
         using var run = new Run(p => p.Z - 16); await run.Publish();
@@ -678,6 +841,15 @@ public sealed class VolumeCollisionTests
                 CoreRuntimeFixture.PublishObserver(World, outcome.Stamp!.Value, (int)Tick);
             }
         }
+        public VolumeStreamingWork StageRelocation(PlanetVector center, ulong revision)
+        {
+            var selection = VolumeStreamingSelection.Select(_source.Descriptor, center, P(1, 0, 0));
+            Assert.AreEqual(VolumeAdmission.Accepted, Coordinator.TryStage(VolumeWorkClass.Movement, selection,
+                revision, revision, 10_000_000, _unit, _source, out var work));
+            Assert.IsNotNull(work);
+            return work;
+        }
+
         public async Task Begin() => await CoreRuntimeFixture.AdvanceEmptyBarrierAsync(World, ++Tick, BarrierKind.BeginTick);
         public async Task<VolumeFrameRegistration> Open()
         {

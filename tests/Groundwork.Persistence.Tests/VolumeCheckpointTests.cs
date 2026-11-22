@@ -657,6 +657,59 @@ public sealed class VolumeCheckpointTests
     }
 
     [TestMethod]
+    public void VerifyCommittedMatchesExactBytesWithoutSettlingIntent()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Requires Windows NTFS.");
+        using var fixture = new Fixture();
+        var expected = Create(0);
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(expected));
+        var marker = fixture.Member("volume.intent");
+        var originalIntent = File.ReadAllBytes(marker);
+        var member = fixture.Member("volume.a");
+        var originalMember = File.ReadAllBytes(member);
+
+        var verified = fixture.Reopen().VerifyCommitted(expected);
+        AssertStatus(VolumeSlotStatus.Verified, verified);
+        Assert.AreEqual(expected.Generation, verified.Checkpoint!.Generation);
+        AssertStatus(VolumeSlotStatus.Mismatch, fixture.Reopen().VerifyCommitted(Create(0, game: 8)));
+        CollectionAssert.AreEqual(originalIntent, File.ReadAllBytes(marker));
+        CollectionAssert.AreEqual(originalMember, File.ReadAllBytes(member));
+        AssertStatus(VolumeSlotStatus.Loaded, fixture.Reopen().Load());
+        Assert.IsFalse(File.Exists(marker));
+        AssertStatus(VolumeSlotStatus.Verified, fixture.Reopen().VerifyCommitted(expected));
+        Assert.IsFalse(File.Exists(marker));
+    }
+
+    [TestMethod]
+    public void VerifyCommittedPreservesMissingLockAndUnresolvedIntent()
+    {
+        if (!OperatingSystem.IsWindows())
+            Assert.Inconclusive("Requires Windows NTFS.");
+        using var fixture = new Fixture();
+        var expected = Create(0);
+        AssertStatus(VolumeSlotStatus.Committed, fixture.Slot.Save(expected));
+        var marker = fixture.Member("volume.intent");
+        AssertStatus(VolumeSlotStatus.Loaded, fixture.Reopen().Load());
+        byte[] malformed = [1];
+        File.WriteAllBytes(marker, malformed);
+        var check = fixture.Reopen().VerifyCommitted(expected);
+        AssertStatus(VolumeSlotStatus.Indeterminate, check);
+        Assert.AreEqual("volume.intent", check.Member);
+        CollectionAssert.AreEqual(malformed, File.ReadAllBytes(marker));
+
+        var lockPath = fixture.Member("volume.lock");
+        using (File.Open(lockPath, FileMode.Open, FileAccess.ReadWrite, FileShare.None))
+            AssertStatus(VolumeSlotStatus.Busy, fixture.Reopen().VerifyCommitted(expected));
+        File.Delete(lockPath);
+        check = fixture.Reopen().VerifyCommitted(expected);
+        AssertStatus(VolumeSlotStatus.Indeterminate, check);
+        Assert.AreEqual("volume.lock", check.Member);
+        Assert.IsFalse(File.Exists(lockPath));
+        CollectionAssert.AreEqual(malformed, File.ReadAllBytes(marker));
+    }
+
+    [TestMethod]
     public void ExplicitRecoveryCopiesTheCutToANewLineageAndCanRetry()
     {
         if (!OperatingSystem.IsWindows())

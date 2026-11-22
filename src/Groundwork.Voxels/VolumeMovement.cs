@@ -107,7 +107,7 @@ public sealed partial class VolumeStreamingCoordinator
     private RootChangePermit? _movementPermit;
 }
 
-internal static class VolumeWalker
+internal static partial class VolumeWalker
 {
     private const double Radius = PlanetSurfaceWalker.BodyRadius;
     private const double Height = PlanetSurfaceWalker.BodyHeight;
