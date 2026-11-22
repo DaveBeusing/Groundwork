@@ -98,6 +98,25 @@ public sealed class PropCellAdmission
         _publication = publication;
     }
 
+    internal void ReviseCoverage(HashSet<PropCellKey> coveredCells, HashSet<PropCellKey> invalidated)
+    {
+        // A scene change inside this terrain cut leaves unaffected workers and residents charged.
+        _coverage.Clear();
+        _coverage.UnionWith(coveredCells);
+        for (var slot = 0; slot < _cells.Length; slot++)
+        {
+            if (_cells[slot] is not { } cell || coveredCells.Contains(cell.Key) && !invalidated.Contains(cell.Key))
+                continue;
+            Cancel(cell);
+            Remove(slot, cell);
+        }
+    }
+
+    internal bool IsCurrent(PropCellRequest request) => TryMatch(request, out _);
+
+    internal bool HasResident(PropCellKey key) =>
+        _slots.TryGetValue(key, out var slot) && _cells[slot] is { Instances.Length: > 0 };
+
     /// <summary>Reserve placement capacity before creating a worker or allocating its result.</summary>
     public PropCellResult TryRequest(PropCellKey key, int maxInstances, out PropCellRequest request)
     {

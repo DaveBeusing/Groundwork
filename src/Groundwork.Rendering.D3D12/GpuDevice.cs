@@ -285,7 +285,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             _resourceDiagnostics?.Signal(next, draw: true);
                             context.Retirement = next;
                             _nextFrame = (_nextFrame + 1) % _frames.Length;
-                            PublishRecordedProps(deferredProps);
+                            PublishRecordedProps(deferredProps, frame.Sequence);
                             PublishShadows(shadows);
                             submitted = true;
                             return GpuFrameSubmitResult.Submitted;
