@@ -230,7 +230,7 @@ internal sealed unsafe partial class GpuDevice
 
     private ID3D12PipelineState* CreateFramePipeline(ID3D12RootSignature* root, bool sky, bool normals = false,
         bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false,
-        bool terrainPbr = false, bool terrainAppearance = false)
+        bool terrainPbr = false, bool terrainAppearance = false, bool translucent = false)
     {
         var vertexShader = LoadShader(terrainAppearance ? "TerrainAppearance.vs.dxil" : props ? "Props.vs.dxil" :
             depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
@@ -301,7 +301,7 @@ internal sealed unsafe partial class GpuDevice
                 DepthStencilState = new D3D12_DEPTH_STENCIL_DESC
                 {
                     DepthEnable = !sky,
-                    DepthWriteMask = sky ? D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ALL,
+                    DepthWriteMask = sky || translucent ? D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ALL,
                     DepthFunc = D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS,
                 },
                 PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
@@ -313,11 +313,12 @@ internal sealed unsafe partial class GpuDevice
                 description.RTVFormats[0] = DXGI_FORMAT.DXGI_FORMAT_R8G8B8A8_UNORM;
             description.BlendState.RenderTarget[0] = new D3D12_RENDER_TARGET_BLEND_DESC
             {
-                SrcBlend = D3D12_BLEND.D3D12_BLEND_ONE,
-                DestBlend = D3D12_BLEND.D3D12_BLEND_ZERO,
+                BlendEnable = translucent,
+                SrcBlend = translucent ? D3D12_BLEND.D3D12_BLEND_BLEND_FACTOR : D3D12_BLEND.D3D12_BLEND_ONE,
+                DestBlend = translucent ? D3D12_BLEND.D3D12_BLEND_INV_BLEND_FACTOR : D3D12_BLEND.D3D12_BLEND_ZERO,
                 BlendOp = D3D12_BLEND_OP.D3D12_BLEND_OP_ADD,
-                SrcBlendAlpha = D3D12_BLEND.D3D12_BLEND_ONE,
-                DestBlendAlpha = D3D12_BLEND.D3D12_BLEND_ZERO,
+                SrcBlendAlpha = translucent ? D3D12_BLEND.D3D12_BLEND_ZERO : D3D12_BLEND.D3D12_BLEND_ONE,
+                DestBlendAlpha = translucent ? D3D12_BLEND.D3D12_BLEND_ONE : D3D12_BLEND.D3D12_BLEND_ZERO,
                 BlendOpAlpha = D3D12_BLEND_OP.D3D12_BLEND_OP_ADD,
                 LogicOp = D3D12_LOGIC_OP.D3D12_LOGIC_OP_NOOP,
                 RenderTargetWriteMask = (byte)D3D12_COLOR_WRITE_ENABLE.D3D12_COLOR_WRITE_ENABLE_ALL,

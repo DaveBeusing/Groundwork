@@ -483,6 +483,7 @@ public sealed partial class D3D12Renderer
             gpu.WakeOnQueueRetirement(_wake!);
             if (result == PresentResult.Presented)
             {
+                gpu.ConfirmPropPresentation(frame.Sequence);
                 if (appearance is { } presented)
                     appearancePresented = presented;
                 else if (planetAppearance is { } planet)

@@ -1,7 +1,10 @@
 namespace Groundwork.Rendering.D3D12;
 
 /// <summary>Immutable near and far meshes for one WP16 model and material.</summary>
-public readonly record struct D3D12PropAsset(PropModel Model, RenderMesh Near, RenderMesh Far);
+public readonly record struct D3D12PropAsset(PropModel Model, RenderMesh Near, RenderMesh Far)
+{
+    public bool Transparent { get; init; }
+}
 
 public readonly record struct D3D12PropStatistics(int UploadBytes, int PayloadBytes, int MetadataBytes, int Draws,
     int Instances, int DeferredCells, long NativeBytes);
@@ -21,6 +24,12 @@ public sealed class D3D12PropCells
     internal PropPublication Publication;
     internal ulong ViewVersion;
     private Guid _world;
+    private PropCellKey[] _requiredCells = [];
+    private ulong _sceneRevision;
+    private bool _trackScenePresentation;
+    private PropPublication _presentedPublication;
+    private ulong _presentedRevision;
+    private ulong _presentedSequence;
     internal bool Attached;
     internal bool Closed;
     internal D3D12PropStatistics Statistics;
@@ -101,7 +110,82 @@ public sealed class D3D12PropCells
             Admission.Publish(publication, covered, excluded);
             Publication = publication;
             Array.Clear(Ready);
+            _trackScenePresentation = false;
+            _requiredCells = [];
+            RequiredDraw = null;
+            _presentedSequence = 0;
             ViewVersion++;
+        }
+    }
+
+    /// <summary>Change prop coverage inside the current terrain cut and request a scene presentation receipt.</summary>
+    /// <remarks>If requiredDraw is supplied, that cell must issue a draw in the presented frame.
+    /// This does not measure pixel visibility after depth testing.</remarks>
+    public bool TryReviseCoverage(PropPublication publication, PropCellKey[] coverage, PropCellKey[] invalidated,
+        PropCellKey[] required, ulong sceneRevision, PropCellKey? requiredDraw = null)
+    {
+        ArgumentNullException.ThrowIfNull(coverage);
+        ArgumentNullException.ThrowIfNull(invalidated);
+        ArgumentNullException.ThrowIfNull(required);
+        if (coverage.Length > Limits.Cells || required.Length > coverage.Length || invalidated.Length > Limits.Cells)
+            return false;
+        var covered = coverage.ToHashSet();
+        var excluded = invalidated.ToHashSet();
+        var requiredCells = (PropCellKey[])required.Clone();
+        if (requiredCells.Any(cell => !covered.Contains(cell)) ||
+            requiredDraw is { } draw && !requiredCells.Contains(draw))
+            return false;
+
+        lock (Gate)
+        {
+            if (Closed || Publication != publication || !publication.IsValid ||
+                _trackScenePresentation && sceneRevision <= _sceneRevision)
+                return false;
+            Admission.ReviseCoverage(covered, excluded);
+            for (var i = 0; i < Ready.Length; i++)
+                if (Ready[i].Request.Generation != 0 && !Admission.IsCurrent(Ready[i].Request))
+                    Ready[i] = default;
+            _requiredCells = requiredCells;
+            RequiredDraw = requiredDraw;
+            _sceneRevision = sceneRevision;
+            _trackScenePresentation = true;
+            _presentedSequence = 0;
+            ViewVersion++;
+            return true;
+        }
+    }
+
+    internal PropCellKey? RequiredDraw { get; private set; }
+
+    /// <summary>Read an actual successful Present receipt for a coherent prop scene.</summary>
+    public bool HasPresentedScene(PropPublication publication, ulong sceneRevision, ulong minimumSequence)
+    {
+        lock (Gate)
+            return !Closed && _presentedSequence != 0 && _presentedSequence >= minimumSequence &&
+                _presentedRevision == sceneRevision && _presentedPublication == publication;
+    }
+
+    internal bool TryGetCompleteScene(out ulong sceneRevision)
+    {
+        sceneRevision = _sceneRevision;
+        if (!_trackScenePresentation)
+            return false;
+        foreach (var cell in _requiredCells)
+            if (!Admission.HasResident(cell))
+                return false;
+        return true;
+    }
+
+    internal void ObserveScenePresent(PropPublication publication, ulong sceneRevision, ulong viewVersion, ulong sequence)
+    {
+        lock (Gate)
+        {
+            if (Closed || !_trackScenePresentation || ViewVersion != viewVersion || Publication != publication ||
+                _sceneRevision != sceneRevision)
+                return;
+            _presentedPublication = publication;
+            _presentedRevision = sceneRevision;
+            _presentedSequence = sequence;
         }
     }
 
