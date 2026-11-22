@@ -213,9 +213,25 @@ public sealed partial class D3D12Renderer
     /// <summary>Prepares the Core swap after native preparation and a retired mask for that exact view.</summary>
     public PreparedBarrierPublication? TryPrepareVolumePublication(ulong generation, CandidateSet candidates,
         ImmutableArray<BatchDisposition> dispositions, out MeshReplacementSubmissionResult result,
-        IWorldStateRoot? composedState = null)
+        IWorldStateRoot? composedState = null) =>
+        PrepareVolumePublication(generation, candidates, dispositions, composedState, null, null, out result, out _, out _);
+
+    /// <summary>Prepares terrain and a verified relocation after the exact native stage and mask have retired.</summary>
+    /// <remarks>The destination is provisional until Core commits the returned publication.</remarks>
+    public PreparedBarrierPublication? TryPrepareVolumeRelocation(ulong generation, CandidateSet candidates,
+        ImmutableArray<BatchDisposition> dispositions, VolumeRelocationRequest request,
+        out VolumeRelocationStatus status, out PlanetWalkState? destination,
+        Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult>? sweepStatic = null) =>
+        PrepareVolumePublication(generation, candidates, dispositions, null, request, sweepStatic, out _, out status, out destination);
+
+    private PreparedBarrierPublication? PrepareVolumePublication(ulong generation, CandidateSet candidates,
+        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState,
+        VolumeRelocationRequest? relocation, Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult>? sweepStatic,
+        out MeshReplacementSubmissionResult result, out VolumeRelocationStatus status, out PlanetWalkState? destination)
     {
         ArgumentNullException.ThrowIfNull(candidates);
+        status = VolumeRelocationStatus.Unavailable;
+        destination = null;
         lock (_volumeGate)
         {
             result = MeshReplacementSubmissionResult.Closed;
@@ -226,7 +242,9 @@ public sealed partial class D3D12Renderer
                 return null;
 
             result = MeshReplacementSubmissionResult.StaleGeneration;
-            var prepared = _volume.TryPreparePublication(generation, candidates, dispositions, composedState, _volumeAuthority);
+            var prepared = relocation is { } request
+                ? _volume.TryPrepareRelocation(generation, candidates, dispositions, request, out status, out destination, sweepStatic, _volumeAuthority)
+                : _volume.TryPreparePublication(generation, candidates, dispositions, composedState, _volumeAuthority);
             if (prepared is not null)
                 result = MeshReplacementSubmissionResult.Accepted;
             return prepared;

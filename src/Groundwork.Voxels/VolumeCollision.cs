@@ -32,12 +32,12 @@ internal readonly record struct CollisionVector(double X, double Y, double Z)
 
 internal static class VolumeCollision
 {
-    internal static bool Covers(VolumeGeneration generation, CollisionVector low, CollisionVector high)
+    internal static bool Covers(VolumeGeneration generation, CollisionVector low, CollisionVector high, bool requireFine = false)
     {
         var extent = generation.Selection.Width * 32;
         var inside = low.Finite && high.Finite && low.X >= 0 && low.Y >= 0 && low.Z >= 0 &&
             high.X <= extent && high.Y <= extent && high.Z <= extent;
-        if (!inside || !generation.Selection.RequiresFineCoverage)
+        if (!inside || (!requireFine && !generation.Selection.RequiresFineCoverage))
             return inside;
 
         var plan = generation.Artifacts!.Plan;
@@ -103,7 +103,8 @@ internal static class VolumeCollision
         return new(count == 0 ? VolumeQueryStatus.Clear : VolumeQueryStatus.Contact, count, g.Info, tests);
     }
 
-    internal static VolumeSweepResult Sweep(VolumeGeneration g, VolumeCapsule capsule, PlanetVector displacement, VolumeQueryLimits limits, PlanetVector? endA = null, PlanetVector? endB = null)
+    internal static VolumeSweepResult Sweep(VolumeGeneration g, VolumeCapsule capsule, PlanetVector displacement,
+        VolumeQueryLimits limits, PlanetVector? endA = null, PlanetVector? endB = null, bool requireFine = false)
     {
         var a = Local(g, capsule.A); var b = Local(g, capsule.B);
         var cell = g.Selection.Descriptor.CellSizeMeters;
@@ -116,7 +117,7 @@ internal static class VolumeCollision
             return new(VolumeQueryStatus.Invalid, 0, default, g.Info, 0);
         var lastA = a + da;
         var lastB = b + db;
-        if (!Covers(g, Min(Min(a, b), Min(lastA, lastB)) - padding, Max(Max(a, b), Max(lastA, lastB)) + padding))
+        if (!Covers(g, Min(Min(a, b), Min(lastA, lastB)) - padding, Max(Max(a, b), Max(lastA, lastB)) + padding, requireFine))
             return new(VolumeQueryStatus.CoverageUnavailable, 0, default, g.Info, 0);
         if (Solid(g, a) || Solid(g, b) || Solid(g, (a + b) * 0.5))
             return new(VolumeQueryStatus.InitialOverlap, 0, default, g.Info, 0);
