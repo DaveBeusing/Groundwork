@@ -57,12 +57,16 @@ internal static class VolumeCollision
         var cell = generation.Selection.Descriptor.CellSizeMeters;
         return new(p.X / cell - origin.X, p.Y / cell - origin.Y, p.Z / cell - origin.Z);
     }
-    private static CollisionVector Vertex(VolumeGeneration g, PlanetVolumeMesh m, System.Numerics.Vector3 p)
+    private static CollisionVector MeshOffset(VolumeGeneration g, PlanetVolumeMesh m)
     {
         var origin = g.Selection.Minimum.Vertex(0, 0, 0);
-        return new((double)((Int128)m.Origin.X - origin.X) + p.X,
-            (double)((Int128)m.Origin.Y - origin.Y) + p.Y, (double)((Int128)m.Origin.Z - origin.Z) + p.Z);
+        return new((double)((Int128)m.Origin.X - origin.X),
+            (double)((Int128)m.Origin.Y - origin.Y), (double)((Int128)m.Origin.Z - origin.Z));
     }
+    private static CollisionVector Vertex(VolumeGeneration g, PlanetVolumeMesh m, System.Numerics.Vector3 p) =>
+        Vertex(MeshOffset(g, m), p);
+    private static CollisionVector Vertex(CollisionVector offset, System.Numerics.Vector3 p) =>
+        new(offset.X + p.X, offset.Y + p.Y, offset.Z + p.Z);
     private static CollisionVector Min(CollisionVector a, CollisionVector b) => new(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y), Math.Min(a.Z, b.Z));
     private static CollisionVector Max(CollisionVector a, CollisionVector b) => new(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y), Math.Max(a.Z, b.Z));
 
@@ -110,41 +114,50 @@ internal static class VolumeCollision
         if (!limits.Valid || !a.Finite || !b.Finite || !d.Finite || !double.IsFinite(d.Length) ||
             !da.Finite || !db.Finite || !double.IsFinite(da.Length) || !double.IsFinite(db.Length) || !double.IsFinite(r) || r <= 0 || r > 32 || (b - a).Length > 64)
             return new(VolumeQueryStatus.Invalid, 0, default, g.Info, 0);
-        if (!Covers(g, Min(Min(a, b), Min(a + da, b + db)) - padding, Max(Max(a, b), Max(a + da, b + db)) + padding))
+        var lastA = a + da;
+        var lastB = b + db;
+        if (!Covers(g, Min(Min(a, b), Min(lastA, lastB)) - padding, Max(Max(a, b), Max(lastA, lastB)) + padding))
             return new(VolumeQueryStatus.CoverageUnavailable, 0, default, g.Info, 0);
         if (Solid(g, a) || Solid(g, b) || Solid(g, (a + b) * 0.5))
             return new(VolumeQueryStatus.InitialOverlap, 0, default, g.Info, 0);
         var speed = Math.Max(da.Length, db.Length); var fraction = 0d; var tests = 0;
         const double skin = 1e-4;
+        var frontLimit = r - skin;
+        var backLimit = -r + skin;
         for (var iteration = 0; iteration < limits.Iterations; iteration++)
         {
+            var currentA = a + da * fraction;
+            var currentB = b + db * fraction;
             var nearest = double.PositiveInfinity; var normal = default(CollisionVector);
             var nearestTransition = false;
             foreach (var mesh in g.Artifacts!.Meshes)
+            {
+                var meshOffset = MeshOffset(g, mesh);
                 foreach (var triangle in mesh.Triangles)
                 {
                     if (++tests > limits.TriangleTests) return new(VolumeQueryStatus.BudgetExceeded, 0, default, g.Info, tests - 1);
-                    var x = Vertex(g, mesh, triangle.A.Position); var y = Vertex(g, mesh, triangle.B.Position); var z = Vertex(g, mesh, triangle.C.Position);
+                    var x = Vertex(meshOffset, triangle.A.Position); var y = Vertex(meshOffset, triangle.B.Position); var z = Vertex(meshOffset, triangle.C.Position);
                     var face = CollisionVector.Cross(y - x, z - x);
-                    if (face.Length > 1e-12)
+                    var faceLength = face.Length;
+                    if (faceLength > 1e-12)
                     {
-                        face /= face.Length;
-                        var fromA = CollisionVector.Dot(a + da * fraction - x, face);
-                        var fromB = CollisionVector.Dot(b + db * fraction - x, face);
-                        var toA = CollisionVector.Dot(a + da - x, face);
-                        var toB = CollisionVector.Dot(b + db - x, face);
-                        // A separating triangle plane proves safety for the entire remaining sweep,
-                        // including coplanar floor triangles at a shared edge.
-                        if (Math.Min(Math.Min(fromA, fromB), Math.Min(toA, toB)) >= r - skin ||
-                            Math.Max(Math.Max(fromA, fromB), Math.Max(toA, toB)) <= -r + skin) continue;
+                        face /= faceLength;
+                        var fromA = CollisionVector.Dot(currentA - x, face);
+                        var fromB = CollisionVector.Dot(currentB - x, face);
+                        var toA = CollisionVector.Dot(lastA - x, face);
+                        var toB = CollisionVector.Dot(lastB - x, face);
+                        // Both ends of the remaining sweep must be on the same side of the plane.
+                        if (Math.Min(Math.Min(fromA, fromB), Math.Min(toA, toB)) >= frontLimit ||
+                            Math.Max(Math.Max(fromA, fromB), Math.Max(toA, toB)) <= backLimit) continue;
                     }
-                    var distance = SegmentTriangle(a + da * fraction, b + db * fraction, x, y, z, out var separation);
+                    var distance = SegmentTriangle(currentA, currentB, x, y, z, out var separation);
                     var n = distance > 1e-12 ? separation / distance : CollisionVector.Cross(y - x, z - x);
                     if (n.Length > 0) n /= n.Length;
                     if (fraction == 0 && distance < r - skin) return new(VolumeQueryStatus.InitialOverlap, 0, n.Planet, g.Info, tests);
                     if (distance < nearest - 1e-10) { nearest = distance; normal = n; nearestTransition = triangle.IsTransition; }
                     else if (Math.Abs(distance - nearest) <= 1e-10 && triangle.IsTransition) nearestTransition = true;
                 }
+            }
             if (nearest <= r + skin) return new(VolumeQueryStatus.Contact, fraction, normal.Planet, g.Info, tests, nearestTransition);
             if (speed == 0 || double.IsPositiveInfinity(nearest)) return new(VolumeQueryStatus.Clear, 1, default, g.Info, tests);
             var advance = (nearest - r - skin) / speed;
