@@ -287,7 +287,7 @@ float3 SampleTerrainNormal(uint slot, TerrainProjection projection, float streng
     return UnitOrZero(worldX * projection.Weights.x + worldY * projection.Weights.y + worldZ * projection.Weights.z);
 }
 
-TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal)
+TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal, bool evaluateDirect)
 {
     uint row = input.MaterialKey & 0xffff;
     TerrainMaterialRow surface = MissingTerrainMaterial;
@@ -300,15 +300,21 @@ TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal)
     TerrainProjection projection = ProjectTerrain(input.Texels, normal);
     if (surface.TextureSlots.x < TerrainTextureCapacity)
         surface.BaseColorMetallic.rgb = SampleTerrainMap(surface.TextureSlots.x, projection);
-    if (surface.TextureSlots.z < TerrainTextureCapacity)
-        surface.Roughness = SampleTerrainMap(surface.TextureSlots.z, projection).r;
     if (surface.TextureSlots.w < TerrainTextureCapacity)
         surface.BaseColorMetallic.a = SampleTerrainMap(surface.TextureSlots.w, projection).r;
-    if (surface.TextureSlots.y < TerrainTextureCapacity && surface.NormalStrength > 0)
+
+    // The ambient and emissive terms do not consume roughness or the
+    // perturbed normal. Keep their three-axis reads on the direct path.
+    [branch] if (evaluateDirect)
     {
-        float3 sampled = SampleTerrainNormal(surface.TextureSlots.y, projection, surface.NormalStrength);
-        if (dot(sampled, normal) > 0)
-            normal = sampled;
+        if (surface.TextureSlots.z < TerrainTextureCapacity)
+            surface.Roughness = SampleTerrainMap(surface.TextureSlots.z, projection).r;
+        if (surface.TextureSlots.y < TerrainTextureCapacity && surface.NormalStrength > 0)
+        {
+            float3 sampled = SampleTerrainNormal(surface.TextureSlots.y, projection, surface.NormalStrength);
+            if (dot(sampled, normal) > 0)
+                normal = sampled;
+        }
     }
     return surface;
 }
@@ -355,10 +361,17 @@ float3 DirectBrdf(float3 normal, float3 view, float normalLight, float normalVie
 
 float4 ShadeTerrainPbr(VertexOutput input, float shadow)
 {
-#if defined(TERRAIN_APPEARANCE)
+    bool evaluateDirect = any(SunDirect > 0);
+    float3 view = 0;
+    [branch] if (evaluateDirect)
+        view = UnitOrZero(PbrHalfEye - 0.5 * input.Local);
+
     float3 normal = UnitOrZero(input.Normal);
-    float3 geometricNormal = normal;
-    TerrainMaterialRow surface = ReadTerrainSurface(input, normal);
+#if defined(TERRAIN_APPEARANCE)
+    // A perturbed normal cannot expose a back-facing geometric
+    // hemisphere to direct light. Check this before reading its maps.
+    evaluateDirect = evaluateDirect && dot(normal, SunDirection) > 0 && dot(normal, view) > 0;
+    TerrainMaterialRow surface = ReadTerrainSurface(input, normal, evaluateDirect);
     float3 color = surface.BaseColorMetallic.rgb * (1 - surface.BaseColorMetallic.a) *
         surface.EmissiveOcclusion.a * SunAmbient + surface.EmissiveOcclusion.rgb;
 #else
@@ -366,21 +379,22 @@ float4 ShadeTerrainPbr(VertexOutput input, float shadow)
     // lobe comes from the directional light; there is no environment specular input.
     float3 color = PbrBaseColor * (1 - PbrMetallic) * PbrOcclusion * SunAmbient +
         float3(PbrEmissiveRed, PbrEmissiveGreen, PbrEmissiveBlue);
-    float3 normal = UnitOrZero(input.Normal);
 #endif
-    float3 view = UnitOrZero(PbrHalfEye - 0.5 * input.Local);
-    float normalLight = saturate(dot(normal, SunDirection));
-    float normalView = saturate(dot(normal, view));
-    // The terrain keeps its two-sided rasterization. Direct reflection uses the hemisphere
-    // of the packed normal, while diffuse ambient and emissive remain visible from either side.
+    [branch] if (evaluateDirect)
+    {
+        float normalLight = saturate(dot(normal, SunDirection));
+        float normalView = saturate(dot(normal, view));
+        // Two-sided rasterization does not expose the other hemisphere
+        // to direct light. Ambient and emissive remain visible there.
+        if (normalLight > 0 && normalView > 0)
+        {
 #if defined(TERRAIN_APPEARANCE)
-    // A perturbed normal cannot expose a back-facing geometric hemisphere to direct light.
-    if (normalLight > 0 && normalView > 0 && dot(geometricNormal, SunDirection) > 0 && dot(geometricNormal, view) > 0)
-        color += DirectBrdf(normal, view, normalLight, normalView, surface) * SunDirect * (normalLight * shadow);
+            color += DirectBrdf(normal, view, normalLight, normalView, surface) * SunDirect * (normalLight * shadow);
 #else
-    if (normalLight > 0 && normalView > 0)
-        color += DirectBrdf(normal, view, normalLight, normalView) * SunDirect * (normalLight * shadow);
+            color += DirectBrdf(normal, view, normalLight, normalView) * SunDirect * (normalLight * shadow);
 #endif
+        }
+    }
     if (FogColorOpacity.a > 0)
     {
         float amount = FogColorOpacity.a * saturate((input.ViewDepth * FogDepth.z - FogDepth.x) * FogDepth.y);
