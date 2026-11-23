@@ -5,6 +5,26 @@ This is an experimental diagnostic candidate for [Groundwork #112](https://githu
 and [WYU #42](https://github.com/DaveBeusing/wyu/issues/42), not a qualified replacement for the direct atmosphere path.
 The reference runner's manifest must identify the final source commits, actual assemblies, hashes and consumer configuration.
 
+## X11D comparison on 23 November 2026
+
+The measured renderer at `8943e96` and WYU `bd59baa` completed the synthetic
+Direct fixture and all 240 native WYU flights across Direct and Lookup.
+The synthetic Direct fixture passed. Integrated GPU timing remains
+**CHANGES REQUIRED**. Direct failed 9 Far Horizon and 17 Orbit Combined
+comparison rows. Experimental Lookup failed 3 and 8, respectively.
+
+In Lookup Orbit Combined Surface pairs 1, 2 and 4, subtracting each enabled
+frame's measured sky time still leaves p95 above the permitted whole-frame
+ceiling. The two Direct Orbit Combined frame overruns merit a separate
+pass-timing comparison. The companion adds opt-in markers for previous-owner
+prop shutdown and renderer disposal. Preserve the original budgets and
+collect both pass breakdown and scheduling coverage before attributing the
+remaining costs.
+
+The hashes, pooled and pair-level findings, and focused commands are in the
+[WYU reference series report](https://github.com/DaveBeusing/wyu/blob/498ad40b3113b7ebe0ecbd56f8ab1304ad0ffbec/docs/dawn-twilight/reference-series-2026-11-23.md).
+
+
 ## Scope
 
 - The default remains the direct atmosphere integrator. `GROUNDWORK_SKY_LOOKUP_PROTOTYPE=1`, captured at device creation,
