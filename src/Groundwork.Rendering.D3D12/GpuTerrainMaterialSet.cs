@@ -69,11 +69,13 @@ internal sealed class GpuTerrainMaterialSet
         }
 
         return new(new(descriptor.BaseColor, descriptor.Metallic), new(descriptor.Emissive, descriptor.AmbientOcclusion),
-            descriptor.Roughness, descriptor.NormalStrength, id, 0, baseColor, normal, roughness, metallic);
+            descriptor.Roughness, descriptor.NormalStrength, id, descriptor.Textures.RoughnessInNormalAlpha ? 1u : 0u,
+            baseColor, normal, roughness, metallic);
     }
 
     // b1. Header and fallback occupy the first five registers. One material uses four registers.
     [StructLayout(LayoutKind.Sequential, Size = RowBytes)]
     private readonly record struct MaterialRow(Vector4 BaseColorAndMetallic, Vector4 EmissiveAndOcclusion,
-        float Roughness, float NormalStrength, uint Id, uint Padding, uint BaseColor, uint Normal, uint RoughnessMap, uint Metallic);
+        float Roughness, float NormalStrength, uint Id, uint RoughnessInNormalAlpha,
+        uint BaseColor, uint Normal, uint RoughnessMap, uint Metallic);
 }

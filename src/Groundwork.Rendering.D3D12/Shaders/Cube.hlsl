@@ -67,7 +67,7 @@ struct TerrainMaterialRow
     float Roughness;
     float NormalStrength;
     uint MaterialId;
-    uint Padding;
+    uint RoughnessInNormalAlpha;
     uint4 TextureSlots;
 };
 
@@ -257,34 +257,56 @@ TerrainProjection ProjectTerrain(float3 texels, float3 normal)
     return projection;
 }
 
+struct TerrainAxisSamples
+{
+    float4 X;
+    float4 Y;
+    float4 Z;
+};
+
+TerrainAxisSamples ReadTerrainAxes(uint slot, TerrainProjection projection)
+{
+    uint index = NonUniformResourceIndex(slot);
+    TerrainAxisSamples samples;
+    samples.X = TerrainMaps[index].SampleLevel(MaterialSampler, projection.X, 0);
+    samples.Y = TerrainMaps[index].SampleLevel(MaterialSampler, projection.Y, 0);
+    samples.Z = TerrainMaps[index].SampleLevel(MaterialSampler, projection.Z, 0);
+    return samples;
+}
+
+float3 BlendTerrainRgb(TerrainAxisSamples samples, float3 weights)
+{
+    return saturate(samples.X.rgb * weights.x + samples.Y.rgb * weights.y + samples.Z.rgb * weights.z);
+}
+
 float3 SampleTerrainMap(uint slot, TerrainProjection projection)
 {
-    uint index = NonUniformResourceIndex(slot);
-    float3 x = TerrainMaps[index].SampleLevel(MaterialSampler, projection.X, 0).rgb;
-    float3 y = TerrainMaps[index].SampleLevel(MaterialSampler, projection.Y, 0).rgb;
-    float3 z = TerrainMaps[index].SampleLevel(MaterialSampler, projection.Z, 0).rgb;
-    return saturate(x * projection.Weights.x + y * projection.Weights.y + z * projection.Weights.z);
+    return BlendTerrainRgb(ReadTerrainAxes(slot, projection), projection.Weights);
 }
 
-float3 DecodeTerrainNormal(float3 encoded, float strength)
+float BlendTerrainAlpha(TerrainAxisSamples samples, float3 weights)
 {
-    float3 normal = encoded * 2 - 1;
-    // This is proportional to multiplying the tangent components by strength, including finite large strengths.
-    return UnitOrZero(float3(normal.xy * min(strength, 1), normal.z / max(strength, 1)));
+    return saturate(samples.X.a * weights.x + samples.Y.a * weights.y + samples.Z.a * weights.z);
 }
 
-float3 SampleTerrainNormal(uint slot, TerrainProjection projection, float strength)
+void ApplyTerrainNormal(TerrainAxisSamples samples, TerrainProjection projection, float strength, inout float3 normal)
 {
-    uint index = NonUniformResourceIndex(slot);
-    float3 x = DecodeTerrainNormal(TerrainMaps[index].SampleLevel(MaterialSampler, projection.X, 0).rgb, strength);
-    float3 y = DecodeTerrainNormal(TerrainMaps[index].SampleLevel(MaterialSampler, projection.Y, 0).rgb, strength);
-    float3 z = DecodeTerrainNormal(TerrainMaps[index].SampleLevel(MaterialSampler, projection.Z, 0).rgb, strength);
+    float tangent = min(strength, 1);
+    float vertical = max(strength, 1);
+    float3 x = samples.X.rgb * 2 - 1;
+    float3 y = samples.Y.rgb * 2 - 1;
+    float3 z = samples.Z.rgb * 2 - 1;
+    x = UnitOrZero(float3(x.xy * tangent, x.z / vertical));
+    y = UnitOrZero(float3(y.xy * tangent, y.z / vertical));
+    z = UnitOrZero(float3(z.xy * tangent, z.z / vertical));
 
     // Tangent and normal flip together on a negative axis. Positive green follows the bitangent.
     float3 worldX = float3(x.z * projection.Signs.x, x.x * projection.Signs.x, x.y);
     float3 worldY = float3(y.y, y.z * projection.Signs.y, y.x * projection.Signs.y);
     float3 worldZ = float3(z.x * projection.Signs.z, z.y, z.z * projection.Signs.z);
-    return UnitOrZero(worldX * projection.Weights.x + worldY * projection.Weights.y + worldZ * projection.Weights.z);
+    float3 mapped = UnitOrZero(worldX * projection.Weights.x + worldY * projection.Weights.y + worldZ * projection.Weights.z);
+    if (dot(mapped, normal) > 0)
+        normal = mapped;
 }
 
 TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal, bool evaluateDirect)
@@ -298,6 +320,20 @@ TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal, b
         return surface;
 
     TerrainProjection projection = ProjectTerrain(input.Texels, normal);
+    bool packed = surface.RoughnessInNormalAlpha != 0;
+    // Issue the independent normal and albedo reads before consuming either result.
+    [branch] if (evaluateDirect && packed && surface.TextureSlots.x < TerrainTextureCapacity &&
+        surface.TextureSlots.y < TerrainTextureCapacity && surface.TextureSlots.w >= TerrainTextureCapacity)
+    {
+        TerrainAxisSamples baseColor = ReadTerrainAxes(surface.TextureSlots.x, projection);
+        TerrainAxisSamples normalRoughness = ReadTerrainAxes(surface.TextureSlots.y, projection);
+        surface.BaseColorMetallic.rgb = BlendTerrainRgb(baseColor, projection.Weights);
+        surface.Roughness = BlendTerrainAlpha(normalRoughness, projection.Weights);
+        if (surface.NormalStrength > 0)
+            ApplyTerrainNormal(normalRoughness, projection, surface.NormalStrength, normal);
+        return surface;
+    }
+
     if (surface.TextureSlots.x < TerrainTextureCapacity)
         surface.BaseColorMetallic.rgb = SampleTerrainMap(surface.TextureSlots.x, projection);
     if (surface.TextureSlots.w < TerrainTextureCapacity)
@@ -309,11 +345,13 @@ TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal, b
     {
         if (surface.TextureSlots.z < TerrainTextureCapacity)
             surface.Roughness = SampleTerrainMap(surface.TextureSlots.z, projection).r;
-        if (surface.TextureSlots.y < TerrainTextureCapacity && surface.NormalStrength > 0)
+        if (surface.TextureSlots.y < TerrainTextureCapacity && (packed || surface.NormalStrength > 0))
         {
-            float3 sampled = SampleTerrainNormal(surface.TextureSlots.y, projection, surface.NormalStrength);
-            if (dot(sampled, normal) > 0)
-                normal = sampled;
+            TerrainAxisSamples samples = ReadTerrainAxes(surface.TextureSlots.y, projection);
+            if (packed)
+                surface.Roughness = BlendTerrainAlpha(samples, projection.Weights);
+            if (surface.NormalStrength > 0)
+                ApplyTerrainNormal(samples, projection, surface.NormalStrength, normal);
         }
     }
     return surface;

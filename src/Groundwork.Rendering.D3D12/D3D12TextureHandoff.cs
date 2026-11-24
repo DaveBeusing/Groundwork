@@ -202,7 +202,8 @@ public sealed class D3D12TextureHandoff
                     return true;
                 }
 
-                var carryResidents = !sameView && _retainTerrainResidents && _terrainPalette is not null &&
+                var previousPalette = _terrainPalette;
+                var carryResidents = !sameView && _retainTerrainResidents && previousPalette is not null &&
                     terrainPalette is not null && view.View.RendererEpoch == _view.View.RendererEpoch;
                 _view = view;
                 _paletteRevision = paletteRevision;
@@ -214,7 +215,8 @@ public sealed class D3D12TextureHandoff
                 {
                     if (entry.State == State.Free)
                         continue;
-                    var unchanged = FindTarget(entry.Target.Slot) == entry.Target;
+                    var unchanged = FindTarget(entry.Target.Slot) == entry.Target &&
+                        RequiresPackedNormal(previousPalette, entry.Target.Slot) == RequiresPackedNormal(terrainPalette, entry.Target.Slot);
                     if (carryResidents && unchanged && entry.State == State.Resident && !entry.Invalidated)
                         entry.View = view;
                     else if (entry.View != view || !unchanged)
@@ -224,7 +226,8 @@ public sealed class D3D12TextureHandoff
                 {
                     if (demand.Target.Sequence == 0)
                         continue;
-                    if ((!sameView && !carryResidents) || FindTarget(demand.Target.Slot) != demand.Target)
+                    if ((!sameView && !carryResidents) || FindTarget(demand.Target.Slot) != demand.Target ||
+                        RequiresPackedNormal(previousPalette, demand.Target.Slot) != RequiresPackedNormal(terrainPalette, demand.Target.Slot))
                         demand = default;
                     else if (carryResidents)
                         demand.Failed = false;
@@ -271,6 +274,10 @@ public sealed class D3D12TextureHandoff
         MaterialTextureSemantic.Metallic => descriptor.Textures.Metallic,
         _ => null,
     };
+
+    private static bool RequiresPackedNormal(MaterialPalette? palette, D3D12TextureSlot slot) =>
+        slot.Semantic == MaterialTextureSemantic.Normal &&
+        palette?.Resolve(slot.Material).Textures.RoughnessInNormalAlpha == true;
 
     private bool CanAdvanceView(D3D12TextureView view)
     {
@@ -453,6 +460,7 @@ public sealed class D3D12TextureHandoff
             }
 
             if (texture.CanonicalBytes.Length > entry.Reservation.PayloadBytes ||
+                (RequiresPackedNormal(_terrainPalette, entry.Target.Slot) && texture.Format != TextureFormat.Rgba8) ||
                 !MatchesBinding(entry.Target.Reference, texture))
             {
                 MarkDemandFailed(in entry);
