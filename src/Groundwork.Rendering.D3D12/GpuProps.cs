@@ -260,7 +260,7 @@ internal sealed unsafe partial class GpuDevice
                 commands->IASetIndexBuffer(&indices);
                 // SV_InstanceID starts at zero for each draw. Point that draw at its own reference range.
                 commands->SetGraphicsRootShaderResourceView(2, references + (ulong)start * (uint)sizeof(PropReference));
-                commands->DrawIndexedInstanced(mesh.IndexCount, (uint)(end - start), 0, 0, 0);
+                commands->DrawIndexedInstanced(mesh.DrawCount, (uint)(end - start), 0, 0, 0);
                 draws++;
             }
             start = end;
@@ -363,11 +363,11 @@ internal sealed unsafe partial class GpuDevice
         {
             var asset = stream.Assets[_propMeshCursor / 2];
             var mesh = (_propMeshCursor & 1) == 0 ? asset.Near : asset.Far;
-            var bytes = MeshBytes(mesh);
+            var bytes = MeshBytes(mesh, allowIndexFree: false);
             if (bytes > available - _propPayloadWritten)
                 return;
             _propMeshes[_propMeshCursor++] = PackMesh(new(mesh, Vector3.Zero), _propGeometryMapped,
-                _propGeometry->GetGPUVirtualAddress(), ref _propGeometryOffset);
+                _propGeometry->GetGPUVirtualAddress(), ref _propGeometryOffset, allowIndexFree: false);
             _propPayloadWritten += bytes;
         }
 

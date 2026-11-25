@@ -26,6 +26,7 @@ public sealed class RenderMesh
 
     internal ReadOnlySpan<uint> PackedNormals => _normals;
     internal ReadOnlySpan<TerrainAppearanceVertex> TerrainAppearance => _appearance;
+    internal bool IsExpandedTriangleList { get; }
 
     private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors, uint[] normals,
         TerrainAppearanceVertex[] appearance)
@@ -35,6 +36,7 @@ public sealed class RenderMesh
         _colors = colors;
         _normals = normals;
         _appearance = appearance;
+        IsExpandedTriangleList = positions.Length == indices.Length && HasUnsharedTriangleVertices(indices);
     }
 
     public ReadOnlySpan<Vector3> Positions => _positions;
@@ -102,4 +104,19 @@ public sealed class RenderMesh
 
     internal static bool IsFinite(Vector3 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+
+    private static bool HasUnsharedTriangleVertices(ReadOnlySpan<uint> indices)
+    {
+        for (var i = 0; i < indices.Length; i += 3)
+        {
+            var first = indices[i];
+            var second = indices[i + 1];
+            var third = indices[i + 2];
+            var start = (uint)i;
+            if (unchecked(first - start) >= 3 || unchecked(second - start) >= 3 || unchecked(third - start) >= 3 ||
+                first == second || first == third || second == third)
+                return false;
+        }
+        return true;
+    }
 }
