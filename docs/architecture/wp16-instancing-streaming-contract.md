@@ -38,4 +38,4 @@ Use Windows x64 Release at 1920 × 1080 on the WP11 reference class. Compare pro
 | Peak memory | At most 64 MiB additional CPU and 64 MiB additional GPU, including staging, scratch, assets and retired resources. |
 | Uploads and terrain | At most 2 MiB additional uploads per frame and zero new terrain brick requests. Verify movement and edit progress with saturated prop placement and upload capacity, then repeat under the WP11 reference pressure cases. |
 
-Record reference-class production qualification separately from integration under [Groundwork #88](https://github.com/DaveBeusing/Groundwork/issues/88) and [#89](https://github.com/DaveBeusing/Groundwork/issues/89).
+Apply the full performance and stress protocol for release or production activation and record it separately from integration under [Groundwork #88](https://github.com/DaveBeusing/Groundwork/issues/88) and [#89](https://github.com/DaveBeusing/Groundwork/issues/89). Merge and unqualified preview follow [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md).

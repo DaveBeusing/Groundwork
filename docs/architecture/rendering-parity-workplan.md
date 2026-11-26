@@ -56,6 +56,8 @@ Every implementation issue states: goal, exact source paths/lane owner, accepted
 
 ## Release gate
 
+Merge and unqualified preview follow [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md). The functional, WARP/NVIDIA correctness and resource-lifetime evidence in the slice table remains applicable.
+
 Do not claim Groundwork graphics or performance parity until frozen matched-content reference scenes on identical hardware establish comparable visual fidelity, CPU/GPU frame p50/p95/p99, memory/streaming behavior and failure recovery. The suggested 1080p/60-FPS and within-15%-of-reference targets from GWE-TR-001 are planning goals only, not adopted production limits.
 
 ## GitHub issue tracker (created 2026-11-15)

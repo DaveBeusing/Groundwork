@@ -2,7 +2,7 @@
 
 WP13 defines the implementation and acceptance contract for Package B in the [roadmap](../roadmap.md). Groundwork supplies optional near-terrain vertex color evaluation. WYU ships three recognizable landscape zones on its reference planet, with continuous transitions and consistent placement from walking altitude through ascent, orbit and landing. [Groundwork #110](https://github.com/DaveBeusing/Groundwork/issues/110), [WYU #40](https://github.com/DaveBeusing/wyu/issues/40)
 
-Use WP11 terrain, streaming and flight as the implementation baseline. The [WP12 handover](../wp12-handover.md) adds a regression route for V2 rock and ore, underground checkpoint restore and supported return to the surface. WP12 production qualification and the WP11 reference pressure work are separate gates. Groundwork #89 remains open. Vegetation and instancing are WP16. Weather, fauna, ecosystem simulation, biome-dependent resources and fog are outside this contract.
+Use WP11 terrain, streaming and flight as the implementation baseline. The [WP12 handover](../wp12-handover.md) adds a regression route for V2 rock and ore, underground checkpoint restore and supported return to the surface. WP12 production qualification and feature-specific WP11 pressure work are separate gates. Groundwork #89 records the accepted WP11 baseline. Vegetation and instancing are WP16. Weather, fauna, ecosystem simulation, biome-dependent resources and fog are outside this contract.
 
 ## Groundwork · Optional color evaluation
 
@@ -29,14 +29,14 @@ Freeze the exact commits, recipe revision, two seeds, canonical sample vectors, 
 | Resources | At most 4 MiB additional temporary CPU peak in aggregate across concurrent builds. At equal geometry, zero additional persistent GPU bytes, draw calls or terrain uploads. A pure camera update incurs zero biome queries and zero biome allocations. |
 | Pressure and production | With a full speculative CPU queue and speculative GPU uploads blocked, required movement and edits still satisfy WP11. Record protected progress, rejected/stale work and holds. Workstation evidence supports integration. Production acceptance requires the reference budgets and pressure qualification. [Groundwork #88](https://github.com/DaveBeusing/Groundwork/issues/88), [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89) |
 
-Measure biome rendering off and on in the same Windows x64 Release build. Use the same seeds, input replay, resolution, presentation mode, driver and geometry in each pair. Collect at least five measured runs after warm-up and at least 2,000 frame time samples per variant and phase. Report ground, orbit and renderer-transition phases separately, record GPU time separately, and retain waits and failed attempts in the evidence.
+For release or production activation, measure biome rendering off and on in the same Windows x64 Release build. Use the same seeds, input replay, resolution, presentation mode, driver and geometry in each pair. Collect at least five measured runs after warm-up and at least 2,000 frame time samples per variant and phase. Report ground, orbit and renderer-transition phases separately, record GPU time separately, and retain waits and failed attempts in the evidence. Merge and unqualified preview follow [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md).
 
 ## Work sequence
 
 | Work | Output |
 | --- | --- |
 | Groundwork #110 | Optional evaluator and bounded batch integration. Portable and D3D12 coverage, followed by an exact verified immutable package archive from green Windows CI on master. |
-| WYU #40 | Exact archive pin. Shared recipe and palette for near and orbital rendering. Deterministic controls, route and regression evidence, including paired performance measurements. |
+| WYU #40 | Exact archive pin. Shared recipe and palette for near and orbital rendering. Deterministic controls, route and regression evidence, including paired performance measurements for release or production activation. |
 | Cross-repository handover | Rebuild and exercise both repositories from clean Windows master checkouts. Record exact package provenance, route and measurements, and mark remaining reference gates explicitly. |
 
 The contract review precedes implementation. Package E and WP16 consume the approved biome integration as specified in the roadmap.
