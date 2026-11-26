@@ -15,6 +15,8 @@ internal readonly record struct TerrainAppearanceVertex(Vector3 Texels, uint Mat
 /// <summary>An immutable snapshot of local positions and triangle-list indices.</summary>
 public sealed class RenderMesh
 {
+    internal const int TwilightPreviewAbiVersion = 1;
+
     public const int MaximumVertexCount = 98_304;
     public const int MaximumIndexCount = 147_456;
 
@@ -26,6 +28,20 @@ public sealed class RenderMesh
 
     internal ReadOnlySpan<uint> PackedNormals => _normals;
     internal ReadOnlySpan<TerrainAppearanceVertex> TerrainAppearance => _appearance;
+    private int _expandedTriangleList;
+
+    internal bool IsExpandedTriangleList
+    {
+        get
+        {
+            var state = Volatile.Read(ref _expandedTriangleList);
+            if (state != 0)
+                return state == 1;
+            var expanded = _positions.Length == _indices.Length && HasUnsharedTriangleVertices(_indices);
+            Volatile.Write(ref _expandedTriangleList, expanded ? 1 : 2);
+            return expanded;
+        }
+    }
 
     private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors, uint[] normals,
         TerrainAppearanceVertex[] appearance)
@@ -102,4 +118,19 @@ public sealed class RenderMesh
 
     internal static bool IsFinite(Vector3 value) =>
         float.IsFinite(value.X) && float.IsFinite(value.Y) && float.IsFinite(value.Z);
+
+    private static bool HasUnsharedTriangleVertices(ReadOnlySpan<uint> indices)
+    {
+        for (var i = 0; i < indices.Length; i += 3)
+        {
+            var first = indices[i];
+            var second = indices[i + 1];
+            var third = indices[i + 2];
+            var start = (uint)i;
+            if (unchecked(first - start) >= 3 || unchecked(second - start) >= 3 || unchecked(third - start) >= 3 ||
+                first == second || first == third || second == third)
+                return false;
+        }
+        return true;
+    }
 }

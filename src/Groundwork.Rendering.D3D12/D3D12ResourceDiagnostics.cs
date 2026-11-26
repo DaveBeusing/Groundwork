@@ -94,7 +94,7 @@ public struct D3D12ResourceSnapshot
     [InlineArray(Length)]
     internal struct PassObservations
     {
-        internal const int Length = 10;
+        internal const int Length = GpuPassPlan.LastPassId;
         private D3D12PassObservation _element;
     }
 }
@@ -150,18 +150,26 @@ internal sealed class ResourceDiagnostics
         Publish();
     }
 
-    internal void Release(nint pointer)
+    internal void Release(nint pointer) => Forget(pointer, released: true);
+
+    // The native resource stays live under the device session's separate ledger.
+    internal void ForgetTransferred(nint pointer) => Forget(pointer, released: false);
+
+    private void Forget(nint pointer, bool released)
     {
         var index = IndexOf(pointer);
         if (index < 0)
             return;
         ref var slot = ref _entries[index];
-        ref var balance = ref _state.Balances[(int)slot.Owner];
-        balance = balance with
+        if (released)
         {
-            Released = AddSaturating(balance.Released, 1),
-            ReleasedBytes = AddSaturating(balance.ReleasedBytes, slot.Bytes)
-        };
+            ref var balance = ref _state.Balances[(int)slot.Owner];
+            balance = balance with
+            {
+                Released = AddSaturating(balance.Released, 1),
+                ReleasedBytes = AddSaturating(balance.ReleasedBytes, slot.Bytes)
+            };
+        }
         slot = default;
         var bit = (UInt128)1 << index;
         _usedResources &= ~bit;

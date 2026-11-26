@@ -67,7 +67,11 @@ struct TerrainMaterialRow
     float Roughness;
     float NormalStrength;
     uint MaterialId;
+#if defined(TWILIGHT_PREVIEW)
+    uint RoughnessInNormalAlpha;
+#else
     uint Padding;
+#endif
     uint4 TextureSlots;
 };
 
@@ -257,6 +261,107 @@ TerrainProjection ProjectTerrain(float3 texels, float3 normal)
     return projection;
 }
 
+#if defined(TWILIGHT_PREVIEW)
+struct TerrainAxisSamples
+{
+    float4 X;
+    float4 Y;
+    float4 Z;
+};
+
+TerrainAxisSamples ReadTerrainAxes(uint slot, TerrainProjection projection)
+{
+    uint index = NonUniformResourceIndex(slot);
+    TerrainAxisSamples samples;
+    samples.X = TerrainMaps[index].SampleLevel(MaterialSampler, projection.X, 0);
+    samples.Y = TerrainMaps[index].SampleLevel(MaterialSampler, projection.Y, 0);
+    samples.Z = TerrainMaps[index].SampleLevel(MaterialSampler, projection.Z, 0);
+    return samples;
+}
+
+float3 BlendTerrainRgb(TerrainAxisSamples samples, float3 weights)
+{
+    return saturate(samples.X.rgb * weights.x + samples.Y.rgb * weights.y + samples.Z.rgb * weights.z);
+}
+
+float3 SampleTerrainMap(uint slot, TerrainProjection projection)
+{
+    return BlendTerrainRgb(ReadTerrainAxes(slot, projection), projection.Weights);
+}
+
+float BlendTerrainAlpha(TerrainAxisSamples samples, float3 weights)
+{
+    return saturate(samples.X.a * weights.x + samples.Y.a * weights.y + samples.Z.a * weights.z);
+}
+
+void ApplyTerrainNormal(TerrainAxisSamples samples, TerrainProjection projection, float strength, inout float3 normal)
+{
+    float tangent = min(strength, 1);
+    float vertical = max(strength, 1);
+    float3 x = samples.X.rgb * 2 - 1;
+    float3 y = samples.Y.rgb * 2 - 1;
+    float3 z = samples.Z.rgb * 2 - 1;
+    x = UnitOrZero(float3(x.xy * tangent, x.z / vertical));
+    y = UnitOrZero(float3(y.xy * tangent, y.z / vertical));
+    z = UnitOrZero(float3(z.xy * tangent, z.z / vertical));
+
+    // Tangent and normal flip together on a negative axis. Positive green follows the bitangent.
+    float3 worldX = float3(x.z * projection.Signs.x, x.x * projection.Signs.x, x.y);
+    float3 worldY = float3(y.y, y.z * projection.Signs.y, y.x * projection.Signs.y);
+    float3 worldZ = float3(z.x * projection.Signs.z, z.y, z.z * projection.Signs.z);
+    float3 mapped = UnitOrZero(worldX * projection.Weights.x + worldY * projection.Weights.y + worldZ * projection.Weights.z);
+    if (dot(mapped, normal) > 0)
+        normal = mapped;
+}
+
+TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal, bool evaluateDirect)
+{
+    uint row = input.MaterialKey & 0xffff;
+    TerrainMaterialRow surface = MissingTerrainMaterial;
+    if (row < TerrainMaterialCapacity)
+        surface = TerrainMaterials[row];
+    if ((input.MaterialKey & TerrainMappingBit) == 0 || !any(normal) ||
+        !any(surface.TextureSlots < TerrainTextureCapacity))
+        return surface;
+
+    TerrainProjection projection = ProjectTerrain(input.Texels, normal);
+    bool packed = surface.RoughnessInNormalAlpha != 0;
+    // Issue the independent normal and albedo reads before consuming either result.
+    [branch] if (evaluateDirect && packed && surface.TextureSlots.x < TerrainTextureCapacity &&
+        surface.TextureSlots.y < TerrainTextureCapacity && surface.TextureSlots.w >= TerrainTextureCapacity)
+    {
+        TerrainAxisSamples baseColor = ReadTerrainAxes(surface.TextureSlots.x, projection);
+        TerrainAxisSamples normalRoughness = ReadTerrainAxes(surface.TextureSlots.y, projection);
+        surface.BaseColorMetallic.rgb = BlendTerrainRgb(baseColor, projection.Weights);
+        surface.Roughness = BlendTerrainAlpha(normalRoughness, projection.Weights);
+        if (surface.NormalStrength > 0)
+            ApplyTerrainNormal(normalRoughness, projection, surface.NormalStrength, normal);
+        return surface;
+    }
+
+    if (surface.TextureSlots.x < TerrainTextureCapacity)
+        surface.BaseColorMetallic.rgb = SampleTerrainMap(surface.TextureSlots.x, projection);
+    if (surface.TextureSlots.w < TerrainTextureCapacity)
+        surface.BaseColorMetallic.a = SampleTerrainMap(surface.TextureSlots.w, projection).r;
+
+    // The ambient and emissive terms do not consume roughness or the
+    // perturbed normal. Keep their three-axis reads on the direct path.
+    [branch] if (evaluateDirect)
+    {
+        if (surface.TextureSlots.z < TerrainTextureCapacity)
+            surface.Roughness = SampleTerrainMap(surface.TextureSlots.z, projection).r;
+        if (surface.TextureSlots.y < TerrainTextureCapacity && (packed || surface.NormalStrength > 0))
+        {
+            TerrainAxisSamples samples = ReadTerrainAxes(surface.TextureSlots.y, projection);
+            if (packed)
+                surface.Roughness = BlendTerrainAlpha(samples, projection.Weights);
+            if (surface.NormalStrength > 0)
+                ApplyTerrainNormal(samples, projection, surface.NormalStrength, normal);
+        }
+    }
+    return surface;
+}
+#else
 float3 SampleTerrainMap(uint slot, TerrainProjection projection)
 {
     uint index = NonUniformResourceIndex(slot);
@@ -314,6 +419,8 @@ TerrainMaterialRow ReadTerrainSurface(VertexOutput input, inout float3 normal)
 }
 #endif
 
+#endif
+
 float3 DirectBrdf(float3 normal, float3 view, float normalLight, float normalView
 #if defined(TERRAIN_APPEARANCE)
     , TerrainMaterialRow surface
@@ -353,6 +460,53 @@ float3 DirectBrdf(float3 normal, float3 view, float normalLight, float normalVie
     return diffuse + distribution * visibility * fresnel;
 }
 
+#if defined(TWILIGHT_PREVIEW)
+float4 ShadeTerrainPbr(VertexOutput input, float shadow)
+{
+    bool evaluateDirect = any(SunDirect > 0);
+    float3 view = 0;
+    [branch] if (evaluateDirect)
+        view = UnitOrZero(PbrHalfEye - 0.5 * input.Local);
+
+    float3 normal = UnitOrZero(input.Normal);
+#if defined(TERRAIN_APPEARANCE)
+    // A perturbed normal cannot expose a back-facing geometric
+    // hemisphere to direct light. Check this before reading its maps.
+    evaluateDirect = evaluateDirect && dot(normal, SunDirection) > 0 && dot(normal, view) > 0;
+    TerrainMaterialRow surface = ReadTerrainSurface(input, normal, evaluateDirect);
+    float3 color = surface.BaseColorMetallic.rgb * (1 - surface.BaseColorMetallic.a) *
+        surface.EmissiveOcclusion.a * SunAmbient + surface.EmissiveOcclusion.rgb;
+#else
+    // Ambient is a diffuse approximation. AO acts here only. The specular
+    // lobe comes from the directional light; there is no environment specular input.
+    float3 color = PbrBaseColor * (1 - PbrMetallic) * PbrOcclusion * SunAmbient +
+        float3(PbrEmissiveRed, PbrEmissiveGreen, PbrEmissiveBlue);
+#endif
+    [branch] if (evaluateDirect)
+    {
+        float normalLight = saturate(dot(normal, SunDirection));
+        float normalView = saturate(dot(normal, view));
+        // Two-sided rasterization does not expose the other hemisphere
+        // to direct light. Ambient and emissive remain visible there.
+        if (normalLight > 0 && normalView > 0)
+        {
+#if defined(TERRAIN_APPEARANCE)
+            color += DirectBrdf(normal, view, normalLight, normalView, surface) * SunDirect * (normalLight * shadow);
+#else
+            color += DirectBrdf(normal, view, normalLight, normalView) * SunDirect * (normalLight * shadow);
+#endif
+        }
+    }
+    if (FogColorOpacity.a > 0)
+    {
+        float amount = FogColorOpacity.a * saturate((input.ViewDepth * FogDepth.z - FogDepth.x) * FogDepth.y);
+        // Preserve the fog endpoint even when linear emissive radiance dwarfs the fog color.
+        precise float3 blended = color * (1 - amount) + FogColorOpacity.rgb * amount;
+        color = blended;
+    }
+    return float4(color, 1);
+}
+#else
 float4 ShadeTerrainPbr(VertexOutput input, float shadow)
 {
 #if defined(TERRAIN_APPEARANCE)
@@ -390,6 +544,7 @@ float4 ShadeTerrainPbr(VertexOutput input, float shadow)
     }
     return float4(color, 1);
 }
+#endif
 
 float4 PSPbrTerrain(VertexOutput input) : SV_Target
 {

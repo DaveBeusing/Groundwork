@@ -17,6 +17,7 @@ public sealed class D3D12PropCells
     internal readonly Lock Gate = new();
     internal readonly PropCellAdmission Admission;
     internal readonly D3D12PropAsset[] Assets;
+    internal readonly bool HasTransparentAssets;
     internal readonly StagedCell[] Ready;
     internal readonly PropCellLimits Limits;
     internal readonly int InstancesPerCell;
@@ -84,6 +85,7 @@ public sealed class D3D12PropCells
         Limits = limits;
         InstancesPerCell = instancesPerCell;
         Assets = assets.ToArray();
+        HasTransparentAssets = Assets.Any(static asset => asset.Transparent);
         Ready = new StagedCell[limits.PendingCells];
     }
 

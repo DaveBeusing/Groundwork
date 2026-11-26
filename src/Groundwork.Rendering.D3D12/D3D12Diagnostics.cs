@@ -19,6 +19,10 @@ public sealed record D3D12DebugMessages(ulong Warnings, ulong Errors, ulong Corr
 {
     /// <summary>Whether the live-object report includes this renderer's intentionally retained session queue.</summary>
     public bool RetainedSessionQueue { get; init; }
+
+    /// <summary>Number of reported live objects identified as this session's retained Twilight Preview resources.</summary>
+    /// <remarks>Included in <see cref="LiveChildObjects"/>, which keeps the full native count.</remarks>
+    public int RetainedSessionPreviewObjects { get; init; }
 }
 
 /// <summary>Bounded numeric diagnostics for a removed device. DRED query results are HRESULTs when available.</summary>

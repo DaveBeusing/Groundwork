@@ -705,7 +705,8 @@ public sealed partial class D3D12Renderer
     {
         lock (_volumeGate)
         {
-            if (!CanDrawVolume(frame) || Read().LastPresentedSequence >= frame.Sequence)
+            // A restored window can redraw an already acknowledged frame while movement owns the terrain gate.
+            if (Read().LastPresentedSequence >= frame.Sequence || !CanDrawVolume(frame))
                 return;
             if (frame.Scene.HasValue)
             {

@@ -87,15 +87,16 @@ internal sealed unsafe partial class GpuDevice
         stream.Publication.TerrainRevision == terrain.TerrainRevision &&
         stream.Publication.CoverageGeneration == terrain.Generation;
 
-    private void DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene, ulong sequence)
+    private DeferredPropDraw? DrawProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in RenderScene scene,
+        ulong sequence, bool deferTransparent)
     {
         if (PropStream is not { } stream || PropTerrain is not { } terrain || scene.PropOrigin is not { } origin)
-            return;
+            return null;
 
         // The window owner only renders after the preceding submission and Present retire.
         // Offscreen callers also wait for retirement before touching this arena again.
         if (!IsIdle)
-            return;
+            return null;
         lock (stream.Gate)
         {
             _propFrameStream = stream;
@@ -108,17 +109,17 @@ internal sealed unsafe partial class GpuDevice
             if (!CanDrawProps(stream, terrain) || !origin.IsValid || !scene.PropEye.IsValid)
             {
                 RecordPropStatistics(0, 0);
-                return;
+                return null;
             }
 
             if (!AllowPropUploads && (_propMeshes is null || _propMeshCursor != _propMeshes.Length))
             {
                 _propReportPendingWorkers = true;
                 RecordPropStatistics(0, 0);
-                return;
+                return null;
             }
             if (!TryInitializeProps(stream))
-                return;
+                return null;
             stream.Admission.BeginFrame();
             _propAdmissionPrepared = true;
             if (AllowPropUploads)
@@ -134,7 +135,7 @@ internal sealed unsafe partial class GpuDevice
             {
                 _propReportPendingWorkers = true;
                 RecordPropStatistics(0, 0);
-                return;
+                return null;
             }
 
             var lens = Matrix4x4.CreatePerspectiveFieldOfView(scene.VerticalFieldOfView,
@@ -150,7 +151,7 @@ internal sealed unsafe partial class GpuDevice
                     continue;
                 _propReportPendingWorkers = true;
                 RecordPropStatistics(0, 0);
-                return;
+                return null;
             }
             _propReportReady = true;
             var count = stream.Admission.SelectFrame(scene.PropEye, planes, _visibleProps);
@@ -175,7 +176,7 @@ internal sealed unsafe partial class GpuDevice
                 stream.Admission.AbortFrame();
                 _propAdmissionPrepared = false;
                 RecordPropStatistics(0, 0);
-                return;
+                return null;
             }
 
             var draws = 0;
@@ -187,24 +188,56 @@ internal sealed unsafe partial class GpuDevice
                 ObserveUse(_propGeometry);
                 var fogDepth = scene.Fog is { MaxOpacity: > 0 } fog ? GetFogDepthConstants(fog) : Vector4.Zero;
                 var fogColor = scene.Fog is { } f ? new Vector4(f.Color, f.MaxOpacity) : Vector4.Zero;
-                var constants = new DrawConstants(projection, scene.Tint, fogColor, fogDepth, default, default, default);
+                var tint = scene.Tint;
+                if (TwilightPreviewEnabledForTests && scene.Sunlight is { } sunlight)
+                    tint *= new Vector4(sunlight.Ambient + sunlight.Direct, 1);
+                var constants = new DrawConstants(projection, tint, fogColor, fogDepth, default, default, default);
                 commands->SetPipelineState(_propPipeline);
-                commands->SetGraphicsRootSignature(_propRoot);
-                commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, &constants, 0);
-                var address = _propData->GetGPUVirtualAddress();
-                commands->SetGraphicsRootShaderResourceView(1, address);
-                var references = address + (uint)_propPayloadCapacity;
-                draws += DrawPropGroups(commands, stream, count, references, transparent: false);
+                var references = BindPropConstants(commands, constants);
+                draws = DrawPropGroups(commands, stream, count, references, transparent: false);
                 if (_transparentPropPipeline != null)
                 {
-                    commands->SetPipelineState(_transparentPropPipeline);
-                    float* blendFactor = stackalloc float[4] { 0.38f, 0.38f, 0.38f, 1f };
-                    commands->OMSetBlendFactor(blendFactor);
-                    draws += DrawPropGroups(commands, stream, count, references, transparent: true);
+                    if (deferTransparent)
+                        return new DeferredPropDraw(stream, constants, count, draws);
+                    draws += DrawTransparentPropGroups(commands, stream, count, references);
                 }
             }
             RecordPropStatistics(draws, count);
+            return null;
         }
+    }
+
+    private readonly record struct DeferredPropDraw(D3D12PropCells Stream, DrawConstants Constants, int Count, int OpaqueDraws);
+
+    private void DrawDeferredProps(ID3D12GraphicsCommandList* commands, GpuTarget target, in DeferredPropDraw pending)
+    {
+        ObserveUse(target.Buffer);
+        ObserveUse(_depth);
+        ObserveUse(_propData);
+        ObserveUse(_propGeometry);
+        // The original recording owns these references. A stale view is rejected
+        // by the same submission check as the opaque prop draws.
+        var references = BindPropConstants(commands, pending.Constants);
+        var draws = DrawTransparentPropGroups(commands, pending.Stream, pending.Count, references);
+        RecordPropStatistics(pending.OpaqueDraws + draws, pending.Count);
+    }
+
+    private ulong BindPropConstants(ID3D12GraphicsCommandList* commands, in DrawConstants constants)
+    {
+        commands->SetGraphicsRootSignature(_propRoot);
+        fixed (DrawConstants* data = &constants)
+            commands->SetGraphicsRoot32BitConstants(0, FrameConstantCount, data, 0);
+        var address = _propData->GetGPUVirtualAddress();
+        commands->SetGraphicsRootShaderResourceView(1, address);
+        return address + (uint)_propPayloadCapacity;
+    }
+
+    private int DrawTransparentPropGroups(ID3D12GraphicsCommandList* commands, D3D12PropCells stream, int count, ulong references)
+    {
+        commands->SetPipelineState(_transparentPropPipeline);
+        float* blendFactor = stackalloc float[4] { 0.38f, 0.38f, 0.38f, 1f };
+        commands->OMSetBlendFactor(blendFactor);
+        return DrawPropGroups(commands, stream, count, references, transparent: true);
     }
 
     private int DrawPropGroups(ID3D12GraphicsCommandList* commands, D3D12PropCells stream, int count, ulong references,
@@ -227,7 +260,7 @@ internal sealed unsafe partial class GpuDevice
                 commands->IASetIndexBuffer(&indices);
                 // SV_InstanceID starts at zero for each draw. Point that draw at its own reference range.
                 commands->SetGraphicsRootShaderResourceView(2, references + (ulong)start * (uint)sizeof(PropReference));
-                commands->DrawIndexedInstanced(mesh.IndexCount, (uint)(end - start), 0, 0, 0);
+                commands->DrawIndexedInstanced(mesh.DrawCount, (uint)(end - start), 0, 0, 0);
                 draws++;
             }
             start = end;
@@ -293,7 +326,7 @@ internal sealed unsafe partial class GpuDevice
         _propWrittenReferences = new PropReference[stream.Limits.ResidentInstances];
         _propRoot = CreateFrameRoot(FrameConstantCount, props: true);
         _propPipeline = CreateFramePipeline(_propRoot, sky: false, props: true);
-        if (stream.Assets.Any(static asset => asset.Transparent))
+        if (stream.HasTransparentAssets)
             _transparentPropPipeline = CreateFramePipeline(_propRoot, sky: false, props: true, translucent: true);
     }
 
@@ -330,11 +363,11 @@ internal sealed unsafe partial class GpuDevice
         {
             var asset = stream.Assets[_propMeshCursor / 2];
             var mesh = (_propMeshCursor & 1) == 0 ? asset.Near : asset.Far;
-            var bytes = MeshBytes(mesh);
+            var bytes = MeshBytes(mesh, allowIndexFree: false);
             if (bytes > available - _propPayloadWritten)
                 return;
             _propMeshes[_propMeshCursor++] = PackMesh(new(mesh, Vector3.Zero), _propGeometryMapped,
-                _propGeometry->GetGPUVirtualAddress(), ref _propGeometryOffset);
+                _propGeometry->GetGPUVirtualAddress(), ref _propGeometryOffset, allowIndexFree: false);
             _propPayloadWritten += bytes;
         }
 

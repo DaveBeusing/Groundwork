@@ -13,6 +13,8 @@ public sealed partial class D3D12Renderer
     internal Action<ulong, ulong, ulong, OffscreenFrame>? AppearancePresentReadbackForTests { private get; init; }
     internal Action<ulong, ulong, ulong, OffscreenFrame>? PlanetAppearanceReadbackForTests { private get; init; }
     internal Action<D3D12Renderer>? BeforeRetrySelectionForTests { private get; init; }
+    internal Action<bool, EventWaitHandle>? OwnerRetirementWaitForTests { private get; init; }
+    internal bool? TwilightPreviewForTests { private get; init; }
     internal Func<long>? FirstContentTimestampForTests { private get; init; }
 
     private D3D12PropCells? _props;
@@ -56,10 +58,14 @@ public sealed partial class D3D12Renderer
     {
         private bool _propsDue;
         private int _firstUseTurns;
+        private D3D12TextureView? _yieldedRefinement;
         private const int FirstUseWeight = 2;
 
-        internal readonly OptionalVisualWork Select(bool firstUse, bool refinement, bool props)
+        internal OptionalVisualWork Select(D3D12TextureView view, bool firstUse, bool refinement, bool props)
         {
+            if (!refinement || _yieldedRefinement != view)
+                _yieldedRefinement = null;
+
             if (props && (_propsDue || (!firstUse && !refinement)))
                 return OptionalVisualWork.Props;
             if (firstUse && (!refinement || _firstUseTurns < FirstUseWeight))
@@ -67,8 +73,14 @@ public sealed partial class D3D12Renderer
             return refinement ? OptionalVisualWork.TextureRefinement : OptionalVisualWork.None;
         }
 
+        internal readonly bool RefinementNeedsYield(D3D12TextureView view) => _yieldedRefinement != view;
+
+        internal void RecordRefinementYield(D3D12TextureView view) => _yieldedRefinement = view;
+
         internal void Consume(OptionalVisualWork work, bool propsEligible)
         {
+            if (work == OptionalVisualWork.TextureRefinement)
+                _yieldedRefinement = null;
             if (work == OptionalVisualWork.Props)
             {
                 _propsDue = false;
@@ -105,7 +117,7 @@ public sealed partial class D3D12Renderer
 
             gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
                 retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null),
-                session: _deviceSession, resourceDiagnostics: _resourceDiagnostics);
+                session: _deviceSession, resourceDiagnostics: _resourceDiagnostics, twilightPreview: TwilightPreviewForTests);
             Volatile.Write(ref _observedGpu, gpu);
             gpu.PropStream = _props;
             if (_textures is { } textures)
@@ -262,7 +274,7 @@ public sealed partial class D3D12Renderer
                 SetSurface(RenderSurfaceState.Suspended, chain);
                 redraw |= current.HasValue;
                 NoticeTextureChanges();
-                var work = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, null, out _);
+                var work = SelectOptionalVisualWork(ref visualArbitration, gpu, target, retry, null, out _, out _);
                 if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, work, out var spentTurn))
                     break;
                 if (spentTurn)
@@ -362,7 +374,7 @@ public sealed partial class D3D12Renderer
             if ((normalFrame ?? appearanceView?.Frame ?? (planetCut.IsValid ? current : null)) is not { } frame)
             {
                 servicedTextureBeforeFrame = false;
-                var work = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, null, out _);
+                var work = SelectOptionalVisualWork(ref visualArbitration, gpu, target, retry, null, out _, out _);
                 if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, work, out var spentTurn))
                     break;
                 if (spentTurn)
@@ -386,15 +398,24 @@ public sealed partial class D3D12Renderer
 
             if (!chain!.CanBeginFrame())
             {
-                WaitForFrame(ProgressPollMilliseconds);
+                WaitForFrame(ProgressPollMilliseconds, gpu.TwilightPreviewEnabledForTests ? chain : null);
                 continue;
             }
 
             var visualWork = OptionalVisualWork.None;
+            D3D12TextureView? refinementYield = null;
             if (!servicedTextureBeforeFrame && frame.Scene is { } scene)
             {
-                visualWork = SelectOptionalVisualWork(visualArbitration, gpu, target, retry, scene, out var propsEligible);
-                if (visualWork is OptionalVisualWork.FirstUseTexture or OptionalVisualWork.TextureRefinement)
+                visualWork = SelectOptionalVisualWork(ref visualArbitration, gpu, target, retry, scene,
+                    out var propsEligible, out var textureView);
+                if (gpu.TwilightPreviewEnabledForTests && visualWork == OptionalVisualWork.TextureRefinement && normalFrame.HasValue &&
+                    visualArbitration.RefinementNeedsYield(textureView))
+                {
+                    // Draw the queued frame with its resident mip before replacing that mip.
+                    refinementYield = textureView;
+                    visualWork = propsEligible ? OptionalVisualWork.Props : OptionalVisualWork.None;
+                }
+                else if (visualWork is OptionalVisualWork.FirstUseTexture or OptionalVisualWork.TextureRefinement)
                 {
                     if (!ServiceOptionalTextures(gpu, target, watchdog, retry, ref stage, visualWork, out var spentTurn))
                         break;
@@ -484,6 +505,8 @@ public sealed partial class D3D12Renderer
             if (result == PresentResult.Presented)
             {
                 gpu.ConfirmPropPresentation(frame.Sequence);
+                if (refinementYield is { } yieldedView)
+                    visualArbitration.RecordRefinementYield(yieldedView);
                 if (appearance is { } presented)
                     appearancePresented = presented;
                 else if (planetAppearance is { } planet)
@@ -525,12 +548,15 @@ public sealed partial class D3D12Renderer
             appearancePending |= RefreshTextures(gpu);
         }
 
-        void WaitForFrame(int maximum = Timeout.Infinite)
+        void WaitForFrame(int maximum = Timeout.Infinite, WindowsSwapChain? waitingChain = null)
         {
             var timeout = retry?.WaitMilliseconds(FirstContentTimestamp(), _operationTimeout) ?? maximum;
             if (maximum != Timeout.Infinite)
                 timeout = Math.Min(maximum, timeout);
-            _wake!.WaitOne(timeout);
+            if (waitingChain is null)
+                _wake!.WaitOne(timeout);
+            else
+                waitingChain.WaitForFrameSlot(timeout);
         }
 
         // A newer neutral mask may submit while the old registration still holds its
@@ -613,12 +639,30 @@ public sealed partial class D3D12Renderer
     private void SettleOwner(GpuDevice? gpu, WindowsSwapChain? chain, WindowsPresentationTargetLease? target,
         IRuntimeWorkLease? lifetime, RendererWatchdog watchdog)
     {
+        ulong parkedSkyLookup = 0;
         try
         {
             // Signaling already-submitted work occurs in GpuDevice before it returns.
             // An unretirable submission stays owned until device removal proves quiescence.
+            var retirementWakeRequested = false;
             while (gpu is not null && !gpu.IsRemoved && !gpu.IsIdle)
-                _wake!.WaitOne(ProgressPollMilliseconds);
+            {
+                var wake = _wake!;
+                // Admission is closed and the submitted fence cannot advance.
+                // Request at most one event, with the bounded poll as fallback.
+                if (gpu.TwilightPreviewEnabledForTests && !retirementWakeRequested &&
+                    gpu.ReadObservedCustody() == D3D12CustodyStatus.None)
+                {
+                    retirementWakeRequested = true;
+                    OwnerRetirementWaitForTests?.Invoke(false, wake);
+                    if (gpu.IsRemoved || gpu.IsIdle)
+                        break;
+                    if (gpu.ReadObservedCustody() == D3D12CustodyStatus.None && gpu.WakeOnQueueRetirement(wake))
+                        OwnerRetirementWaitForTests?.Invoke(true, wake);
+                }
+                if (!gpu.IsRemoved && !gpu.IsIdle)
+                    wake.WaitOne(ProgressPollMilliseconds);
+            }
 
             // Stop has already closed admission. Keep the device and lifetime lease during diagnostics.
             if (gpu?.CaptureDred() is { } removal)
@@ -631,7 +675,11 @@ public sealed partial class D3D12Renderer
             chain?.Dispose();
             target?.Dispose();
             ReleasePrivateVolumeCustody();
-            gpu?.Dispose();
+            if (gpu?.SkyLookupResourceReuseEnabledForTests == true && _startupSucceeded &&
+                Read() is { FirstFault: null, FirstCleanupFault: null, IncompleteCleanup: false })
+                parkedSkyLookup = gpu.DisposeAfterHealthyStop();
+            else
+                gpu?.Dispose();
             _textureOwner?.SettleAfterDeviceDisposal();
             if (_textureOwner is not null && gpu is not null)
                 PublishTextureDiagnostics(gpu);
@@ -641,10 +689,12 @@ public sealed partial class D3D12Renderer
             if (gpu?.FinalDebugSummary is { } debugMessages)
                 Volatile.Write(ref _diagnostics, _diagnostics with { DebugMessages = debugMessages });
             lifetime?.Dispose();
-            Finish();
+            Finish(parkedSkyLookup);
         }
         catch (Exception cleanup)
         {
+            if (parkedSkyLookup != 0)
+                _deviceSession?.DiscardParkedSkyLookup(parkedSkyLookup);
             _custody = new RenderCustody(gpu, chain, target, lifetime, watchdog);
             RecordIncomplete(cleanup);
         }
@@ -661,7 +711,8 @@ public sealed partial class D3D12Renderer
 
         var snapshot = operation.Snapshot;
         if (chain is null)
-            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight);
+            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight,
+                gpu.TwilightPreviewEnabledForTests ? _wake : null);
         else if (!Matches(snapshot, chain))
         {
             if (_resize is { } resize)
@@ -674,19 +725,21 @@ public sealed partial class D3D12Renderer
 
     private enum SurfaceApplication { Denied, Suspended, Applied }
 
-    private OptionalVisualWork SelectOptionalVisualWork(OptionalVisualArbitration arbitration, GpuDevice gpu,
-        WindowsPresentationTargetLease target, FirstContentRetry? retry, RenderScene? scene, out bool propsEligible)
+    private OptionalVisualWork SelectOptionalVisualWork(ref OptionalVisualArbitration arbitration, GpuDevice gpu,
+        WindowsPresentationTargetLease target, FirstContentRetry? retry, RenderScene? scene,
+        out bool propsEligible, out D3D12TextureView textureView)
     {
         propsEligible = false;
+        textureView = default;
         if (!CanServiceOptionalTextures(gpu, target, retry) || _textureOwner is not { } textures)
             return OptionalVisualWork.None;
 
-        var view = CurrentTextureView();
-        var firstUse = textures.HasReady(view, firstUse: true);
-        var refinement = textures.HasReady(view, firstUse: false);
+        textureView = CurrentTextureView();
+        var firstUse = textures.HasReady(textureView, firstUse: true);
+        var refinement = textures.HasReady(textureView, firstUse: false);
         propsEligible = scene is { } drawable && _volumeInstalled is { } installed &&
             gpu.HasReadyPropUploads(drawable, installed.Info);
-        return arbitration.Select(firstUse, refinement, propsEligible);
+        return arbitration.Select(textureView, firstUse, refinement, propsEligible);
     }
 
     private GpuFrameSubmitResult TrySubmitFrame(GpuDevice gpu, WindowsPresentationTargetLease target, WindowsSwapChain chain,

@@ -6,6 +6,7 @@ namespace Groundwork.Rendering.D3D12;
 internal sealed unsafe partial class GpuDevice
 {
     internal bool HasResourceDiagnostics => _resourceDiagnostics is not null;
+    internal bool NeedsPresentTimestamp => HasResourceDiagnostics || _retirementHooks?.AfterSuccessfulPresent is not null;
 
     internal void ObserveResource(ID3D12Resource* resource, D3D12ResourceOwner owner, ulong allocatedBytes = 0)
     {
@@ -30,7 +31,13 @@ internal sealed unsafe partial class GpuDevice
 
     internal void ObservePresentSignal(ulong fence) => _resourceDiagnostics?.Signal(fence, draw: false);
 
-    internal void ObservePresented(ulong fence, long timestamp) => _resourceDiagnostics?.Presented(fence, timestamp);
+    internal void ObservePresented(ulong fence, long timestamp)
+    {
+        _resourceDiagnostics?.Presented(fence, timestamp);
+    }
+
+    internal void ObserveSuccessfulNativePresentForTests(ulong fence, long timestamp) =>
+        _retirementHooks?.AfterSuccessfulPresent?.Invoke(fence, timestamp);
 
     internal D3D12CustodyStatus ObserveTerminalCustody(bool confirmedRemoval)
     {

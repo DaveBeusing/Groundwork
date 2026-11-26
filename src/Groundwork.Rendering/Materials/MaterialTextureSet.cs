@@ -28,6 +28,21 @@ public sealed record MaterialTextureSet
     public MaterialTextureReference? AmbientOcclusion { get; }
     public MaterialTextureReference? Normal { get; }
 
+    /// <summary>Whether the linear normal texture stores scalar roughness in alpha.</summary>
+    public bool RoughnessInNormalAlpha { get; private init; }
+
+    /// <summary>Uses RGB for the normal and alpha for roughness in one linear RGBA texture.</summary>
+    public static MaterialTextureSet FromPackedNormalRoughness(MaterialTextureReference normal,
+        MaterialTextureReference? baseColor = null, MaterialTextureReference? emissive = null,
+        MaterialTextureReference? metallic = null, MaterialTextureReference? ambientOcclusion = null)
+    {
+        ArgumentNullException.ThrowIfNull(normal);
+        return new(baseColor, emissive, metallic: metallic, ambientOcclusion: ambientOcclusion, normal: normal)
+        {
+            RoughnessInNormalAlpha = true,
+        };
+    }
+
     private static MaterialTextureReference? RequireSemantic(
         MaterialTextureReference? texture, MaterialTextureSemantic semantic, string parameterName)
     {

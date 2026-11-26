@@ -148,17 +148,20 @@ internal sealed unsafe partial class GpuDevice
 
             var start = queue->GetNumStoredMessagesAllowedByRetrievalFilter();
             var discarded = queue->GetNumMessagesDiscardedByMessageCountLimit();
+            var retained = _session?.CaptureRetainedDebugObjects() ?? (Queue: null, Preview: []);
             var result = debug->ReportLiveDeviceObjects(D3D12_RLDO_FLAGS.D3D12_RLDO_SUMMARY |
                 D3D12_RLDO_FLAGS.D3D12_RLDO_DETAIL | D3D12_RLDO_FLAGS.D3D12_RLDO_IGNORE_INTERNAL).Value;
             var retainedQueue = false;
+            var retainedPreview = 0;
             var count = result >= 0 && discarded == queue->GetNumMessagesDiscardedByMessageCountLimit()
-                ? CountLiveChildObjects(queue, start, _session?.RetainedQueueName, out retainedQueue)
+                ? CountLiveChildObjects(queue, start, retained.Queue, retained.Preview, out retainedQueue, out retainedPreview)
                 : null;
             FinalDebugSummary = FinalDebugSummary with
             {
                 LiveObjectReportResult = result,
                 LiveChildObjects = count,
                 RetainedSessionQueue = count.HasValue && retainedQueue,
+                RetainedSessionPreviewObjects = count.HasValue ? retainedPreview : 0,
             };
         }
         finally
@@ -168,14 +171,17 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private static int? CountLiveChildObjects(ID3D12InfoQueue* queue, ulong start, string? queueName, out bool retainedQueue)
+    private static int? CountLiveChildObjects(ID3D12InfoQueue* queue, ulong start, string? queueName,
+        ReadOnlySpan<D3D12DeviceSession.NamedPreviewObject> previewObjects, out bool retainedQueue, out int retainedPreview)
     {
         retainedQueue = false;
+        retainedPreview = 0;
         var end = queue->GetNumStoredMessagesAllowedByRetrievalFilter();
         nint* buffer = stackalloc nint[DebugMessageBytes / sizeof(nint)];
         var message = (D3D12_MESSAGE*)buffer;
         var count = 0;
         var sawReport = false;
+        var matchedPreviewObjects = 0u;
         for (var index = start; index < end && index - start < DebugMessageLimit; index++)
         {
             nuint size = DebugMessageBytes;
@@ -186,11 +192,29 @@ internal sealed unsafe partial class GpuDevice
             else if (message->ID.ToString().StartsWith("D3D12_MESSAGE_ID_LIVE_", StringComparison.Ordinal))
             {
                 count++;
-                if (queueName is not null && message->ID == D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_COMMANDQUEUE &&
-                    message->pDescription != null && message->DescriptionByteLength <= DebugMessageBytes)
+                if (message->pDescription == null || message->DescriptionByteLength > DebugMessageBytes)
+                    continue;
+
+                var description = new ReadOnlySpan<byte>((byte*)message->pDescription, (int)message->DescriptionByteLength);
+                string? name = null;
+                if (queueName is not null && message->ID == D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_COMMANDQUEUE)
                 {
-                    var description = new ReadOnlySpan<byte>((byte*)message->pDescription, (int)message->DescriptionByteLength);
-                    retainedQueue |= System.Text.Encoding.UTF8.GetString(description).Contains(queueName, StringComparison.Ordinal);
+                    name = System.Text.Encoding.UTF8.GetString(description);
+                    retainedQueue |= name.Contains(queueName, StringComparison.Ordinal);
+                }
+
+                for (var i = 0; i < previewObjects.Length; i++)
+                {
+                    var bit = 1u << i;
+                    var expected = previewObjects[i];
+                    if ((matchedPreviewObjects & bit) != 0 || message->ID != expected.Kind)
+                        continue;
+                    name ??= System.Text.Encoding.UTF8.GetString(description);
+                    if (!name.Contains(expected.Name, StringComparison.Ordinal))
+                        continue;
+                    matchedPreviewObjects |= bit;
+                    retainedPreview++;
+                    break;
                 }
             }
         }

@@ -24,9 +24,10 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
     private readonly GpuTarget?[] _targets = new GpuTarget?[BufferCount];
     private IDXGISwapChain3* _chain;
     private WaitHandle? _latency;
+    private readonly WaitHandle[]? _frameWaits;
     private bool _frameReady;
 
-    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height)
+    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height, WaitHandle? ownerWake)
     {
         _gpu = gpu;
         IDXGISwapChain1* initial = null;
@@ -58,6 +59,8 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
                 throw new InvalidOperationException("DXGI did not provide a frame latency waitable handle.");
 
             _latency = new LatencyWaitHandle(latencyHandle);
+            if (ownerWake is not null)
+                _frameWaits = [ownerWake, _latency];
             AttachBuffers(width, height);
         }
         catch
@@ -83,6 +86,14 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         return _frameReady;
     }
 
+    internal void WaitForFrameSlot(int milliseconds)
+    {
+        // Owner work wins a simultaneous wake so the owner can revalidate the target.
+        // Latch a consumed DXGI signal until the next real Present.
+        if (!_frameReady)
+            _frameReady = WaitHandle.WaitAny(_frameWaits!, milliseconds) == 1;
+    }
+
     internal void Resize(int width, int height)
     {
         ReleaseBuffers();
@@ -103,7 +114,7 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
             _gpu.ObservePresentStart(retirement, CurrentBuffer);
         var injectedFailure = _gpu.InjectedPresentFailure();
         var result = injectedFailure is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
-        var presentedAt = result.Value == 0 && _gpu.HasResourceDiagnostics ? Stopwatch.GetTimestamp() : 0;
+        var presentedAt = result.Value == 0 && _gpu.NeedsPresentTimestamp ? Stopwatch.GetTimestamp() : 0;
         if (injectedFailure is null)
             _gpu.ObserveNativePresentForTests(retirement, result.Value);
         var signal = _gpu.SignalQueueWork(retirement);
@@ -112,7 +123,11 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         var outcome = ClassifyPresent(result);
         GpuNative.Check(signal, "Signal presentation queue");
         if (outcome == PresentResult.Presented)
+        {
             _gpu.ObservePresented(retirement, presentedAt);
+            if (injectedFailure is null)
+                _gpu.ObserveSuccessfulNativePresentForTests(retirement, presentedAt);
+        }
         return outcome;
     }
 

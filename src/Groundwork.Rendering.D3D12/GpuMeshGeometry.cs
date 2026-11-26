@@ -25,7 +25,7 @@ internal sealed unsafe partial class GpuDevice
     {
         var bytes = 0;
         foreach (ref readonly var instance in meshes)
-            bytes = checked(bytes + MeshBytes(instance.Mesh));
+            bytes = checked(bytes + MeshBytes(instance.Mesh, allowIndexFree: TwilightPreviewEnabledForTests));
 
         if (bytes == 0)
             return new MeshGeometry(this, null, 0, meshes);
@@ -63,13 +63,17 @@ internal sealed unsafe partial class GpuDevice
         Interlocked.Decrement(ref _liveMeshBuffers);
     }
 
-    private static int MeshBytes(RenderMesh mesh) => checked(
-        mesh.Positions.Length * (int)GetVertexStride(mesh) + mesh.Indices.Length * sizeof(uint));
+    private static int MeshBytes(RenderMesh mesh, bool allowIndexFree) => checked(
+        mesh.Positions.Length * (int)GetVertexStride(mesh) + NativeIndexBytes(mesh, allowIndexFree));
+
+    private static int NativeIndexBytes(RenderMesh mesh, bool allowIndexFree) =>
+        allowIndexFree && mesh.IsExpandedTriangleList ? 0 : mesh.Indices.Length * sizeof(uint);
 
     private static uint GetVertexStride(RenderMesh mesh) => !mesh.TerrainAppearance.IsEmpty ? TerrainAppearanceVertexStride :
         mesh.PackedNormals.IsEmpty ? VertexStride : NormalVertexStride;
 
-    private static PackedMesh PackMesh(in RenderMeshInstance instance, byte* mapped, ulong address, ref int offset)
+    private static PackedMesh PackMesh(in RenderMeshInstance instance, byte* mapped, ulong address, ref int offset,
+        bool allowIndexFree)
     {
         var positions = instance.Mesh.Positions;
         var indices = instance.Mesh.Indices;
@@ -81,32 +85,36 @@ internal sealed unsafe partial class GpuDevice
         var appearance = instance.Mesh.TerrainAppearance;
         var stride = GetVertexStride(instance.Mesh);
         var vertexBytes = checked(positions.Length * (int)stride);
-        var indexBytes = checked(indices.Length * sizeof(uint));
+        var indexBytes = NativeIndexBytes(instance.Mesh, allowIndexFree);
         var indexOffset = checked(offset + vertexBytes);
 
         var minimum = new System.Numerics.Vector3(float.PositiveInfinity);
         var maximum = new System.Numerics.Vector3(float.NegativeInfinity);
         for (var index = 0; index < positions.Length; index++)
         {
+            // Expanded triangles have no shared vertices. Pack in draw order, including
+            // the cyclic rotation that puts the canonical material on the first vertex.
+            var source = indexBytes == 0 ? (int)indices[index] : index;
             // Put all meshes in the same scene space before projection. Coincident
             // seam vertices then pass through identical floating-point transforms.
-            var position = positions[index] + instance.Translation;
+            var position = positions[source] + instance.Translation;
             if (!float.IsFinite(position.X) || !float.IsFinite(position.Y) || !float.IsFinite(position.Z))
                 throw new ArgumentException("A translated mesh position is not finite.", nameof(instance));
             minimum = System.Numerics.Vector3.Min(minimum, position);
             maximum = System.Numerics.Vector3.Max(maximum, position);
             var vertex = mapped + offset + index * (int)stride;
-            *(GpuVertex*)vertex = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[index]);
+            *(GpuVertex*)vertex = new GpuVertex(position, colors.IsEmpty ? uint.MaxValue : colors[source]);
             if (!normals.IsEmpty)
-                *(uint*)(vertex + VertexStride) = normals[index];
+                *(uint*)(vertex + VertexStride) = normals[source];
             if (!appearance.IsEmpty)
             {
-                var data = appearance[index];
+                var data = appearance[source];
                 *(System.Numerics.Vector3*)(vertex + NormalVertexStride) = data.Texels;
                 *(uint*)(vertex + NormalVertexStride + 3 * sizeof(float)) = data.MaterialAndMapping;
             }
         }
-        indices.CopyTo(new Span<uint>(mapped + indexOffset, indices.Length));
+        if (indexBytes != 0)
+            indices.CopyTo(new Span<uint>(mapped + indexOffset, indices.Length));
 
         var vertexView = new D3D12_VERTEX_BUFFER_VIEW
         {
@@ -114,7 +122,7 @@ internal sealed unsafe partial class GpuDevice
             SizeInBytes = (uint)vertexBytes,
             StrideInBytes = stride,
         };
-        var indexView = new D3D12_INDEX_BUFFER_VIEW
+        var indexView = indexBytes == 0 ? default : new D3D12_INDEX_BUFFER_VIEW
         {
             BufferLocation = checked(address + (ulong)indexOffset),
             SizeInBytes = (uint)indexBytes,
@@ -126,17 +134,24 @@ internal sealed unsafe partial class GpuDevice
 
     private static void DrawMesh(ID3D12GraphicsCommandList* commands, in PackedMesh mesh)
     {
-        if (mesh.IndexCount == 0)
+        if (mesh.DrawCount == 0)
             return;
 
         var vertices = mesh.Vertices;
-        var indices = mesh.Indices;
         commands->IASetVertexBuffers(0, 1, &vertices);
-        commands->IASetIndexBuffer(&indices);
-        commands->DrawIndexedInstanced(mesh.IndexCount, 1, 0, 0, 0);
+        if (mesh.Indices.SizeInBytes == 0)
+        {
+            commands->DrawInstanced(mesh.DrawCount, 1, 0, 0);
+        }
+        else
+        {
+            var indices = mesh.Indices;
+            commands->IASetIndexBuffer(&indices);
+            commands->DrawIndexedInstanced(mesh.DrawCount, 1, 0, 0, 0);
+        }
     }
 
-    private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices, uint IndexCount, System.Numerics.Vector3 Center, System.Numerics.Vector3 Extent);
+    private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices, uint DrawCount, System.Numerics.Vector3 Center, System.Numerics.Vector3 Extent);
     internal sealed class MeshGeometry : IDisposable
     {
         private readonly GpuDevice _owner;
@@ -175,9 +190,10 @@ internal sealed unsafe partial class GpuDevice
                 var offset = 0;
                 for (var index = 0; index < meshes.Length; index++)
                 {
-                    var packed = PackMesh(meshes[index], (byte*)mapped, address, ref offset);
+                    var packed = PackMesh(meshes[index], (byte*)mapped, address, ref offset,
+                        allowIndexFree: owner.TwilightPreviewEnabledForTests);
                     _packed[index] = packed;
-                    if (packed.IndexCount != 0)
+                    if (packed.DrawCount != 0)
                     {
                         HasPackedNormals &= packed.Vertices.StrideInBytes >= NormalVertexStride;
                         HasTerrainAppearance &= packed.Vertices.StrideInBytes == TerrainAppearanceVertexStride;
@@ -196,7 +212,7 @@ internal sealed unsafe partial class GpuDevice
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
             {
-                if (mesh.IndexCount == 0)
+                if (mesh.DrawCount == 0)
                     continue;
                 if (stride != mesh.Vertices.StrideInBytes)
                 {
@@ -215,7 +231,7 @@ internal sealed unsafe partial class GpuDevice
             var max = float.NegativeInfinity;
             foreach (ref readonly var mesh in _packed.AsSpan())
             {
-                if (mesh.IndexCount == 0 || !Intersects(mesh, basis, near) && !Intersects(mesh, basis, far))
+                if (mesh.DrawCount == 0 || !Intersects(mesh, basis, near) && !Intersects(mesh, basis, far))
                     continue;
                 var center = System.Numerics.Vector3.Dot(mesh.Center, basis.Z);
                 var extent = System.Numerics.Vector3.Dot(mesh.Extent, System.Numerics.Vector3.Abs(basis.Z));
@@ -230,7 +246,7 @@ internal sealed unsafe partial class GpuDevice
             var drawn = false;
             foreach (ref readonly var mesh in _packed.AsSpan())
             {
-                if (mesh.IndexCount != 0 && Intersects(mesh, basis, cascade))
+                if (mesh.DrawCount != 0 && Intersects(mesh, basis, cascade))
                 {
                     DrawMesh(commands, mesh);
                     drawn = true;

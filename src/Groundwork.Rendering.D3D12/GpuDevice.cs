@@ -10,6 +10,8 @@ internal enum GpuFrameSubmitResult { Busy, Rejected, Submitted }
 
 internal sealed unsafe partial class GpuDevice : IDisposable
 {
+    internal const int TwilightPreviewAbiVersion = 1;
+
     private const int AdapterNotFound = unchecked((int)0x887A0002);
     private readonly Frame[] _frames = [new(), new()];
     private IDXGIFactory4* _factory;
@@ -36,13 +38,22 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
         GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null, D3D12DeviceSession? session = null,
-        ResourceDiagnostics? resourceDiagnostics = null)
+        ResourceDiagnostics? resourceDiagnostics = null, bool? skyLookupPrototype = null, bool? skyLookupResourceReuse = null,
+        bool? twilightPreview = null)
     {
         if (meshes is not null && region is not null)
             throw new ArgumentException("Only one initial mesh set may be supplied.", nameof(region));
 
         _retirementHooks = retirementHooks;
         _resourceDiagnostics = resourceDiagnostics;
+        // The nullable override is an explicit native test seam. Runtime
+        // diagnostics must still opt into the shared renderer/client preview.
+        TwilightPreviewEnabledForTests = twilightPreview ?? (skyLookupPrototype == true ||
+            Environment.GetEnvironmentVariable("GROUNDWORK_TWILIGHT_PREVIEW") == "1");
+        SkyLookupPrototypeEnabledForTests = TwilightPreviewEnabledForTests && (skyLookupPrototype ??
+            Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1");
+        SkyLookupResourceReuseEnabledForTests = SkyLookupPrototypeEnabledForTests && (skyLookupResourceReuse ??
+            Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_REUSE_RESOURCES") == "1");
         try
         {
             fixed (IDXGIFactory4** factory = &_factory)
@@ -66,7 +77,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             {
                 if (session is not null)
                 {
-                    _device = session.Attach(out var adapter, out _queue);
+                    _device = session.Attach(out var adapter, out _queue, SkyLookupResourceReuseEnabledForTests);
                     _session = session;
                     reused = _device != null;
                     if (adapter is not null)
@@ -107,9 +118,12 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             foreach (var frame in _frames)
                 frame.Initialize(_device);
             _session?.Retain(_device, _queue, Adapter);
+            _retirementHooks?.AfterDeviceInitialize?.Invoke(this);
         }
         catch
         {
+            if (SkyLookupResourceReuseEnabledForTests)
+                _session?.DiscardParkedSkyLookup();
             ReleaseResources();
             throw;
         }
@@ -136,6 +150,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         if (completed == ulong.MaxValue)
             _observedFenceSentinel = true;
         _resourceDiagnostics?.Complete(completed);
+        DrainRetiredSkyTimingForTests(completed);
         return completed;
     }
 
@@ -152,14 +167,14 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             _depthWidth = 0;
             _depthHeight = 0;
             if (_depthHeap == null)
-                _depthHeap = CreateHeap(_device, D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+                _depthHeap = CreateDepthAttachmentHeap();
             var clear = new D3D12_CLEAR_VALUE { Format = DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT };
             clear.DepthStencil.Depth = 1;
             _depth = CreateResource(_device, D3D12_HEAP_TYPE.D3D12_HEAP_TYPE_DEFAULT,
                 Texture(width, height, DXGI_FORMAT.DXGI_FORMAT_D32_FLOAT, D3D12_RESOURCE_FLAGS.D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL),
                 D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE, &clear);
             ObserveResource(_depth, D3D12ResourceOwner.Depth);
-            _device->CreateDepthStencilView(_depth, null, _depthHeap->GetCPUDescriptorHandleForHeapStart());
+            CreateDepthAttachmentViews();
             _depthWidth = width;
             _depthHeight = height;
             _depthGeneration = checked(_depthGeneration + 1);
@@ -217,13 +232,16 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
         var shadows = frame.Scene is { } scene ? PrepareShadows(target, scene) : default;
         var terrainAppearance = PrepareFrameTerrainMaterials(frame.Scene is { World.IsIdentity: true }, shadows.Constants.Enabled);
+        var hasProps = frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null;
         var shape = new GpuPassShape(target.Width, target.Height,
             frame.Scene.HasValue ? ActiveMeshGeometry?.PackedBytes ?? checked((int)(VertexCount * VertexStride)) : 0,
             frame.Scene.HasValue, frame.Sky.HasValue,
-            frame.Scene is { PropOrigin: not null } && PropTerrain.HasValue && PropStream is not null,
+            hasProps,
             frame.Scene.HasValue && subsequent.HasValue, shadows.NearKind, shadows.FarKind,
             readback is not null, owner is not null, frame.Scene.HasValue && !terrainAppearance ? FrameTextureImport() : default,
-            terrainAppearance, terrainAppearance ? _frameTerrainMaterials!.Imports : default);
+            terrainAppearance, terrainAppearance ? _frameTerrainMaterials!.Imports : default,
+            TransparentPropsAfterSky: TwilightPreviewEnabledForTests && hasProps && frame.Sky.HasValue &&
+                PropStream is { HasTransparentAssets: true }, SkyAfterOpaque: TwilightPreviewEnabledForTests);
         if (GetPassPlan(shape) is not { } plan)
         {
             if (!terrainAppearance)
@@ -288,6 +306,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                             PublishRecordedProps(deferredProps, frame.Sequence);
                             PublishShadows(shadows);
                             submitted = true;
+                            PublishSkyQualificationForTests(frame.Sequence, next);
                             return GpuFrameSubmitResult.Submitted;
                         }
                     }
@@ -308,7 +327,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
                     terrainAppearance = false;
                     shape = shape with { Texture = default, MaterialConstants = false, MaterialMaps = default };
                 }
-                if (attempt == maxRecordings - 1 || GetPassPlan(shape with { Props = false }) is not { } terrainPlan)
+                if (attempt == maxRecordings - 1 || GetPassPlan(shape with { Props = false, TransparentPropsAfterSky = false }) is not { } terrainPlan)
                     return GpuFrameSubmitResult.Rejected;
                 plan = terrainPlan;
                 terrainPbr = !terrainAppearance && TryPrepareTerrainPbr(frame.Scene, shadows.Constants.Enabled);
@@ -360,20 +379,43 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         return result;
     }
 
-    internal void WakeOnQueueRetirement(WaitHandle wake)
+    internal bool WakeOnQueueRetirement(WaitHandle wake)
     {
         // The renderer holds the wake event until native work and its fence settle.
         // Keep the existing bounded retirement poll if registration fails.
-        _ = _fence->SetEventOnCompletion(_retirement.Submitted, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle());
+        return _fence->SetEventOnCompletion(_retirement.Submitted, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle()).Value >= 0;
     }
 
-    public void Dispose()
+    public void Dispose() => DisposeCore(healthyStop: false);
+
+    internal ulong DisposeAfterHealthyStop() => DisposeCore(healthyStop: true);
+
+    private ulong DisposeCore(bool healthyStop)
     {
-        if (_fence != null && !IsIdle && !IsRemoved)
+        var idle = IsIdle;
+        var removed = (_fence != null && !idle || _resourceDiagnostics is not null || healthyStop) && IsRemoved;
+        if (_fence != null && !idle && !removed)
             throw new InvalidOperationException("GPU resources are still owned by an unretired submission.");
-        if (_resourceDiagnostics is not null && IsRemoved)
+        if (_resourceDiagnostics is not null && removed)
             _resourceDiagnostics.NoteCustody(D3D12CustodyStatus.ConfirmedRemoval);
-        ReleaseResources();
+        var session = _session;
+        ulong parkedStamp = 0;
+        if (healthyStop && SkyLookupResourceReuseEnabledForTests && idle && !removed &&
+            ReadObservedCustody() == D3D12CustodyStatus.None)
+            parkedStamp = TryParkSkyLookupStorage();
+        if (parkedStamp == 0 && SkyLookupResourceReuseEnabledForTests)
+            session?.DiscardParkedSkyLookup();
+        try
+        {
+            ReleaseResources();
+            return parkedStamp;
+        }
+        catch
+        {
+            if (parkedStamp != 0)
+                session?.DiscardParkedSkyLookup(parkedStamp);
+            throw;
+        }
     }
 
     private ID3D12Device* OpenDevice(bool warp)
@@ -457,6 +499,7 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         ActiveMeshGeometry?.Dispose();
         ActiveMeshGeometry = null;
         ReleaseObservedResource(_cubeGeometry);
+        ReleaseSkyLookup();
         Release(_skyPipeline);
         Release(_skyRoot);
         _skyPipeline = null;

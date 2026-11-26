@@ -20,10 +20,10 @@ public sealed partial class PresentationSmokeTests
             runtime.Reporter, runtime.StopControl);
         await using var window = new WindowsHostModule(new WindowsHostOptions($"Groundwork prop scene {Guid.NewGuid():N}",
             TerrainWidth, TerrainHeight, 32), runtime.UiWake, runtime.RuntimeOwnership);
-        var frames = Enumerable.Range(0, 7).Select(_ =>
+        var frames = Enumerable.Range(0, 9).Select(_ =>
             new TaskCompletionSource<OffscreenFrame>(TaskCreationOptions.RunContinuationsAsynchronously)).ToArray();
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
-            QualificationDiagnostics, true, TimeSpan.FromSeconds(15), null, null)
+            QualificationDiagnostics with { EnableResourceSnapshots = true }, true, TimeSpan.FromSeconds(15), null, null)
         {
             VolumePresentReadbackForTests = (sequence, _, image) =>
             {
@@ -95,6 +95,32 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual(background.DepthAt(x, y), removed.DepthAt(x, y));
             Console.WriteLine(FormattableString.Invariant(
                 $"Present 2 terrain only, 3 opaque, 4 culled preview, 5 blended preview, 6 removed. {colors} Depth {background.DepthAt(x, y):R} -> {opaque.DepthAt(x, y):R} -> {blended.DepthAt(x, y):R} -> {removed.DepthAt(x, y):R}."));
+            var skyCamera = camera with { FarPlane = 4, Sky = SkyFixture() };
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeCamera(pub.CoverageGeneration, 7, skyCamera));
+            var skyBackground = await frames[7].Task.WaitAsync(token);
+            Assert.IsTrue(props.TryReviseCoverage(pub, [preview], [preview], [preview], 11, preview));
+            Stage(preview, 1, new(32, 32, 5), 0xffff0000);
+            Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmitVolumeCamera(pub.CoverageGeneration, 8, skyCamera));
+            var skyWithPreview = await frames[8].Task.WaitAsync(token);
+            Assert.IsTrue(props.HasPresentedScene(pub, 11, 8));
+            Assert.IsTrue(renderer.TryReadResourceDiagnostics(out var observations));
+            Assert.AreEqual(8UL, observations.FrameSequence);
+            Assert.IsTrue(observations.TryGetPass(GpuPassPlan.TransparentProps, out var previewPass));
+            Assert.AreEqual(2, previewPass.Barriers);
+            Assert.AreEqual(4, previewPass.ResourceUses);
+
+            var previewPixelsOverSky = 0;
+            var viewport = renderer.Read();
+            for (var py = 0; py < viewport.AppliedHeight; py++)
+                for (var px = 0; px < viewport.AppliedWidth; px++)
+                {
+                    if (skyBackground.DepthAt(px, py) != 1)
+                        continue;
+                    Assert.AreEqual(1f, skyWithPreview.DepthAt(px, py));
+                    if (!skyBackground.ColorAt(px, py).SequenceEqual(skyWithPreview.ColorAt(px, py)))
+                        previewPixelsOverSky++;
+                }
+            Assert.IsGreaterThan(0, previewPixelsOverSky, "The preview must blend over sky without writing depth.");
             await renderer.StopAsync(token);
         }
         finally

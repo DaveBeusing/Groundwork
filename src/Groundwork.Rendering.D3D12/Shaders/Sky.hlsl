@@ -5,8 +5,13 @@ cbuffer Atmosphere : register(b0)
     float4 RightAspect;
     float4 UpDisk;
     float4 SunEnergy;
+#if defined(TWILIGHT_PREVIEW)
+    float4 RayleighInverseHeight;
+    float4 AerosolInverseHeight;
+#else
     float4 RayleighHeight;
     float4 AerosolHeight;
+#endif
     float4 RayleighLoss;
     float4 AerosolLoss;
     uint4 Star;
@@ -22,7 +27,11 @@ SkyVertex SkyVS(uint id : SV_VertexID)
 {
     SkyVertex vertex;
     vertex.Screen = float2(id == 1 ? 3 : -1, id == 2 ? 3 : -1);
+#if defined(TWILIGHT_PREVIEW)
+    vertex.Position = float4(vertex.Screen, 1, 1);
+#else
     vertex.Position = float4(vertex.Screen, 0, 1);
+#endif
     return vertex;
 }
 
@@ -43,6 +52,26 @@ bool Sphere(float3 eye, float3 ray, float radius, out float2 roots)
     return true;
 }
 
+#if defined(TWILIGHT_PREVIEW)
+float Ground(float3 eye, float3 ray)
+{
+    float b = dot(eye, ray);
+    // The stable root q = -b-d is negative for b >= 0, so the original
+    // minimum-root test cannot report a forward ground intersection.
+    if (b >= 0)
+        return 1e10;
+    float2 hit;
+    if (dot(eye, eye) <= 1.0000003 && b < 0)
+        return 0;
+    return Sphere(eye, ray, 1, hit) && hit.x >= 0 && hit.y > 0 ? hit.x : 1e10;
+}
+
+float2 Density(float3 samplePosition)
+{
+    float height = max(length(samplePosition) - 1, 0);
+    return exp(-min(height * float2(RayleighInverseHeight.w, AerosolInverseHeight.w), 80));
+}
+#else
 float Ground(float3 eye, float3 ray)
 {
     float2 hit;
@@ -56,11 +85,36 @@ float2 Density(float3 samplePosition)
     float height = max(length(samplePosition) - 1, 0);
     return exp(-min(height / float2(RayleighHeight.w, AerosolHeight.w), 80));
 }
+#endif
 
 float3 Transmission(float2 depth)
 {
     return exp(-min(depth.x * RayleighLoss.rgb + depth.y * AerosolLoss.rgb, 80));
 }
+
+#if defined(TWILIGHT_PREVIEW)
+float SolarVisibility(float3 position)
+{
+    float radius = length(position);
+    float horizon = sqrt(max((radius - 1) * (radius + 1), 0));
+    // Approximate a finite solar disk's penumbra instead of switching the whole
+    // atmosphere sample when its centre crosses the planet's tangent.
+    float elevation = (dot(position, SunEnergy.xyz) + horizon) / radius;
+    return smoothstep(-UpDisk.w, UpDisk.w, elevation);
+}
+
+float2 SolarDepth(float3 position, float distance)
+{
+    // Four-point Gauss-Legendre quadrature resolves the dense end of grazing
+    // light paths without increasing the existing four solar density samples.
+    const float4 nodes = float4(0.0694318442, 0.3300094782, 0.6699905218, 0.9305681558);
+    const float4 weights = float4(0.1739274226, 0.3260725774, 0.3260725774, 0.1739274226);
+    float2 depth = 0;
+    [unroll] for (uint j = 0; j < 4; ++j)
+        depth += Density(position + SunEnergy.xyz * (nodes[j] * distance)) * (weights[j] * distance);
+    return depth;
+}
+#endif
 
 uint Hash(uint v)
 {
@@ -85,6 +139,205 @@ float Stars(float3 ray)
     return (h >> 24) < 9 ? 1 - smoothstep(0.045 - aa * 0.3, 0.045 + aa, distance) : 0;
 }
 
+#if defined(TWILIGHT_PREVIEW)
+float3 SkyEye()
+{
+    float3 eye = EyeOuter.xyz;
+    if (dot(eye, eye) < 1)
+        eye = normalize(eye);
+    return eye;
+}
+
+// Shared direct oracle: both the fullscreen direct path and every lookup
+// texel retain all eight view samples and four solar quadrature samples.
+void IntegrateAtmosphere(float3 eye, float3 ray, float mu, float ground, out float3 light, out float2 viewDepth)
+{
+    float2 segment;
+    light = 0;
+    viewDepth = 0;
+    if (Sphere(eye, ray, EyeOuter.w, segment))
+    {
+        float start = max(segment.x, 0);
+        float stepSize = max(0, min(segment.y, ground) - start) / 8;
+        if (stepSize > 0)
+        {
+            float rayleighPhase = 0.0596831 * (1 + mu * mu);
+            float aerosolPhase = 0.0286479 * pow(max(1.64 - 1.6 * mu, 0.04), -1.5);
+            [loop] for (uint i = 0; i < 8; ++i)
+            {
+                float3 samplePosition = eye + ray * (start + (i + 0.5) * stepSize);
+                float2 density = Density(samplePosition) * stepSize;
+                float2 solar;
+                float visibility = SolarVisibility(samplePosition);
+                if (visibility > 0 && Sphere(samplePosition, SunEnergy.xyz, EyeOuter.w, solar))
+                {
+                    float2 solarDepth = SolarDepth(samplePosition, solar.y);
+                    light += Transmission(viewDepth + density * 0.5 + solarDepth) *
+                        (density.x * RayleighInverseHeight.rgb * rayleighPhase + density.y * AerosolInverseHeight.rgb * aerosolPhase) * visibility;
+                }
+                viewDepth += density;
+            }
+        }
+    }
+}
+
+#ifdef SKY_LOOKUP
+// Fixed 256x128 view-ray fields, independent of the output target dimensions.
+// The same frame camera/FOV/aspect constructs both compute and pixel rays.
+// No history is used:
+// the compute dispatch refreshes both fields with this frame's constants.
+static const uint LookupWidth = 256;
+static const uint LookupHeight = 128;
+static const uint LookupRadianceSlice = 0;
+static const uint LookupTransmissionSlice = 1;
+RWTexture2DArray<float4> LookupFieldsOut : register(u0);
+Texture2DArray<float4> LookupFields : register(t0);
+SamplerState LookupLinearClamp : register(s0);
+
+float3 LookupGridRay(int2 cell)
+{
+    cell = clamp(cell, int2(0,0), int2(LookupWidth - 1, LookupHeight - 1));
+    float2 uv = (float2(cell) + 0.5) / float2(LookupWidth, LookupHeight);
+    float2 screen = float2(uv.x * 2 - 1, 1 - uv.y * 2);
+    return normalize(ForwardTan.xyz + ForwardTan.w *
+        (screen.x * RightAspect.w * RightAspect.xyz + screen.y * UpDisk.xyz));
+}
+
+float LookupGeometryClass(float3 eye, float3 ray, float ground)
+{
+    uint geometry = ground < 1e9 ? 1u : 0u;
+    float2 segment;
+    if (Sphere(eye, ray, EyeOuter.w, segment))
+    {
+        // Use the direct integrator's positive forward, ground-clipped
+        // interval verbatim, including its tangent and behind-eye rules.
+        float start = max(segment.x, 0);
+        float stepSize = max(0, min(segment.y, ground) - start) / 8;
+        if (stepSize > 0)
+            geometry |= 2u;
+    }
+    return float(geometry);
+}
+
+[numthreads(8,8,1)]
+void SkyLookupCS(uint3 id : SV_DispatchThreadID)
+{
+    if (id.x >= LookupWidth || id.y >= LookupHeight)
+        return;
+    float3 eye = SkyEye();
+    float3 ray = LookupGridRay(int2(id.xy));
+    float3 light;
+    float2 depth;
+    float ground = Ground(eye, ray);
+    float geometry = LookupGeometryClass(eye, ray, ground);
+    const int2 neighbors[4] = { int2(-1,0), int2(1,0), int2(0,-1), int2(0,1) };
+    bool edge = false;
+    [unroll] for (uint n = 0; n < 4; ++n)
+    {
+        float3 neighborRay = LookupGridRay(int2(id.xy) + neighbors[n]);
+        edge = edge || LookupGeometryClass(eye, neighborRay, Ground(eye, neighborRay)) != geometry;
+    }
+    IntegrateAtmosphere(eye, ray, dot(ray, SunEnergy.xyz), ground, light, depth);
+    // Alpha carries geometry, not an error tolerance: classify the ray and
+    // mark adjacent cells crossing either the ground or outer air limb.
+    LookupFieldsOut[uint3(id.xy, LookupRadianceSlice)] = float4(light, geometry);
+    LookupFieldsOut[uint3(id.xy, LookupTransmissionSlice)] = float4(Transmission(depth), edge ? 1 : 0);
+}
+
+float PixelLookupGeometryClass(float3 eye, float3 ray, out float ground)
+{
+    float eyeSquared = dot(eye, eye);
+    float cOuter = eyeSquared - EyeOuter.w * EyeOuter.w;
+    if (cOuter < 0)
+    {
+        // For an eye strictly inside the outer sphere, its roots straddle
+        // zero. Preserve Sphere's cross-product distance and strict tangent
+        // decisions while avoiding roots needed only for classifying a ray.
+        float b = dot(eye, ray);
+        float distance = length(cross(eye, ray));
+        bool surfaceZero = eyeSquared <= 1.0000003 && b < 0;
+        bool hitsGround = surfaceZero || (b < 0 && distance < 1);
+        bool hasAir = distance < EyeOuter.w && !surfaceZero;
+        // Lookup composition only needs the ground/no-ground decision. Any
+        // direct fallback below recomputes the actual original ground root.
+        ground = hitsGround ? 0 : 1e10;
+        return float((hitsGround ? 1u : 0u) | (hasAir ? 2u : 0u));
+    }
+    ground = Ground(eye, ray);
+    return LookupGeometryClass(eye, ray, ground);
+}
+
+bool SampleLookup(float2 screen, float geometry, out float3 light, out float3 transmission)
+{
+    // Compute texel centres and the pixel's NDC-derived UV share the same
+    // convention. Clamp only the outer half-texel; no per-pixel angular inverse.
+    float2 coordinate = float2(screen.x * 0.5 + 0.5, 0.5 - screen.y * 0.5);
+    float4 radianceField = LookupFields.SampleLevel(LookupLinearClamp, float3(coordinate, LookupRadianceSlice), 0);
+    float4 transmissionField = LookupFields.SampleLevel(LookupLinearClamp, float3(coordinate, LookupTransmissionSlice), 0);
+    light = radianceField.rgb;
+    transmission = transmissionField.rgb;
+    // A full-resolution ray can hit a small planet or atmosphere silhouette
+    // between grid centres. Its exact geometry class must still agree.
+    if (radianceField.a != geometry)
+        return true;
+    // The existing cardinal halo implies a potential edge, including cases
+    // where filtering class values can cancel. Check its actual 2x2 footprint.
+    [branch] if (transmissionField.a > 0)
+    {
+        float4 classes = LookupFields.GatherAlpha(LookupLinearClamp, float3(coordinate, LookupRadianceSlice));
+        return any(classes != geometry);
+    }
+    return false;
+}
+#endif
+
+[earlydepthstencil]
+float4 SkyPS(SkyVertex input) : SV_Target
+{
+    float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
+        (input.Screen.x * RightAspect.w * RightAspect.xyz + input.Screen.y * UpDisk.xyz));
+    float mu = dot(ray, SunEnergy.xyz);
+    float sine = length(cross(ray, SunEnergy.xyz));
+    float diskAA = max(length(fwidth(ray)), 0.00001);
+    float disk = mu > 0 ? 1 - smoothstep(max(0, UpDisk.w - diskAA), UpDisk.w + diskAA, sine) : 0;
+    float stars = Stars(ray);
+    float3 eye = SkyEye();
+    float ground;
+    float3 light;
+#ifdef SKY_LOOKUP
+    float3 transmission;
+    float geometry = PixelLookupGeometryClass(eye, ray, ground);
+    bool directFallback = SampleLookup(input.Screen, geometry, light, transmission);
+    [branch] if (directFallback)
+    {
+        ground = Ground(eye, ray);
+        float2 directDepth;
+        IntegrateAtmosphere(eye, ray, mu, ground, light, directDepth);
+        transmission = ground > 1e9 ? Transmission(directDepth) : 1;
+    }
+#else
+    ground = Ground(eye, ray);
+    float2 viewDepth;
+    IntegrateAtmosphere(eye, ray, mu, ground, light, viewDepth);
+#endif
+    light *= SunEnergy.w;
+    if (ground > 1e9)
+    {
+        float fade = exp(-8 * dot(light, float3(0.2126, 0.7152, 0.0722)));
+#ifndef SKY_LOOKUP
+        float3 transmission = Transmission(viewDepth);
+#endif
+        light += transmission * (disk * SunEnergy.w + stars * fade * 1.6);
+    }
+#ifdef SKY_LOOKUP
+    // Only the idle-guarded internal capture helper sets Star.y. Normal output
+    // remains opaque; the diagnostic export counts real branch decisions.
+    return float4(light / (1 + light), Star.y == 0 ? 1 : (directFallback ? 1 : 0));
+#else
+    return float4(light / (1 + light), 1);
+#endif
+}
+#else
 float4 SkyPS(SkyVertex input) : SV_Target
 {
     float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
@@ -135,3 +388,4 @@ float4 SkyPS(SkyVertex input) : SV_Target
     }
     return float4(light / (1 + light), 1);
 }
+#endif

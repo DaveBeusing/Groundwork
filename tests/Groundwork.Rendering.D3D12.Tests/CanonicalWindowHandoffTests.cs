@@ -7,6 +7,80 @@ namespace Groundwork.Rendering.D3D12.Tests;
 
 public sealed partial class PresentationSmokeTests
 {
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    [DataRow(true)]
+    [DataRow(false)]
+    public async Task PreviewSkyWindowHandoffReportsOnlyNamedSessionObjectsBeforeFinalStop(bool warp)
+    {
+        using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(30));
+        var token = timeout.Token;
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(10), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        var empty = new RenderMeshInstance(RenderMesh.Create([], []), Vector3.Zero);
+        var geometry = new RenderMeshPair(empty, empty);
+        var firstFrame = new RenderFrame(1, Vector4.Zero) { Sky = SkyFixture() };
+        const string preview = "GROUNDWORK_TWILIGHT_PREVIEW";
+        const string lookup = "GROUNDWORK_SKY_LOOKUP_PROTOTYPE";
+        var priorPreview = Environment.GetEnvironmentVariable(preview);
+        var priorLookup = Environment.GetEnvironmentVariable(lookup);
+        using var session = new D3D12DeviceSession(QualificationDiagnostics, useWarp: warp, reuseDirectQueue: true);
+        try
+        {
+            Environment.SetEnvironmentVariable(preview, "1");
+            Environment.SetEnvironmentVariable(lookup, null);
+            var handoff = await RunOwner(finalOwner: false);
+            Assert.IsTrue(handoff.DebugLayerEnabled && handoff.DredEnabled);
+            Assert.IsNull(handoff.DeviceRemoval);
+            var report = handoff.DebugMessages;
+            Assert.IsNotNull(report);
+            Assert.AreEqual(0, report.LiveObjectReportResult);
+            Assert.AreEqual(0UL, report.Errors);
+            Assert.AreEqual(0UL, report.Corruption);
+            Assert.AreEqual(0UL, report.Discarded);
+            Assert.IsTrue(report.RetainedSessionQueue);
+            Assert.AreEqual(2, report.RetainedSessionPreviewObjects);
+            Assert.AreEqual(3, report.LiveChildObjects);
+
+            var final = await RunOwner(finalOwner: true);
+            AssertCleanDiagnostics(final, diagnosticsRequested: true);
+            Assert.AreEqual(0, final.DebugMessages!.RetainedSessionPreviewObjects);
+            Assert.IsFalse(final.DebugMessages.RetainedSessionQueue);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(lookup, priorLookup);
+            Environment.SetEnvironmentVariable(preview, priorPreview);
+        }
+
+        async Task<D3D12DiagnosticsSnapshot> RunOwner(bool finalOwner)
+        {
+            var runtime = CreateRuntime(timing);
+            var context = new EngineModuleContext(TimeProvider.System, timing, runtime.Reporter, runtime.StopControl);
+            var title = $"Groundwork Preview sky session handoff {Guid.NewGuid():N}";
+            await using var window = new WindowsHostModule(new WindowsHostOptions(title, 360, 280, 32),
+                runtime.UiWake, runtime.RuntimeOwnership);
+            await using var renderer = D3D12Renderer.CreateWithSessionMeshes(window, runtime.RuntimeOwnership, geometry, session,
+                startupTimeout: TimeSpan.FromSeconds(10), operationTimeout: TimeSpan.FromSeconds(5));
+            try
+            {
+                await window.InitializeAsync(context, token);
+                await window.StartAsync(token);
+                await renderer.InitializeAsync(context, token);
+                await renderer.StartAsync(token);
+                AssertPlanetAdapter(renderer.ReadDiagnostics().Adapter, warp);
+                Assert.AreEqual(RenderSubmissionResult.Accepted, renderer.TrySubmit(firstFrame));
+                var presented = await renderer.WaitForPresentedAsync(firstFrame.Sequence, token);
+                Assert.AreEqual(firstFrame.Sequence, presented.LastPresentedSequence);
+                if (finalOwner)
+                    session.Dispose();
+                await renderer.StopAsync(token);
+                await window.StopAsync(token);
+                return renderer.ReadDiagnostics();
+            }
+            finally { runtime.StopControl.RequestStop(HostStopReason.ExternalCancellation); }
+        }
+    }
+
     // Filter: FullyQualifiedName~CanonicalWindowPresentsTheSameMixedMaterialsAcrossNearAndOrbit
     // This test owns a standalone presentation lease. The WP11 and planet renderer
     // authority tests separately verify their paired publication and receipt rules.
@@ -77,6 +151,7 @@ public sealed partial class PresentationSmokeTests
         Assert.IsTrue(stream.PublishTerrainAppearance(view, assets.Palette, targets));
         var nativeMaps = new Dictionary<D3D12TextureTicket, GpuTerrainMap>();
         var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, region: near);
+        using var ownerWake = new AutoResetEvent(false);
         WindowsSwapChain? chain = null;
         nint hwnd = 0;
         try
@@ -91,7 +166,7 @@ public sealed partial class PresentationSmokeTests
                 Assert.AreNotEqual(nint.Zero, hwnd);
                 Assert.AreEqual(width, attach.Snapshot.ClientWidth);
                 Assert.AreEqual(height, attach.Snapshot.ClientHeight);
-                chain = new WindowsSwapChain(gpu, attach, width, height);
+                chain = new WindowsSwapChain(gpu, attach, width, height, ownerWake);
             }
 
             foreach (var textureTarget in targets)
@@ -199,7 +274,7 @@ public sealed partial class PresentationSmokeTests
             while (!chain!.CanBeginFrame())
             {
                 token.ThrowIfCancellationRequested();
-                Thread.Sleep(1);
+                chain.WaitForFrameSlot(10);
             }
 
             using (var operation = target.TryBeginOperation())
