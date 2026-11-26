@@ -109,7 +109,8 @@ public sealed partial class PresentationSmokeTests
         {
             var prototype = (owner & 1) != 0;
             using var gpu = new GpuDevice(true, enableDebugLayer: true, enableDred: true, session: session,
-                skyLookupPrototype: prototype, retirementHooks: new(AfterSkyPipelineReady: (_, _, hit) => reuse.Add(hit)));
+                skyLookupPrototype: prototype, retirementHooks: new(AfterSkyPipelineReady: (_, _, hit) => reuse.Add(hit)),
+                twilightPreview: true);
             _ = GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(1, Vector4.Zero) { Sky = SkyFixture() });
             var handles = gpu.SkyLookupPipelineHandlesForTests;
             if (owner == 0) direct = handles;
