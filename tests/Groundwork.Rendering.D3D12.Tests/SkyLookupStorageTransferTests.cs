@@ -40,6 +40,8 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(0UL, transferred.RetainedBytes);
         Assert.AreEqual(0UL, transferred.ReleasedBytes, "A custody transfer is not a native release.");
         AssertSkyLookupSharedOwnerDiagnostics(first);
+        Assert.AreEqual(5, first.FinalDebugSummary!.RetainedSessionPreviewObjects);
+        Assert.AreEqual(5, first.FinalDebugSummary.LiveChildObjects);
         session.ConfirmParkedSkyLookup(firstStamp);
 
         var successorLedger = new ResourceDiagnostics();
@@ -72,6 +74,8 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(GpuDevice.SkyLookupStorageLimit, session.ParkedSkyLookupBytes,
             "A late cleanup error must not discard a subsequent owner's parked storage.");
         AssertSkyLookupSharedOwnerDiagnostics(successor);
+        Assert.AreEqual(5, successor.FinalDebugSummary!.RetainedSessionPreviewObjects);
+        Assert.AreEqual(5, successor.FinalDebugSummary.LiveChildObjects);
 
         using var direct = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, session: session,
             skyLookupPrototype: false, skyLookupResourceReuse: true);

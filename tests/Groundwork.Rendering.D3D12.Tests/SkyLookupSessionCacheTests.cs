@@ -131,7 +131,13 @@ public sealed partial class PresentationSmokeTests
             }
             if (owner == 3) session.Dispose();
             gpu.Dispose();
-            if (owner < 3) AssertSkyLookupSharedOwnerDiagnostics(gpu);
+            if (owner < 3)
+            {
+                AssertSkyLookupSharedOwnerDiagnostics(gpu);
+                var retained = owner == 0 ? 2 : 5;
+                Assert.AreEqual(retained, gpu.FinalDebugSummary!.RetainedSessionPreviewObjects);
+                Assert.AreEqual(retained, gpu.FinalDebugSummary.LiveChildObjects);
+            }
             else AssertCleanDiagnostics(new(gpu.Adapter, gpu.DebugLayerEnabled, gpu.DredEnabled, gpu.FinalDebugSummary, null), true);
         }
         CollectionAssert.AreEqual(MixedSkySessionReuseExpected, reuse);

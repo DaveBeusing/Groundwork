@@ -17,6 +17,8 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
     private ID3D12PipelineState* _skyLookupCompute;
     private ID3D12Resource* _parkedSkyLookupFields;
     private ID3D12DescriptorHeap* _parkedSkyLookupViews;
+    private Guid _previewDebugIdentity;
+    private string?[]? _previewDebugNames;
     private ulong _parkedSkyLookupBytes;
     private ulong _parkedSkyLookupStamp;
     private ulong _nextSkyLookupStamp;
@@ -51,13 +53,55 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
                 return _parkedSkyLookupBytes;
         }
     }
-    internal string? RetainedQueueName
+    internal readonly record struct NamedPreviewObject(D3D12_MESSAGE_ID Kind, string Name);
+
+    private enum PreviewRole
     {
-        get
+        DirectRoot,
+        DirectDraw,
+        LookupRoot,
+        LookupDraw,
+        LookupCompute,
+        LookupFields,
+        LookupViews,
+    }
+
+    internal (string? Queue, NamedPreviewObject[] Preview) CaptureRetainedDebugObjects()
+    {
+        lock (_gate)
         {
-            lock (_gate)
-                return _queue == null ? null : _queueName;
+            var queue = _queue == null ? null : _queueName;
+            if (_previewDebugNames is not { } names)
+                return (queue, []);
+
+            var preview = new List<NamedPreviewObject>(names.Length);
+            Add(PreviewRole.DirectRoot, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_ROOTSIGNATURE, _skyRoot != null);
+            Add(PreviewRole.DirectDraw, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_PIPELINESTATE, _skyPipeline != null);
+            Add(PreviewRole.LookupRoot, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_ROOTSIGNATURE, _skyLookupRoot != null);
+            Add(PreviewRole.LookupDraw, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_PIPELINESTATE, _skyLookupGraphics != null);
+            Add(PreviewRole.LookupCompute, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_PIPELINESTATE, _skyLookupCompute != null);
+            Add(PreviewRole.LookupFields, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_RESOURCE, _parkedSkyLookupFields != null);
+            Add(PreviewRole.LookupViews, D3D12_MESSAGE_ID.D3D12_MESSAGE_ID_LIVE_DESCRIPTORHEAP, _parkedSkyLookupViews != null);
+            return (queue, preview.ToArray());
+
+            void Add(PreviewRole role, D3D12_MESSAGE_ID kind, bool owned)
+            {
+                if (owned && names[(int)role] is { } name)
+                    preview.Add(new(kind, name));
+            }
         }
+    }
+
+    // Called under the same lock as ownership publication. Delimit the entire
+    // session/role/stamp identity so a partial debug name cannot match it.
+    private void NamePreviewObject(PreviewRole role, ID3D12Object* resource, ulong stamp = 0)
+    {
+        if (_previewDebugIdentity == Guid.Empty)
+            _previewDebugIdentity = Guid.NewGuid();
+        var name = $"|Groundwork retained Preview {_previewDebugIdentity:N}:{role}:{stamp}|";
+        _previewDebugNames ??= new string?[(int)PreviewRole.LookupViews + 1];
+        fixed (char* value = name)
+            _previewDebugNames[(int)role] = resource->SetName(value).Value >= 0 ? name : null;
     }
 
     internal ID3D12Device* Attach(out D3D12AdapterInfo? adapter, out ID3D12CommandQueue* queue,
@@ -134,6 +178,8 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
         {
             if (_disposed || !_attached || _skyPipeline != null)
                 return;
+            NamePreviewObject(PreviewRole.DirectRoot, (ID3D12Object*)root);
+            NamePreviewObject(PreviewRole.DirectDraw, (ID3D12Object*)pipeline);
             root->AddRef();
             pipeline->AddRef();
             _skyRoot = root;
@@ -173,6 +219,9 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
         {
             if (_disposed || !_attached || _skyLookupRoot != null)
                 return;
+            NamePreviewObject(PreviewRole.LookupRoot, (ID3D12Object*)root);
+            NamePreviewObject(PreviewRole.LookupDraw, (ID3D12Object*)graphics);
+            NamePreviewObject(PreviewRole.LookupCompute, (ID3D12Object*)compute);
             root->AddRef();
             graphics->AddRef();
             compute->AddRef();
@@ -193,10 +242,13 @@ public sealed unsafe class D3D12DeviceSession : IDisposable
                 fields == null || views == null || bytes is 0 or > GpuDevice.SkyLookupStorageLimit ||
                 _parkedSkyLookupFields != null || _nextSkyLookupStamp == ulong.MaxValue)
                 return 0;
+            var stamp = _nextSkyLookupStamp + 1;
+            NamePreviewObject(PreviewRole.LookupFields, (ID3D12Object*)fields, stamp);
+            NamePreviewObject(PreviewRole.LookupViews, (ID3D12Object*)views, stamp);
             _parkedSkyLookupFields = fields;
             _parkedSkyLookupViews = views;
             _parkedSkyLookupBytes = bytes;
-            return _parkedSkyLookupStamp = ++_nextSkyLookupStamp;
+            return _parkedSkyLookupStamp = _nextSkyLookupStamp = stamp;
         }
     }
 

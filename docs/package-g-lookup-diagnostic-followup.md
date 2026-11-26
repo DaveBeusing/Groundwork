@@ -45,6 +45,9 @@ The hashes, pooled and pair-level findings, and focused commands are in the
 Publication and acquisition occur atomically under the existing exclusive attached-session lock. Each owner acquires
 its own COM references; disposing the session releases only the session's references, so an attached owner can finish safely.
 The existing direct-sky cache has separate fields and cannot supply the lookup ABI.
+At a renderer handoff the full D3D12 live-object report separately identifies the retained session queue
+and named Preview objects that the session still owns. Every retained Preview match uses the native object kind
+and its exact session-scoped debug identity. Final cleanup after the session closes still requires zero live children.
 
 LUT textures, descriptor heaps, frame constants, command allocators and fences remain owner-local. A pipeline cache hit
 therefore does not mean resource preparation is complete. An explicit owner-ready state guards preparation, and failed
