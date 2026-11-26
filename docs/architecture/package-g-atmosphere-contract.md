@@ -26,7 +26,7 @@ Reuse the Package E checkpoint. Continue reconstructs sky from seed, saved tick 
 
 ## Acceptance
 
-The [reference measurement policy](../adr/ADR-0011-reference-measurement-policy.md) makes the full reference run optional for merge and unqualified preview. The hardware qualification and production rows below govern release and default activation. Functional and resource-lifetime tests remain required for the candidate.
+The [reference measurement policy](../adr/ADR-0011-reference-measurement-policy.md) makes the full reference run optional for merge and unqualified preview. The hardware qualification and production rows below govern release and default activation. The archive prerequisite in this section applies to production-qualified release packages. Preview and diagnostic packages follow ADR-0011 and the existing package-provenance and publication rules. Functional and resource-lifetime tests remain required for the candidate.
 
 | Gate | Evidence |
 | --- | --- |
