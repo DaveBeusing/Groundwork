@@ -35,6 +35,6 @@ Use Windows x64 Release at 1920 × 1080 on the WP11 reference class. Compare WP1
 | Streaming frames | At most +5% p95 and +10% p99. Report CPU and GPU frame times separately and apply the WP11 protected movement and edit limits. |
 | Memory and sampling | At most 8 MiB incremental peak CPU memory across concurrent landform jobs, zero heap allocations per warmed landform query and zero additional persistent GPU bytes for landform data. |
 
-Apply the [WP11 reference limits](https://github.com/DaveBeusing/Groundwork/issues/88) and [pressure cases](https://github.com/DaveBeusing/Groundwork/issues/89). Workstation results can qualify functional integration and inform the prototype decision. Reference-class production qualification and WP15 default activation remain open.
+Apply the full performance protocol, [WP11 reference limits](https://github.com/DaveBeusing/Groundwork/issues/88) and [pressure cases](https://github.com/DaveBeusing/Groundwork/issues/89) for release or production activation. Workstation results can qualify functional integration and inform the prototype decision. Merge and unqualified preview follow [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md).
 
 [Groundwork #115](https://github.com/DaveBeusing/Groundwork/issues/115) · [WYU #45](https://github.com/DaveBeusing/wyu/issues/45)

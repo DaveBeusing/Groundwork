@@ -26,6 +26,8 @@ Reuse the Package E checkpoint. Continue reconstructs sky from seed, saved tick 
 
 ## Acceptance
 
+The [reference measurement policy](../adr/ADR-0011-reference-measurement-policy.md) makes the full reference run optional for merge and unqualified preview. The hardware qualification and production rows below govern release and default activation. The archive prerequisite in this section applies to production-qualified release packages. Preview and diagnostic packages follow ADR-0011 and the existing package-provenance and publication rules. Functional and resource-lifetime tests remain required for the candidate.
+
 | Gate | Evidence |
 | --- | --- |
 | Renderer image checks | WARP readback in Windows CI and NVIDIA with Debug Layer and DRED. Fixed camera/sun fixtures for daytime, twilight, night stars, horizon, orbital limb and empty space. Check planet and terrain occlusion, correct depth with sky enabled, continuity just below/above the outer shell, disabled clear-path regression, and Package E near fog. For equivalent camera and sun before/after a shared rebase, measure disk centroid displacement ≤1 pixel at 1920 × 1080. Include exact/near tangency, a camera inside/outside the shell, and invalid explicit frames. Keep numeric interior-pixel checks and recorded image regions with the test inputs. |

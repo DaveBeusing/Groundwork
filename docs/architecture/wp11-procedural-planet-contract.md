@@ -78,7 +78,7 @@ A player can start a new world from an exact seed and generator version, walk th
 
 - Diagnostics expose seed, generator/schema version, planet identifier, camera origin, tiles and meshes active/staged/retained, queue admission, generated/meshed bytes, memory high-water, terrain generation time, LOD and collision coverage holds. No unbounded logs on hot paths.
 - Tests: golden sample hashes across deterministic fixtures, serial/parallel and repeated runs; extreme coordinate precision; all twelve cube edges and eight cube corners; mixed-LOD transitions and cavity/overhang; edit/unload/reload/save/restart; cancellation and stale work; low-memory quota rejection; writer termination; WARP readback and NVIDIA debug live-object shutdown.
-- Benchmark reproducibly on a documented 8-core/32-GiB class Windows machine plus optional workstation. Record adapter/driver, Windows/runtime/SDK, seed, route, generator version, CPU/GPU memory, generation/meshing latency distributions, waits, queue peaks, p50/p95/p99 frame times, draw calls and sample count. Q01 sets justified production thresholds from that baseline. Q02 qualifies them before W05, G00 and production cutover, as specified in C00-4.
+- For WP11 production qualification, benchmark reproducibly on a documented 8-core/32-GiB class Windows machine plus optional workstation. Record adapter/driver, Windows/runtime/SDK, seed, route, generator version, CPU/GPU memory, generation/meshing latency distributions, waits, queue peaks, p50/p95/p99 frame times, draw calls and sample count. Q01 sets justified production thresholds from that baseline. Q02 qualifies them before qualified W05 or G00 acceptance and production cutover, as specified in C00-4. Merge and unqualified preview follow [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md).
 - Keep 60-Hz fixed simulation deterministic under the same player input and authoritative admission journal. Timing measurements are not semantic inputs.
 
 ## WP11-C00 architecture clarifications — review candidate (2026-11-08)
@@ -337,6 +337,8 @@ checkpoint cut, in-flight ownership and final release.
 
 ### C00-4 — Mesher selection and qualification gates (R04/R05/R09)
 
+The full production performance campaign in this section gates qualified W05 and G00 acceptance and production cutover. Merge and unqualified preview follow [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md). The correctness, admission, resource-retirement and pressure behavior tests required for implementation acceptance still apply.
+
 **Architecture acceptance (C00).** Select Marching Cubes with Transvoxel transitions as the replaceable B01 implementation baseline. The nine common Workstation fixtures compare it with Dual Contouring and cover local geometry and mixed-LOD cases. The saturated terrain prototype and reservation ledger support the bounded design and protected progress model. Freeze that evidence, its scope and the downstream criteria below at the reviewed head. The C00 campaign is closed. Full chart-boundary and production capacity evidence is NOT MEASURED at C00 and is required at the assigned downstream gates. C00 acceptance permits implementation after the required reviews, checks and explicit owner sign-off. It confers no downstream qualification. See the [decision record](../adr/wp11-c00-meshing-and-streaming-proposal.md).
 
 | Gate | Owner and required evidence | Blocking condition |
@@ -465,7 +467,7 @@ Dependencies: C00 → A01 → A02/A03 → B01. C01 depends on A01, A03 and the B
 ## Cross-repository governance
 
 - Strict scoped PRs targeting master; no direct default-branch writes. No more than four concurrent specialist agents per ADR-0007. The four isolated specialist reviews, sequential integration review, configured checks and **explicit final owner sign-off of the reviewed head SHA** remain necessary. Proposed architecture/issues are not owner acceptance or tests passed.
-- Mark architecture, code, tests and handover as separate deliverables. Architecture acceptance precedes implementation. Each downstream package must meet its C00-4 gate before acceptance, and production cutover requires Q01/Q02 qualification. A changed contract must receive review before dependents merge.
+- Mark architecture, code, tests and handover as separate deliverables. Architecture acceptance precedes implementation. Each downstream package must meet the applicable C00-4 correctness and review gates before merge. Qualified acceptance and production cutover require the applicable full production gates, including Q01/Q02 qualification. [ADR-0011](../adr/ADR-0011-reference-measurement-policy.md) governs merge and unqualified preview evidence. A changed contract must receive review before dependents merge.
 - Separate Groundwork and WYU CI, exact immutable package provenance and NuGet locks; no GitHub-only runtime version identity. Existing source SemVer in Directory.Build.props remains stable unless explicitly approved for a breaking major/minor release.
 - Issue and PR reports must state baselines, paths/ownership, tests actually run, known limitations, failure behavior and acceptance evidence.
 

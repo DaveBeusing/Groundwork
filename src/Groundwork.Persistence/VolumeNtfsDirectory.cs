@@ -41,15 +41,17 @@ internal sealed partial class VolumeNtfsDirectory : IDisposable
             throw Win32Error();
     }
 
-    internal static FileStream OpenFile(string path, bool candidate = false, bool lease = false)
+    internal static FileStream OpenFile(string path, bool candidate = false, bool lease = false, bool readOnlyLease = false)
     {
-        var access = candidate ? 0xC0010000u : lease ? 0xC0000000u : 0x80000000u;
-        var handle = Open(path, access, candidate || lease ? 0u : 1u, candidate ? 1u : lease ? 4u : 3u,
+        var writable = candidate || lease && !readOnlyLease;
+        var access = candidate ? 0xC0010000u : writable ? 0xC0000000u : 0x80000000u;
+        var disposition = candidate ? 1u : lease && !readOnlyLease ? 4u : 3u;
+        var handle = Open(path, access, candidate || lease ? 0u : 1u, disposition,
             OpenReparsePoint | BackupSemantics | (candidate ? WriteThrough : 0));
         try
         {
             Verify(handle, directory: false);
-            return new FileStream(handle, candidate || lease ? FileAccess.ReadWrite : FileAccess.Read);
+            return new FileStream(handle, writable ? FileAccess.ReadWrite : FileAccess.Read);
         }
         catch
         {

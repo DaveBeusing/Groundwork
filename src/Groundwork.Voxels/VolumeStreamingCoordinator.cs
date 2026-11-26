@@ -417,9 +417,17 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         TryPreparePublication(generation, candidates, dispositions, composedState, null);
 
     public PreparedBarrierPublication? TryPreparePublication(ulong generation, CandidateSet candidates,
-        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState, VolumeRendererAuthority? renderer)
+        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState, VolumeRendererAuthority? renderer) =>
+        PreparePublication(generation, candidates, dispositions, composedState, renderer, null, null, out _, out _);
+
+    private PreparedBarrierPublication? PreparePublication(ulong generation, CandidateSet candidates,
+        ImmutableArray<BatchDisposition> dispositions, IWorldStateRoot? composedState, VolumeRendererAuthority? renderer,
+        VolumeRelocationRequest? relocation, Func<VolumeCapsule, VolumeCapsule, VolumeSweepResult>? sweepStatic,
+        out VolumeRelocationStatus relocationStatus, out PlanetWalkState? destination)
     {
         ArgumentNullException.ThrowIfNull(candidates);
+        relocationStatus = VolumeRelocationStatus.Unavailable;
+        destination = null;
         lock (_gate)
         {
             Refresh();
@@ -450,7 +458,31 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             var currentState = current is VolumeWorldRoot volume ? volume.State : current;
             var state = composedState ?? currentState;
             var player = current is VolumeWorldRoot previousRoot ? previousRoot.Player : _initialPlayer;
-            if (player is { } pose)
+            if (relocation is { } request)
+            {
+                if (current is not VolumeWorldRoot source || source.Generation != _active ||
+                    source.Terrain != request.SourceTerrain || player != request.SourcePlayer ||
+                    entry.TargetRevision != source.Terrain.TerrainRevision || entry.Edit is not null ||
+                    !ReferenceEquals(source.Generation.Source, entry.Source) ||
+                    !ReferenceEquals(source.Generation.Overlay, entry.Overlay) ||
+                    candidates.Request.Entry != committed.Stamp)
+                {
+                    relocationStatus = VolumeRelocationStatus.StaleSource;
+                    return null;
+                }
+                var safety = _world.State.Read();
+                if (safety.Conditions != SafetyCondition.None || safety.PendingRequiredEvidenceRecords != 0)
+                    return null;
+
+                var validation = VolumeWalker.ValidateRelocation(entry, request, sweepStatic, out var verified);
+                if (validation != VolumeRelocationStatus.Prepared)
+                {
+                    relocationStatus = validation;
+                    return null;
+                }
+                player = verified;
+            }
+            else if (player is { } pose)
             {
                 var restoringCave = current is not VolumeWorldRoot &&
                     PlanetGeologyField.UsesGeology(_descriptor.GeneratorVersion);
@@ -503,6 +535,11 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             _movementOpen = false;
             _accepted = null;
             UpdatePeak();
+            if (relocation is not null)
+            {
+                relocationStatus = VolumeRelocationStatus.Prepared;
+                destination = player;
+            }
             return prepared;
         }
     }
