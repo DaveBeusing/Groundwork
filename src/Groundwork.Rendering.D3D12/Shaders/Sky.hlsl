@@ -5,8 +5,13 @@ cbuffer Atmosphere : register(b0)
     float4 RightAspect;
     float4 UpDisk;
     float4 SunEnergy;
+#if defined(TWILIGHT_PREVIEW)
     float4 RayleighInverseHeight;
     float4 AerosolInverseHeight;
+#else
+    float4 RayleighHeight;
+    float4 AerosolHeight;
+#endif
     float4 RayleighLoss;
     float4 AerosolLoss;
     uint4 Star;
@@ -22,7 +27,11 @@ SkyVertex SkyVS(uint id : SV_VertexID)
 {
     SkyVertex vertex;
     vertex.Screen = float2(id == 1 ? 3 : -1, id == 2 ? 3 : -1);
+#if defined(TWILIGHT_PREVIEW)
     vertex.Position = float4(vertex.Screen, 1, 1);
+#else
+    vertex.Position = float4(vertex.Screen, 0, 1);
+#endif
     return vertex;
 }
 
@@ -43,6 +52,7 @@ bool Sphere(float3 eye, float3 ray, float radius, out float2 roots)
     return true;
 }
 
+#if defined(TWILIGHT_PREVIEW)
 float Ground(float3 eye, float3 ray)
 {
     float b = dot(eye, ray);
@@ -61,12 +71,28 @@ float2 Density(float3 samplePosition)
     float height = max(length(samplePosition) - 1, 0);
     return exp(-min(height * float2(RayleighInverseHeight.w, AerosolInverseHeight.w), 80));
 }
+#else
+float Ground(float3 eye, float3 ray)
+{
+    float2 hit;
+    if (dot(eye, eye) <= 1.0000003 && dot(eye, ray) < 0)
+        return 0;
+    return Sphere(eye, ray, 1, hit) && hit.x >= 0 && hit.y > 0 ? hit.x : 1e10;
+}
+
+float2 Density(float3 samplePosition)
+{
+    float height = max(length(samplePosition) - 1, 0);
+    return exp(-min(height / float2(RayleighHeight.w, AerosolHeight.w), 80));
+}
+#endif
 
 float3 Transmission(float2 depth)
 {
     return exp(-min(depth.x * RayleighLoss.rgb + depth.y * AerosolLoss.rgb, 80));
 }
 
+#if defined(TWILIGHT_PREVIEW)
 float SolarVisibility(float3 position)
 {
     float radius = length(position);
@@ -88,6 +114,7 @@ float2 SolarDepth(float3 position, float distance)
         depth += Density(position + SunEnergy.xyz * (nodes[j] * distance)) * (weights[j] * distance);
     return depth;
 }
+#endif
 
 uint Hash(uint v)
 {
@@ -112,6 +139,7 @@ float Stars(float3 ray)
     return (h >> 24) < 9 ? 1 - smoothstep(0.045 - aa * 0.3, 0.045 + aa, distance) : 0;
 }
 
+#if defined(TWILIGHT_PREVIEW)
 float3 SkyEye()
 {
     float3 eye = EyeOuter.xyz;
@@ -309,3 +337,55 @@ float4 SkyPS(SkyVertex input) : SV_Target
     return float4(light / (1 + light), 1);
 #endif
 }
+#else
+float4 SkyPS(SkyVertex input) : SV_Target
+{
+    float3 ray = normalize(ForwardTan.xyz + ForwardTan.w *
+        (input.Screen.x * RightAspect.w * RightAspect.xyz + input.Screen.y * UpDisk.xyz));
+    float mu = dot(ray, SunEnergy.xyz);
+    float sine = length(cross(ray, SunEnergy.xyz));
+    float diskAA = max(length(fwidth(ray)), 0.00001);
+    float disk = mu > 0 ? 1 - smoothstep(max(0, UpDisk.w - diskAA), UpDisk.w + diskAA, sine) : 0;
+    float stars = Stars(ray);
+    float3 eye = EyeOuter.xyz;
+    if (dot(eye, eye) < 1)
+        eye = normalize(eye);
+    float ground = Ground(eye, ray);
+    float2 segment;
+    float3 light = 0;
+    float2 viewDepth = 0;
+    if (Sphere(eye, ray, EyeOuter.w, segment))
+    {
+        float start = max(segment.x, 0);
+        float stepSize = max(0, min(segment.y, ground) - start) / 8;
+        if (stepSize > 0)
+        {
+            float rayleighPhase = 0.0596831 * (1 + mu * mu);
+            float aerosolPhase = 0.0286479 * pow(max(1.64 - 1.6 * mu, 0.04), -1.5);
+            [loop] for (uint i = 0; i < 8; ++i)
+            {
+                float3 samplePosition = eye + ray * (start + (i + 0.5) * stepSize);
+                float2 density = Density(samplePosition) * stepSize;
+                float2 solar;
+                if (Sphere(samplePosition, SunEnergy.xyz, EyeOuter.w, solar) && Ground(samplePosition, SunEnergy.xyz) >= solar.y)
+                {
+                    float sunStep = solar.y / 4;
+                    float2 solarDepth = 0;
+                    [unroll] for (uint j = 0; j < 4; ++j)
+                        solarDepth += Density(samplePosition + SunEnergy.xyz * ((j + 0.5) * sunStep)) * sunStep;
+                    light += Transmission(viewDepth + density * 0.5 + solarDepth) *
+                        (density.x * RayleighHeight.rgb * rayleighPhase + density.y * AerosolHeight.rgb * aerosolPhase);
+                }
+                viewDepth += density;
+            }
+        }
+    }
+    light *= SunEnergy.w;
+    if (ground > 1e9)
+    {
+        float fade = exp(-8 * dot(light, float3(0.2126, 0.7152, 0.0722)));
+        light += Transmission(viewDepth) * (disk * SunEnergy.w + stars * fade * 1.6);
+    }
+    return float4(light / (1 + light), 1);
+}
+#endif

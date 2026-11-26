@@ -14,6 +14,7 @@ public sealed partial class D3D12Renderer
     internal Action<ulong, ulong, ulong, OffscreenFrame>? PlanetAppearanceReadbackForTests { private get; init; }
     internal Action<D3D12Renderer>? BeforeRetrySelectionForTests { private get; init; }
     internal Action<bool, EventWaitHandle>? OwnerRetirementWaitForTests { private get; init; }
+    internal bool? TwilightPreviewForTests { private get; init; }
     internal Func<long>? FirstContentTimestampForTests { private get; init; }
 
     private D3D12PropCells? _props;
@@ -116,7 +117,7 @@ public sealed partial class D3D12Renderer
 
             gpu = new GpuDevice(_useWarp, _diagnosticsOptions.EnableDebugLayer, _diagnosticsOptions.EnableDred,
                 retirementHooks: _retirementHooks, region: Interlocked.Exchange(ref _initialGeometry, null),
-                session: _deviceSession, resourceDiagnostics: _resourceDiagnostics);
+                session: _deviceSession, resourceDiagnostics: _resourceDiagnostics, twilightPreview: TwilightPreviewForTests);
             Volatile.Write(ref _observedGpu, gpu);
             gpu.PropStream = _props;
             if (_textures is { } textures)
@@ -397,7 +398,7 @@ public sealed partial class D3D12Renderer
 
             if (!chain!.CanBeginFrame())
             {
-                WaitForFrame(ProgressPollMilliseconds, chain);
+                WaitForFrame(ProgressPollMilliseconds, gpu.TwilightPreviewEnabledForTests ? chain : null);
                 continue;
             }
 
@@ -407,7 +408,7 @@ public sealed partial class D3D12Renderer
             {
                 visualWork = SelectOptionalVisualWork(ref visualArbitration, gpu, target, retry, scene,
                     out var propsEligible, out var textureView);
-                if (visualWork == OptionalVisualWork.TextureRefinement && normalFrame.HasValue &&
+                if (gpu.TwilightPreviewEnabledForTests && visualWork == OptionalVisualWork.TextureRefinement && normalFrame.HasValue &&
                     visualArbitration.RefinementNeedsYield(textureView))
                 {
                     // Draw the queued frame with its resident mip before replacing that mip.
@@ -643,18 +644,21 @@ public sealed partial class D3D12Renderer
         {
             // Signaling already-submitted work occurs in GpuDevice before it returns.
             // An unretirable submission stays owned until device removal proves quiescence.
+            var retirementWakeRequested = false;
             while (gpu is not null && !gpu.IsRemoved && !gpu.IsIdle)
             {
                 var wake = _wake!;
-                OwnerRetirementWaitForTests?.Invoke(false, wake);
-                if (gpu.IsRemoved || gpu.IsIdle)
-                    break;
-                // An unassigned signal or sentinel cannot provide a future
-                // completion event. Keep the bounded custody poll in that case.
-                if (gpu.ReadObservedCustody() == D3D12CustodyStatus.None)
+                // Admission is closed and the submitted fence cannot advance.
+                // Request at most one event, with the bounded poll as fallback.
+                if (gpu.TwilightPreviewEnabledForTests && !retirementWakeRequested &&
+                    gpu.ReadObservedCustody() == D3D12CustodyStatus.None)
                 {
-                    gpu.WakeOnQueueRetirement(wake);
-                    OwnerRetirementWaitForTests?.Invoke(true, wake);
+                    retirementWakeRequested = true;
+                    OwnerRetirementWaitForTests?.Invoke(false, wake);
+                    if (gpu.IsRemoved || gpu.IsIdle)
+                        break;
+                    if (gpu.ReadObservedCustody() == D3D12CustodyStatus.None && gpu.WakeOnQueueRetirement(wake))
+                        OwnerRetirementWaitForTests?.Invoke(true, wake);
                 }
                 if (!gpu.IsRemoved && !gpu.IsIdle)
                     wake.WaitOne(ProgressPollMilliseconds);
@@ -707,7 +711,8 @@ public sealed partial class D3D12Renderer
 
         var snapshot = operation.Snapshot;
         if (chain is null)
-            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight, _wake!);
+            chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight,
+                gpu.TwilightPreviewEnabledForTests ? _wake : null);
         else if (!Matches(snapshot, chain))
         {
             if (_resize is { } resize)

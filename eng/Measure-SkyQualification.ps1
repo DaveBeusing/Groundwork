@@ -7,6 +7,9 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if ($env:GROUNDWORK_TWILIGHT_PREVIEW -cne '1') {
+    throw 'Set GROUNDWORK_TWILIGHT_PREVIEW=1 to measure the Direct Twilight Preview.'
+}
 if ($env:GROUNDWORK_SKY_LOOKUP_PROTOTYPE -eq '1') {
     throw 'Sky lookup prototype is diagnostic only and cannot enter sky qualification. Use the explicit lookup oracle fixture.'
 }
@@ -55,6 +58,7 @@ try {
         Remote = @(& git remote -v)
         WorkingTreeStatus = $status
         Mode = $(if ($LocalProbe) { 'local-probe-not-qualification' } else { 'strict-sky-pass-only' })
+        TwilightPreview = $true
         Width = 1920
         Height = 1080
         PairsPerPhase = $(if ($LocalProbe) { 1 } else { 5 })

@@ -19,6 +19,7 @@ internal sealed unsafe partial class GpuDevice
     private bool _skyLookupFallbackMaskForTests;
     private bool _skyLookupPrepared;
     internal bool SkyLookupPrototypeEnabledForTests { get; }
+    internal bool TwilightPreviewEnabledForTests { get; }
     internal bool SkyLookupResourceReuseEnabledForTests { get; }
     internal int SkyLookupWidthForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupWidth : 0;
     internal int SkyLookupHeightForTests => SkyLookupPrototypeEnabledForTests ? SkyLookupHeight : 0;

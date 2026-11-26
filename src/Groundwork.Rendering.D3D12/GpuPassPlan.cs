@@ -9,7 +9,7 @@ internal readonly record struct GpuPassShape(
     int Width, int Height, int GeometryBytes, bool Scene, bool Sky, bool Props, bool FollowOn,
     ShadowPassKind Near, ShadowPassKind Far, bool Readback, bool Present, GpuFrameTextureImport Texture = default,
     bool MaterialConstants = false, ImmutableArray<GpuFrameTextureImport> MaterialMaps = default,
-    bool TransparentPropsAfterSky = false);
+    bool TransparentPropsAfterSky = false, bool SkyAfterOpaque = false);
 
 /// <summary>Portable declarations for the existing recorder. Native bindings stay with the queue owner.</summary>
 internal static class GpuPassPlan
@@ -49,7 +49,7 @@ internal static class GpuPassPlan
             !shape.MaterialMaps.IsDefaultOrEmpty && (!shape.MaterialConstants || shape.MaterialMaps.Length > GpuTerrainMaterialSet.Capacity) ||
             !shape.Scene && (shape.Props || shape.FollowOn || shape.GeometryBytes != 0 || shape.Texture != default ||
                 shape.MaterialConstants || shape.Near != ShadowPassKind.Disabled || shape.Far != ShadowPassKind.Disabled) ||
-            shape.TransparentPropsAfterSky && (!shape.Sky || !shape.Props) ||
+            shape.TransparentPropsAfterSky && (!shape.SkyAfterOpaque || !shape.Sky || !shape.Props) ||
             !shape.Readback && !shape.Present ||
             shape.Readback && (long)shape.Width * shape.Height * (sizeof(uint) + sizeof(float)) > RenderPlanLimits.BufferBytes)
             return false;
@@ -80,6 +80,8 @@ internal static class GpuPassPlan
         var far = shape.Far;
         Shadow(NearShadow, NearMap, near);
         Shadow(FarShadow, FarMap, far);
+        if (shape.Sky && !shape.SkyAfterOpaque)
+            Add(Sky, [], [Output(Color, RenderResourceState.ColorAttachment, RenderLoadAction.Load)]);
         if (shape.Scene)
         {
             var inputs = geometry.ToBuilder();
@@ -126,7 +128,7 @@ internal static class GpuPassPlan
         }
         // Opaque depth rejects hidden background fragments before atmosphere
         // integration. Sky only reads depth and never changes its coverage.
-        if (shape.Sky)
+        if (shape.Sky && shape.SkyAfterOpaque)
             Add(Sky, [Input(Depth, RenderResourceState.DepthRead)],
                 [Output(Color, RenderResourceState.ColorAttachment, RenderLoadAction.Load)]);
         if (shape.TransparentPropsAfterSky)

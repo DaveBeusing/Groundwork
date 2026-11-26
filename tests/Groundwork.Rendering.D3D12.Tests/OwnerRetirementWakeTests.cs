@@ -34,6 +34,7 @@ public sealed partial class PresentationSmokeTests
         await using var renderer = new D3D12Renderer(window, runtime.RuntimeOwnership, run.Terrain, 1,
             QualificationDiagnostics, true, TimeSpan.FromSeconds(15), null, hooks)
         {
+            TwilightPreviewForTests = true,
             OwnerRetirementWaitForTests = (armed, wake) =>
             {
                 if (!armed)

@@ -29,7 +29,8 @@ public sealed partial class PresentationSmokeTests
 
     private static void VerifySkyLookup(bool warp)
     {
-        using var direct = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, skyLookupPrototype: false);
+        using var direct = new GpuDevice(warp, enableDebugLayer: true, enableDred: true,
+            skyLookupPrototype: false, twilightPreview: true);
         using var lookup = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, skyLookupPrototype: true);
         AssertPlanetAdapter(direct.Adapter, warp);
         AssertPlanetAdapter(lookup.Adapter, warp);
@@ -267,7 +268,7 @@ public sealed partial class PresentationSmokeTests
             new OffscreenFrame(width, maskPixels, new float[width * height]));
         var assembly = typeof(GpuDevice).Assembly;
         var shaderHashes = new Dictionary<string, string>();
-        foreach (var name in new[] { "Sky.vs.dxil", "Sky.ps.dxil", "SkyLookup.ps.dxil", "SkyLookup.cs.dxil" })
+        foreach (var name in new[] { "Preview.Sky.vs.dxil", "Preview.Sky.ps.dxil", "SkyLookup.ps.dxil", "SkyLookup.cs.dxil" })
         {
             using var shader = assembly.GetManifestResourceStream(name)!;
             shaderHashes.Add(name, Convert.ToHexString(SHA256.HashData(shader)));

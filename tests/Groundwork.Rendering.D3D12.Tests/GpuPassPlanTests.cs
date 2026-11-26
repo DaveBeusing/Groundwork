@@ -8,17 +8,22 @@ namespace Groundwork.Rendering.D3D12.Tests;
 public sealed class GpuPassPlanTests
 {
     [TestMethod]
-    public void FixedOrderCoversCachedShadowPropsFollowOnAndDualTerminalRoutes()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void FixedOrderCoversCachedShadowPropsFollowOnAndDualTerminalRoutes(bool preview)
     {
         var shape = new GpuPassShape(163, 97, 4096, Scene: true, Sky: true, Props: true, FollowOn: true,
-            ShadowPassKind.Cached, ShadowPassKind.Draw, Readback: true, Present: true);
+            ShadowPassKind.Cached, ShadowPassKind.Draw, Readback: true, Present: true, SkyAfterOpaque: preview);
         Assert.IsTrue(GpuPassPlan.TryCreate(shape, out var plan));
         Assert.IsNotNull(plan);
-        CollectionAssert.AreEqual(new[]
-        {
+        var expected = preview ? new[] {
             GpuPassPlan.Clear, GpuPassPlan.FarShadow, GpuPassPlan.Terrain, GpuPassPlan.Props,
             GpuPassPlan.FollowOn, GpuPassPlan.Sky, GpuPassPlan.Copy, GpuPassPlan.Present, GpuPassPlan.Readback,
-        }, plan.Passes.Select(p => p.Id).ToArray());
+        } : new[] {
+            GpuPassPlan.Clear, GpuPassPlan.FarShadow, GpuPassPlan.Sky, GpuPassPlan.Terrain,
+            GpuPassPlan.Props, GpuPassPlan.FollowOn, GpuPassPlan.Copy, GpuPassPlan.Present, GpuPassPlan.Readback,
+        };
+        CollectionAssert.AreEqual(expected, plan.Passes.Select(p => p.Id).ToArray());
         var cached = plan.Resources.Single(r => r.Extent.Class == RenderExtentClass.FixedTexture &&
             r.ImportedRanges[0].Initialized);
         Assert.AreEqual(RenderResourceState.ShaderRead, cached.ImportedRanges[0].State);
@@ -30,7 +35,8 @@ public sealed class GpuPassPlanTests
         var depth = plan.Resources.Single(r => r.Format == RenderResourceFormat.Depth32Float &&
             r.Extent.Class == RenderExtentClass.FrameTexture);
         var sky = plan.Passes.Single(p => p.Id == GpuPassPlan.Sky);
-        Assert.IsTrue(sky.Inputs.AsSpan().Contains(new(depth.Id, new(0, 1), RenderResourceState.DepthRead)));
+        Assert.AreEqual(preview,
+            sky.Inputs.AsSpan().Contains(new(depth.Id, new(0, 1), RenderResourceState.DepthRead)));
         Assert.IsFalse(sky.Outputs.Any(output => output.Resource == depth.Id));
         Assert.AreEqual(2, plan.Resources.Count(r => r.Extent.Class == RenderExtentClass.FrameTexture));
     }
@@ -39,7 +45,7 @@ public sealed class GpuPassPlanTests
     public void SkyOnlyReadsTheClearedDepthWithoutIntroducingAnotherTarget()
     {
         var shape = new GpuPassShape(163, 97, 0, Scene: false, Sky: true, Props: false, FollowOn: false,
-            ShadowPassKind.Disabled, ShadowPassKind.Disabled, Readback: false, Present: true);
+            ShadowPassKind.Disabled, ShadowPassKind.Disabled, Readback: false, Present: true, SkyAfterOpaque: true);
         Assert.IsTrue(GpuPassPlan.TryCreate(shape, out var plan));
         Assert.IsNotNull(plan);
         CollectionAssert.AreEqual(new[] { GpuPassPlan.Clear, GpuPassPlan.Sky, GpuPassPlan.Present },
@@ -60,6 +66,8 @@ public sealed class GpuPassPlanTests
         Assert.IsFalse(GpuPassPlan.TryCreate(clear with { Present = false }, out _));
         Assert.IsFalse(GpuPassPlan.TryCreate(clear with { Near = ShadowPassKind.Cached }, out _));
         Assert.IsFalse(GpuPassPlan.TryCreate(clear with { Props = true }, out _));
+        Assert.IsFalse(GpuPassPlan.TryCreate(clear with { Scene = true, Sky = true, Props = true,
+            TransparentPropsAfterSky = true }, out _));
         Assert.IsFalse(GpuPassPlan.TryCreate(clear with { Width = 16384, Height = 16384, Readback = true }, out _));
     }
 

@@ -27,8 +27,10 @@ The hashes, pooled and pair-level findings, and focused commands are in the
 
 ## Scope
 
-- The default remains the direct atmosphere integrator. `GROUNDWORK_SKY_LOOKUP_PROTOTYPE=1`, captured at device creation,
-  opts into the diagnostic lookup path. Normal engine sky qualification rejects this environment flag.
+- The default remains the existing Direct sky, pass order and terrain and prop rendering. Start the process with
+  `GROUNDWORK_TWILIGHT_PREVIEW=1` to select the unqualified Twilight Preview. Add `GROUNDWORK_SKY_LOOKUP_PROTOTYPE=1`
+  for the diagnostic lookup path and `GROUNDWORK_SKY_LOOKUP_REUSE_RESOURCES=1` to test storage reuse. The device captures
+  these flags at creation. Direct Preview qualification requires the Preview flag and rejects the lookup flag.
 - The prototype retains the fixed 256 x 128 radiance and transmission fields, the existing sky draw and its per-frame
   compute dispatch. Both fields are regenerated from the current camera, planet and celestial parameters every sky frame.
 - Ground and outer-atmosphere boundary classification selects the original eight-view/four-solar-sample integration

@@ -1,9 +1,46 @@
 using System.Numerics;
+using System.Reflection;
 
 namespace Groundwork.Rendering.D3D12.Tests;
 
 public sealed partial class PresentationSmokeTests
 {
+    [TestMethod]
+    [DataRow(null, false)]
+    [DataRow("0", false)]
+    [DataRow("true", false)]
+    [DataRow("1", true)]
+    public void WarpTwilightRuntimeSwitchGatesLookupAndMatchesRenderingAbi(string? value, bool enabled)
+    {
+        const string preview = "GROUNDWORK_TWILIGHT_PREVIEW";
+        const string lookup = "GROUNDWORK_SKY_LOOKUP_PROTOTYPE";
+        const string reuse = "GROUNDWORK_SKY_LOOKUP_REUSE_RESOURCES";
+        var previousPreview = Environment.GetEnvironmentVariable(preview);
+        var previousLookup = Environment.GetEnvironmentVariable(lookup);
+        var previousReuse = Environment.GetEnvironmentVariable(reuse);
+        try
+        {
+            Environment.SetEnvironmentVariable(preview, value);
+            Environment.SetEnvironmentVariable(lookup, "1");
+            Environment.SetEnvironmentVariable(reuse, "1");
+            using var gpu = new GpuDevice(warp: true);
+            Assert.AreEqual(enabled, gpu.TwilightPreviewEnabledForTests);
+            Assert.AreEqual(enabled, gpu.SkyLookupPrototypeEnabledForTests);
+            Assert.AreEqual(enabled, gpu.SkyLookupResourceReuseEnabledForTests);
+            const BindingFlags abiFlags = BindingFlags.Static | BindingFlags.NonPublic;
+            var engineAbi = typeof(RenderMesh).GetField("TwilightPreviewAbiVersion", abiFlags)?.GetRawConstantValue();
+            var providerAbi = typeof(GpuDevice).GetField("TwilightPreviewAbiVersion", abiFlags)?.GetRawConstantValue();
+            Assert.AreEqual(1, engineAbi);
+            Assert.AreEqual(engineAbi, providerAbi);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable(reuse, previousReuse);
+            Environment.SetEnvironmentVariable(lookup, previousLookup);
+            Environment.SetEnvironmentVariable(preview, previousPreview);
+        }
+    }
+
     [TestMethod]
     public void WarpTwilightReadbackCoversWarmHorizonDarkNightAndContinuousSunset() => VerifyTwilight(true);
 
@@ -13,7 +50,7 @@ public sealed partial class PresentationSmokeTests
 
     private static void VerifyTwilight(bool warp)
     {
-        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true);
+        var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, twilightPreview: true);
         using (gpu)
         {
             AssertPlanetAdapter(gpu.Adapter, warp);

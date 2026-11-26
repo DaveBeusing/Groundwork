@@ -39,6 +39,7 @@ internal sealed unsafe partial class GpuDevice
     {
         FrameTerrainMaterialAddress = 0;
         if (!scene || ActiveMeshGeometry is not { HasTerrainAppearance: true } || _frameTerrainMaterials is not { } materials ||
+            materials.UsesPackedNormalRoughness && !TwilightPreviewEnabledForTests ||
             _frameMaterialStream is not { } stream || !TryPrepareTerrainAppearance(shadows) || !TryAllocateMaterialConstants(stream))
             return false;
 

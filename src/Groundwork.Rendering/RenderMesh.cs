@@ -15,6 +15,8 @@ internal readonly record struct TerrainAppearanceVertex(Vector3 Texels, uint Mat
 /// <summary>An immutable snapshot of local positions and triangle-list indices.</summary>
 public sealed class RenderMesh
 {
+    internal const int TwilightPreviewAbiVersion = 1;
+
     public const int MaximumVertexCount = 98_304;
     public const int MaximumIndexCount = 147_456;
 
@@ -26,7 +28,20 @@ public sealed class RenderMesh
 
     internal ReadOnlySpan<uint> PackedNormals => _normals;
     internal ReadOnlySpan<TerrainAppearanceVertex> TerrainAppearance => _appearance;
-    internal bool IsExpandedTriangleList { get; }
+    private int _expandedTriangleList;
+
+    internal bool IsExpandedTriangleList
+    {
+        get
+        {
+            var state = Volatile.Read(ref _expandedTriangleList);
+            if (state != 0)
+                return state == 1;
+            var expanded = _positions.Length == _indices.Length && HasUnsharedTriangleVertices(_indices);
+            Volatile.Write(ref _expandedTriangleList, expanded ? 1 : 2);
+            return expanded;
+        }
+    }
 
     private RenderMesh(Vector3[] positions, uint[] indices, uint[] colors, uint[] normals,
         TerrainAppearanceVertex[] appearance)
@@ -36,7 +51,6 @@ public sealed class RenderMesh
         _colors = colors;
         _normals = normals;
         _appearance = appearance;
-        IsExpandedTriangleList = positions.Length == indices.Length && HasUnsharedTriangleVertices(indices);
     }
 
     public ReadOnlySpan<Vector3> Positions => _positions;

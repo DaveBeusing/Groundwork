@@ -38,6 +38,7 @@ internal sealed class GpuTerrainMaterialSet
         for (var i = 0; i < palette.Entries.Length; i++)
         {
             var material = palette.Entries[i];
+            UsesPackedNormalRoughness |= material.Descriptor.Textures.RoughnessInNormalAlpha;
             rows[i + 1] = CreateRow(material.MaterialId, material.Descriptor, maps);
         }
     }
@@ -45,6 +46,7 @@ internal sealed class GpuTerrainMaterialSet
     internal D3D12TextureView View { get; }
     internal MaterialPalette Palette { get; }
     internal ImmutableArray<GpuFrameTextureImport> Imports { get; }
+    internal bool UsesPackedNormalRoughness { get; }
     internal ReadOnlySpan<byte> Payload => _payload;
     internal ReadOnlySpan<GpuTerrainMap> Maps => _maps;
 

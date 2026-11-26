@@ -232,13 +232,18 @@ internal sealed unsafe partial class GpuDevice
         bool shadow = false, bool depthOnly = false, bool props = false, bool texture = false,
         bool terrainPbr = false, bool terrainAppearance = false, bool skyLookup = false, bool translucent = false)
     {
+        var preview = TwilightPreviewEnabledForTests;
         var vertexShader = LoadShader(terrainAppearance ? "TerrainAppearance.vs.dxil" : props ? "Props.vs.dxil" :
-            depthOnly ? "ShadowDepth.vs.dxil" : sky ? "Sky.vs.dxil" : normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
-        var pixelShader = depthOnly ? [] : LoadShader(sky ? skyLookup ? "SkyLookup.ps.dxil" : "Sky.ps.dxil" :
+            depthOnly ? "ShadowDepth.vs.dxil" : sky ? preview ? "Preview.Sky.vs.dxil" : "Sky.vs.dxil" :
+            normals ? "TerrainNormals.vs.dxil" : "Cube.vs.dxil");
+        var pixelShaderName = sky ? skyLookup ? "SkyLookup.ps.dxil" : "Sky.ps.dxil" :
             terrainAppearance ? shadow ? "TerrainAppearanceShadow.ps.dxil" : "TerrainAppearance.ps.dxil" :
             terrainPbr ? shadow ? "PbrShadowTerrain.ps.dxil" : "PbrTerrain.ps.dxil" :
             texture ? shadow ? "TextureShadowTerrain.ps.dxil" : "TextureTerrain.ps.dxil" :
-            shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil");
+            shadow ? "ShadowTerrain.ps.dxil" : "Cube.ps.dxil";
+        if (preview && (sky && !skyLookup || terrainPbr || terrainAppearance))
+            pixelShaderName = "Preview." + pixelShaderName;
+        var pixelShader = depthOnly ? [] : LoadShader(pixelShaderName);
         fixed (byte* vs = vertexShader, ps = pixelShader, position = "POSITION\0"u8, color = "COLOR\0"u8,
             normal = "NORMAL\0"u8, texcoord = "TEXCOORD\0"u8)
         {
@@ -300,9 +305,9 @@ internal sealed unsafe partial class GpuDevice
                 },
                 DepthStencilState = new D3D12_DEPTH_STENCIL_DESC
                 {
-                    DepthEnable = true,
+                    DepthEnable = !sky || preview,
                     DepthWriteMask = sky || translucent ? D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ZERO : D3D12_DEPTH_WRITE_MASK.D3D12_DEPTH_WRITE_MASK_ALL,
-                    DepthFunc = sky ? D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS_EQUAL :
+                    DepthFunc = sky && preview ? D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS_EQUAL :
                         D3D12_COMPARISON_FUNC.D3D12_COMPARISON_FUNC_LESS,
                 },
                 PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE.D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE,
@@ -381,6 +386,9 @@ internal sealed unsafe partial class GpuDevice
 
     private ID3D12DescriptorHeap* CreateDepthAttachmentHeap()
     {
+        if (!TwilightPreviewEnabledForTests)
+            return CreateHeap(_device, D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+
         // Two CPU descriptors reference the same depth resource: normal writes
         // and the read-only background pass. No extra depth target is created.
         var description = new D3D12_DESCRIPTOR_HEAP_DESC
@@ -398,6 +406,8 @@ internal sealed unsafe partial class GpuDevice
     {
         var view = _depthHeap->GetCPUDescriptorHandleForHeapStart();
         _device->CreateDepthStencilView(_depth, null, view);
+        if (!TwilightPreviewEnabledForTests)
+            return;
         view.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
         var readOnly = new D3D12_DEPTH_STENCIL_VIEW_DESC
         {
@@ -419,7 +429,8 @@ internal sealed unsafe partial class GpuDevice
         shadowTiming?.Stamp(commands, ref timingLayout);
         var rtv = target.Rtv;
         var dsv = _depthHeap->GetCPUDescriptorHandleForHeapStart();
-        var hasTransparentPass = frame.Sky.HasValue && PropStream is { HasTransparentAssets: true };
+        var hasTransparentPass = TwilightPreviewEnabledForTests && frame.Sky.HasValue &&
+            PropStream is { HasTransparentAssets: true };
         _resourceDiagnostics?.BeginRecording();
         foreach (var pass in plan.Passes.AsSpan())
         {
@@ -453,16 +464,20 @@ internal sealed unsafe partial class GpuDevice
                 if (shadowTiming is { MeasuresSky: true })
                     timingLayout.SkyStart = shadowTiming.Stamp(commands, ref timingLayout);
                 ObserveUse(target.Buffer);
-                ObserveUse(_depth);
                 _retirementHooks?.BeforeSkyRecord?.Invoke();
                 BeginSkyRecordMeasurementForTests();
-                RecordTransition(commands, _depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
-                    D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_READ);
-                var readOnlyDsv = dsv;
-                readOnlyDsv.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
-                BindFrameTargets(commands, target, rtv, readOnlyDsv);
+                var skyDsv = dsv;
+                if (TwilightPreviewEnabledForTests)
+                {
+                    ObserveUse(_depth);
+                    RecordTransition(commands, _depth, D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_WRITE,
+                        D3D12_RESOURCE_STATES.D3D12_RESOURCE_STATE_DEPTH_READ);
+                    skyDsv.ptr += _device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE.D3D12_DESCRIPTOR_HEAP_TYPE_DSV);
+                }
+                BindFrameTargets(commands, target, rtv, skyDsv);
                 DrawSky(commands, target, frame.Sky!.Value, ref timingLayout);
-                RestoreWritableDepth(commands);
+                if (TwilightPreviewEnabledForTests)
+                    RestoreWritableDepth(commands);
                 EndSkyRecordMeasurementForTests();
                 _retirementHooks?.AfterSkyRecord?.Invoke();
                 if (shadowTiming is { MeasuresSky: true })
@@ -470,7 +485,8 @@ internal sealed unsafe partial class GpuDevice
             }
             else if (pass.Id == GpuPassPlan.Terrain)
             {
-                BindFrameTargets(commands, target, rtv, dsv);
+                if (TwilightPreviewEnabledForTests || !frame.Sky.HasValue)
+                    BindFrameTargets(commands, target, rtv, dsv);
                 _terrainTiming?.BeginTerrain(commands, ref timingLayout);
                 RecordTerrain(commands, target, frame.Scene!.Value, shadows.Constants, terrainPbr, terrainAppearance);
                 _terrainTiming?.EndTerrain(commands, ref timingLayout);

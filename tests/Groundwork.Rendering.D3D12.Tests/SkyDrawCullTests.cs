@@ -15,7 +15,8 @@ public sealed partial class PresentationSmokeTests
 
     private static void CaptureSkyDrawCull(bool warp)
     {
-        using var direct = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, skyLookupPrototype: false);
+        using var direct = new GpuDevice(warp, enableDebugLayer: true, enableDred: true,
+            skyLookupPrototype: false, twilightPreview: true);
         using var lookup = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, skyLookupPrototype: true);
         AssertPlanetAdapter(direct.Adapter, warp);
         AssertPlanetAdapter(lookup.Adapter, warp);

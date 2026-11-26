@@ -20,7 +20,7 @@ public sealed partial class PresentationSmokeTests
 
     private static void VerifyDepthCulledSky(bool warp)
     {
-        using var gpu = new GpuDevice(warp: warp, enableDebugLayer: true, enableDred: true);
+        using var gpu = new GpuDevice(warp: warp, enableDebugLayer: true, enableDred: true, twilightPreview: true);
         AssertPlanetAdapter(gpu.Adapter, warp);
         var requestedCapture = Environment.GetEnvironmentVariable("GROUNDWORK_SKY_DEPTH_CAPTURE_DIR");
         var capture = string.IsNullOrWhiteSpace(requestedCapture) ? null :
@@ -120,8 +120,8 @@ public sealed partial class PresentationSmokeTests
         var actualHash = SkyDepthFileHash(actual);
         Assert.AreEqual(expectedHash, actualHash);
         var assembly = typeof(GpuDevice).Assembly;
-        using var vertex = assembly.GetManifestResourceStream("Sky.vs.dxil")!;
-        using var pixel = assembly.GetManifestResourceStream("Sky.ps.dxil")!;
+        using var vertex = assembly.GetManifestResourceStream("Preview.Sky.vs.dxil")!;
+        using var pixel = assembly.GetManifestResourceStream("Preview.Sky.ps.dxil")!;
         using var manifest = File.Create(Path.Combine(directory, "manifest.json"));
         JsonSerializer.Serialize(manifest, new
         {

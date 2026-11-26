@@ -10,16 +10,22 @@ public sealed partial class PresentationSmokeTests
 {
     [TestMethod]
     public void WarpTerrainAppearanceCombinesMaterialMapsAndShadowCascades() =>
-        VerifyTerrainAppearance(warp: true, requireDebug: false);
+        VerifyTerrainAppearance(warp: true, requireDebug: false, preview: false);
+
+    [TestMethod]
+    public void WarpPreviewTerrainAppearanceCombinesMaterialMapsAndShadowCascades() =>
+        VerifyTerrainAppearance(warp: true, requireDebug: false, preview: true);
 
     [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
-    [DataRow(true)]
-    [DataRow(false)]
-    public void TerrainAppearanceCombinesMaterialMapsAndShadowCascadesWithDebugLayerAndDred(bool warp) =>
-        VerifyTerrainAppearance(warp, requireDebug: true);
+    [DataRow(true, false)]
+    [DataRow(false, false)]
+    [DataRow(true, true)]
+    [DataRow(false, true)]
+    public void TerrainAppearanceCombinesMaterialMapsAndShadowCascadesWithDebugLayerAndDred(bool warp, bool preview) =>
+        VerifyTerrainAppearance(warp, requireDebug: true, preview: preview);
 
-    private static void VerifyTerrainAppearance(bool warp, bool requireDebug)
+    private static void VerifyTerrainAppearance(bool warp, bool requireDebug, bool preview)
     {
         const int width = 160, height = 96;
         const int rockX = 65, oreX = 115, sampleY = height / 2;
@@ -44,7 +50,7 @@ public sealed partial class PresentationSmokeTests
             return null;
         });
         var gpu = new GpuDevice(warp, enableDebugLayer: true, enableDred: true, retirementHooks: hooks, region: region,
-            resourceDiagnostics: diagnostics);
+            resourceDiagnostics: diagnostics, twilightPreview: preview);
         var textures = new Dictionary<D3D12TextureTicket, GpuTerrainMap>();
         ulong sequence = 0;
         using (gpu)
@@ -147,35 +153,38 @@ public sealed partial class PresentationSmokeTests
                 Assert.IsTrue(expandedShadow.ColorAt(x, y).SequenceEqual(indexedShadow.ColorAt(x, y)));
             }
 
-            var packedNormal = MakeSweepMap(MaterialTextureSemantic.Normal, alpha: 0);
-            var packedMap = new MaterialTextureReference(MaterialTextureSemantic.Normal, packedNormal.AssetId);
-            var sweptRock = swept.Palette.Resolve(Int01Textures.Rock);
-            // Match the constant metallic sweep map with its numeric value so the packed render exercises two-map sampling.
-            var packedRock = new PbrMaterialDescriptor(sweptRock.BaseColor, 160f / 255f, sweptRock.Roughness,
-                sweptRock.AmbientOcclusion, sweptRock.Emissive, sweptRock.NormalStrength,
-                MaterialTextureSet.FromPackedNormalRoughness(packedMap, sweptRock.Textures.BaseColor));
-            var packedRevision = swept.Palette.VisualRevision + 1;
-            var packedPalette = new MaterialPalette(packedRevision,
-                [new(Int01Textures.Rock, packedRock), new(Int01Textures.Ore, swept.Palette.Resolve(Int01Textures.Ore)),
-                 new(Int01Textures.OrbitProxy, swept.Palette.Resolve(Int01Textures.OrbitProxy))]);
-            var packedTarget = new D3D12TextureTarget(new(Int01Textures.Rock, MaterialTextureSemantic.Normal),
-                packedRevision, packedMap);
-            var packedTargets = targets.Where(target => target.Slot != packedTarget.Slot
-                && target.Slot != new D3D12TextureSlot(Int01Textures.Rock, MaterialTextureSemantic.Roughness)
-                && target.Slot != new D3D12TextureSlot(Int01Textures.Rock, MaterialTextureSemantic.Metallic))
-                .Append(packedTarget).ToArray();
-            Assert.IsTrue(stream.PublishTerrainAppearance(view, packedPalette, packedTargets));
-            Upload(packedTarget, packedNormal);
-            var packedFrame = ReadMixedTriangle(0, SelectCut());
-            for (var y = 40; y <= 55; y++)
-            for (var x = 57; x <= 103; x++)
+            if (preview)
             {
-                Assert.AreEqual(firstOrder.DepthAt(x, y), packedFrame.DepthAt(x, y));
-                CollectionAssert.AreEqual(firstOrder.ColorAt(x, y).ToArray(), packedFrame.ColorAt(x, y).ToArray());
+                var packedNormal = MakeSweepMap(MaterialTextureSemantic.Normal, alpha: 0);
+                var packedMap = new MaterialTextureReference(MaterialTextureSemantic.Normal, packedNormal.AssetId);
+                var sweptRock = swept.Palette.Resolve(Int01Textures.Rock);
+                // Match the constant metallic sweep map with its numeric value so the packed render exercises two-map sampling.
+                var packedRock = new PbrMaterialDescriptor(sweptRock.BaseColor, 160f / 255f, sweptRock.Roughness,
+                    sweptRock.AmbientOcclusion, sweptRock.Emissive, sweptRock.NormalStrength,
+                    MaterialTextureSet.FromPackedNormalRoughness(packedMap, sweptRock.Textures.BaseColor));
+                var packedRevision = swept.Palette.VisualRevision + 1;
+                var packedPalette = new MaterialPalette(packedRevision,
+                    [new(Int01Textures.Rock, packedRock), new(Int01Textures.Ore, swept.Palette.Resolve(Int01Textures.Ore)),
+                     new(Int01Textures.OrbitProxy, swept.Palette.Resolve(Int01Textures.OrbitProxy))]);
+                var packedTarget = new D3D12TextureTarget(new(Int01Textures.Rock, MaterialTextureSemantic.Normal),
+                    packedRevision, packedMap);
+                var packedTargets = targets.Where(target => target.Slot != packedTarget.Slot
+                    && target.Slot != new D3D12TextureSlot(Int01Textures.Rock, MaterialTextureSemantic.Roughness)
+                    && target.Slot != new D3D12TextureSlot(Int01Textures.Rock, MaterialTextureSemantic.Metallic))
+                    .Append(packedTarget).ToArray();
+                Assert.IsTrue(stream.PublishTerrainAppearance(view, packedPalette, packedTargets));
+                Upload(packedTarget, packedNormal);
+                var packedFrame = ReadMixedTriangle(0, SelectCut());
+                for (var y = 40; y <= 55; y++)
+                for (var x = 57; x <= 103; x++)
+                {
+                    Assert.AreEqual(firstOrder.DepthAt(x, y), packedFrame.DepthAt(x, y));
+                    CollectionAssert.AreEqual(firstOrder.ColorAt(x, y).ToArray(), packedFrame.ColorAt(x, y).ToArray());
+                }
+                Assert.IsTrue(diagnostics.TryRead(out var packedSnapshot));
+                Assert.IsTrue(packedSnapshot.TryGetPass(GpuPassPlan.Terrain, out var packedPass));
+                Assert.AreEqual(10, packedPass.ResourceUses);
             }
-            Assert.IsTrue(diagnostics.TryRead(out var packedSnapshot));
-            Assert.IsTrue(packedSnapshot.TryGetPass(GpuPassPlan.Terrain, out var packedPass));
-            Assert.AreEqual(10, packedPass.ResourceUses);
 
             gpu.SelectTerrainMaterials(null, null);
             foreach (var pair in textures)

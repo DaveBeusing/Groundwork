@@ -9,9 +9,10 @@ namespace Groundwork.Rendering.D3D12.Tests;
 
 public sealed partial class PresentationSmokeTests
 {
-    private static readonly bool[] ExpectedSessionSkyReuse = [false, true, true];
     [TestMethod]
-    public void WarpSkyPipelineIsReusedAcrossSettledSessionOwners()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void WarpSkyPipelineReuseRemainsPreviewOnlyAcrossSettledSessionOwners(bool preview)
     {
         using var session = new D3D12DeviceSession(useWarp: true);
         var reuse = new List<bool>();
@@ -23,7 +24,7 @@ public sealed partial class PresentationSmokeTests
         });
         for (var owner = 0; owner < 3; owner++)
         {
-            using var gpu = new GpuDevice(warp: true, session: session, retirementHooks: hooks);
+            using var gpu = new GpuDevice(warp: true, session: session, retirementHooks: hooks, twilightPreview: preview);
             GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(1, Vector4.Zero) { Sky = SkyFixture() });
             GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(2, Vector4.Zero) { Sky = SkyFixture() });
             if (owner == 2)
@@ -34,8 +35,8 @@ public sealed partial class PresentationSmokeTests
                 GpuDevice.RenderOffscreen(gpu, 64, 64, new RenderFrame(3, Vector4.Zero) { Sky = SkyFixture() });
             }
         }
-        CollectionAssert.AreEqual(ExpectedSessionSkyReuse, reuse);
-        using var independent = new GpuDevice(warp: true, retirementHooks: hooks);
+        CollectionAssert.AreEqual(new[] { false, preview, preview }, reuse);
+        using var independent = new GpuDevice(warp: true, retirementHooks: hooks, twilightPreview: preview);
         GpuDevice.RenderOffscreen(independent, 64, 64, new RenderFrame(1, Vector4.Zero) { Sky = SkyFixture() });
         Assert.IsFalse(reuse[^1]);
     }
@@ -190,7 +191,7 @@ public sealed partial class PresentationSmokeTests
             AfterSkyGpuPassDetailsRetired: (sequence, fence, terrainStart, terrainEnd, drawStart, drawEnd) =>
                 edges.Add((sequence, fence, new(terrainStart, terrainEnd, drawStart, drawEnd))));
         using var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true,
-            region: CreateWp15Region(), retirementHooks: hooks, skyLookupPrototype: useLookup);
+            region: CreateWp15Region(), retirementHooks: hooks, skyLookupPrototype: useLookup, twilightPreview: true);
         gpu.EnableSkyTimingForTests();
         using var target = gpu.CreateSkyTimingTargetForTests(64, 64);
         var frame = CreateWp15Frame("midday", 0, 1, shadows: true) with { Sky = SkyFixture() };
@@ -288,6 +289,8 @@ public sealed partial class PresentationSmokeTests
         RequireDirectSkyQualification(Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1");
         if (Environment.GetEnvironmentVariable("GROUNDWORK_SKY_MEASURE") != "1")
             Assert.Inconclusive("Set GROUNDWORK_SKY_MEASURE=1; run exclusively, without other GPU work.");
+        Assert.AreEqual("1", Environment.GetEnvironmentVariable("GROUNDWORK_TWILIGHT_PREVIEW"),
+            "Direct twilight qualification requires the explicit runtime preview opt-in.");
 
         var strict = Environment.GetEnvironmentVariable("GROUNDWORK_SKY_STRICT") == "1";
         var pairs = strict ? 5 : 1;
@@ -317,7 +320,9 @@ public sealed partial class PresentationSmokeTests
             },
             SkyDrawRecorded: () => draws++);
         var ledger = new ResourceDiagnostics();
-        var gpu = new GpuDevice(warp: false, retirementHooks: hooks, resourceDiagnostics: ledger, skyLookupPrototype: false);
+        var gpu = new GpuDevice(warp: false, retirementHooks: hooks, resourceDiagnostics: ledger,
+            skyLookupPrototype: false);
+        Assert.IsTrue(gpu.TwilightPreviewEnabledForTests);
         Assert.IsFalse(gpu.SkyLookupPrototypeEnabledForTests);
         GpuTarget? target = null;
         D3D12ResourceSnapshot before = default, after = default;

@@ -24,10 +24,10 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
     private readonly GpuTarget?[] _targets = new GpuTarget?[BufferCount];
     private IDXGISwapChain3* _chain;
     private WaitHandle? _latency;
-    private readonly WaitHandle[] _frameWaits;
+    private readonly WaitHandle[]? _frameWaits;
     private bool _frameReady;
 
-    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height, WaitHandle ownerWake)
+    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height, WaitHandle? ownerWake)
     {
         _gpu = gpu;
         IDXGISwapChain1* initial = null;
@@ -59,7 +59,8 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
                 throw new InvalidOperationException("DXGI did not provide a frame latency waitable handle.");
 
             _latency = new LatencyWaitHandle(latencyHandle);
-            _frameWaits = [ownerWake, _latency];
+            if (ownerWake is not null)
+                _frameWaits = [ownerWake, _latency];
             AttachBuffers(width, height);
         }
         catch
@@ -90,7 +91,7 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         // Owner work wins a simultaneous wake so the owner can revalidate the target.
         // Latch a consumed DXGI signal until the next real Present.
         if (!_frameReady)
-            _frameReady = WaitHandle.WaitAny(_frameWaits, milliseconds) == 1;
+            _frameReady = WaitHandle.WaitAny(_frameWaits!, milliseconds) == 1;
     }
 
     internal void Resize(int width, int height)

@@ -11,7 +11,9 @@ public sealed partial class PresentationSmokeTests
     public void WarpPropInstancingReadbackSurvivesRebaseAndSaturation() => VerifyProps(true, false);
 
     [TestMethod]
-    public void WarpPropIrradiancePreservesDayTintAndDimsNightWithoutInstanceUploads()
+    [DataRow(false)]
+    [DataRow(true)]
+    public void WarpPropIrradianceChangesNightTintOnlyWhenOptedIn(bool preview)
     {
         var mesh = RenderMesh.Create([new(-1, -1, 0), new(1, -1, 0), new(0, 1, 0)], [0, 1, 2]);
         var props = new D3D12PropCells(new(1, 1, 1, 1, 2), 1, 42, 1,
@@ -22,7 +24,7 @@ public sealed partial class PresentationSmokeTests
         Assert.AreEqual(PropCellResult.Accepted, props.TryStage(request, new(0, 0, -5),
             [new(0, 0, Vector3.Zero, Quaternion.Identity, 1, uint.MaxValue)]));
         var gpu = new GpuDevice(true, enableDebugLayer: true, enableDred: true,
-            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]));
+            region: new([new(RenderMesh.Create([], []), Vector3.Zero)]), twilightPreview: preview);
         using (gpu)
         {
             Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
@@ -44,10 +46,15 @@ public sealed partial class PresentationSmokeTests
             Assert.AreEqual((byte)204, lit[0]);
             Assert.AreEqual((byte)153, lit[3]);
             Assert.AreEqual(lit[3], dark[3]);
-            Assert.IsGreaterThan((byte)0, dark[0]);
-            Assert.IsLessThan(lit[0] / 4, (int)dark[0]);
-            Assert.IsGreaterThan(dark[0], dark[1]);
-            Assert.IsGreaterThan(dark[1], dark[2]);
+            if (preview)
+            {
+                Assert.IsGreaterThan((byte)0, dark[0]);
+                Assert.IsLessThan(lit[0] / 4, (int)dark[0]);
+                Assert.IsGreaterThan(dark[0], dark[1]);
+                Assert.IsGreaterThan(dark[1], dark[2]);
+            }
+            else
+                Assert.IsTrue(lit.SequenceEqual(dark));
             Assert.AreEqual(day.DepthAt(32, 32), night.DepthAt(32, 32), 0.000001f);
             var restored = Draw(daylight, 4);
             RequireResidentProps();

@@ -10,6 +10,8 @@ internal enum GpuFrameSubmitResult { Busy, Rejected, Submitted }
 
 internal sealed unsafe partial class GpuDevice : IDisposable
 {
+    internal const int TwilightPreviewAbiVersion = 1;
+
     private const int AdapterNotFound = unchecked((int)0x887A0002);
     private readonly Frame[] _frames = [new(), new()];
     private IDXGIFactory4* _factory;
@@ -36,15 +38,20 @@ internal sealed unsafe partial class GpuDevice : IDisposable
 
     internal GpuDevice(bool warp, bool enableDebugLayer = false, bool enableDred = false, RenderMeshPair? meshes = null,
         GpuRetirementTestHooks? retirementHooks = null, RenderMeshRegion? region = null, D3D12DeviceSession? session = null,
-        ResourceDiagnostics? resourceDiagnostics = null, bool? skyLookupPrototype = null, bool? skyLookupResourceReuse = null)
+        ResourceDiagnostics? resourceDiagnostics = null, bool? skyLookupPrototype = null, bool? skyLookupResourceReuse = null,
+        bool? twilightPreview = null)
     {
         if (meshes is not null && region is not null)
             throw new ArgumentException("Only one initial mesh set may be supplied.", nameof(region));
 
         _retirementHooks = retirementHooks;
         _resourceDiagnostics = resourceDiagnostics;
-        SkyLookupPrototypeEnabledForTests = skyLookupPrototype ??
-            Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1";
+        // The nullable override is an explicit native test seam. Runtime
+        // diagnostics must still opt into the shared renderer/client preview.
+        TwilightPreviewEnabledForTests = twilightPreview ?? (skyLookupPrototype == true ||
+            Environment.GetEnvironmentVariable("GROUNDWORK_TWILIGHT_PREVIEW") == "1");
+        SkyLookupPrototypeEnabledForTests = TwilightPreviewEnabledForTests && (skyLookupPrototype ??
+            Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_PROTOTYPE") == "1");
         SkyLookupResourceReuseEnabledForTests = SkyLookupPrototypeEnabledForTests && (skyLookupResourceReuse ??
             Environment.GetEnvironmentVariable("GROUNDWORK_SKY_LOOKUP_REUSE_RESOURCES") == "1");
         try
@@ -233,7 +240,8 @@ internal sealed unsafe partial class GpuDevice : IDisposable
             frame.Scene.HasValue && subsequent.HasValue, shadows.NearKind, shadows.FarKind,
             readback is not null, owner is not null, frame.Scene.HasValue && !terrainAppearance ? FrameTextureImport() : default,
             terrainAppearance, terrainAppearance ? _frameTerrainMaterials!.Imports : default,
-            TransparentPropsAfterSky: hasProps && frame.Sky.HasValue && PropStream is { HasTransparentAssets: true });
+            TransparentPropsAfterSky: TwilightPreviewEnabledForTests && hasProps && frame.Sky.HasValue &&
+                PropStream is { HasTransparentAssets: true }, SkyAfterOpaque: TwilightPreviewEnabledForTests);
         if (GetPassPlan(shape) is not { } plan)
         {
             if (!terrainAppearance)
@@ -371,11 +379,11 @@ internal sealed unsafe partial class GpuDevice : IDisposable
         return result;
     }
 
-    internal void WakeOnQueueRetirement(WaitHandle wake)
+    internal bool WakeOnQueueRetirement(WaitHandle wake)
     {
         // The renderer holds the wake event until native work and its fence settle.
         // Keep the existing bounded retirement poll if registration fails.
-        _ = _fence->SetEventOnCompletion(_retirement.Submitted, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle());
+        return _fence->SetEventOnCompletion(_retirement.Submitted, (HANDLE)wake.SafeWaitHandle.DangerousGetHandle()).Value >= 0;
     }
 
     public void Dispose() => DisposeCore(healthyStop: false);

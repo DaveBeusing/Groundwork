@@ -41,6 +41,20 @@ Review this contract before implementation. The first Groundwork slice adds fram
 
 ## Dawn and dusk renderer slice
 
+### Preview activation
+
+Start the process with `GROUNDWORK_TWILIGHT_PREVIEW=1` to enable the unqualified Twilight Preview in Groundwork and WYU.
+The normal path uses the existing Direct shaders, sky before scene depth, indexed terrain, prop tint and frame pacing.
+Preview selects its own sky and PBR shader variants, read-only depth culling, flat-prop irradiance, index-free expanded
+terrain, packed normal/roughness, and the swapchain wake, mip-refinement yield and shutdown retirement wake changes.
+Lookup and retired lookup-resource reuse require their additional diagnostic flags. The existing Direct build artifacts
+remain available, and staged DLL overlays provide functional and diagnostic evidence with recorded source and binary identities.
+
+The matched Groundwork rendering contracts and D3D12 provider both attest to Preview ABI 1. An unchanged approved WYU
+package pin remains valid for the normal path. A paired Preview includes both matched renderer assemblies.
+The new presentation waiter API, cleanup deadline synchronization and stale-acknowledgment protection apply in either mode.
+The [reference measurement policy](../adr/ADR-0011-reference-measurement-policy.md) governs merge and release evidence.
+
 ### Approved visual decisions
 
 On 20 November 2026 the owner approved TW1–TW3 for Groundwork #193 and WYU #83:
@@ -48,7 +62,8 @@ the captured warm low-sun/horizon treatment with cooler ambient light and a
 shared morning/evening elevation curve (TW1), the existing 0.18 night-strength
 floor with cool bias while night remains darker than day (TW2), and automatic
 adoption by existing Far Horizon saves on Continue without changing seed,
-clock or terrain (TW3). WYU owns the lighting profile and save-adoption rule;
+clock or terrain (TW3). In this Preview, the shared opt-in gates that adoption.
+WYU owns the lighting profile and save-adoption rule;
 the renderer remains stateless. These approvals do not waive any performance,
 provenance, installed handoff or final technical-review gate and do not themselves
 authorize a merge or immutable package publication.
@@ -63,7 +78,7 @@ The local 2026-11-20 calibration measured a maximum regional step of 9/255 on bo
 
 ### Qualification tooling and diagnostic results
 
-`eng/Measure-SkyQualification.ps1` builds a clean reviewed source checkout and
+`eng/Measure-SkyQualification.ps1` requires `GROUNDWORK_TWILIGHT_PREVIEW=1`, builds a clean reviewed source checkout and
 collects direct 1920 × 1080 sky/frame query results after fence retirement.
 Strict mode fixes five alternating pairs and 2,000 retained samples per variant
 and phase in each pair, with 64 warmups. It retains raw samples, summaries,

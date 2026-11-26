@@ -25,7 +25,7 @@ internal sealed unsafe partial class GpuDevice
     {
         var bytes = 0;
         foreach (ref readonly var instance in meshes)
-            bytes = checked(bytes + MeshBytes(instance.Mesh, allowIndexFree: true));
+            bytes = checked(bytes + MeshBytes(instance.Mesh, allowIndexFree: TwilightPreviewEnabledForTests));
 
         if (bytes == 0)
             return new MeshGeometry(this, null, 0, meshes);
@@ -190,7 +190,8 @@ internal sealed unsafe partial class GpuDevice
                 var offset = 0;
                 for (var index = 0; index < meshes.Length; index++)
                 {
-                    var packed = PackMesh(meshes[index], (byte*)mapped, address, ref offset, allowIndexFree: true);
+                    var packed = PackMesh(meshes[index], (byte*)mapped, address, ref offset,
+                        allowIndexFree: owner.TwilightPreviewEnabledForTests);
                     _packed[index] = packed;
                     if (packed.DrawCount != 0)
                     {
