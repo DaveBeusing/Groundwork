@@ -302,10 +302,10 @@ public sealed partial class PresentationSmokeTests
             var mesh = RenderMesh.CreateWithTerrainNormals(corners, indices, [], normals, vertices);
             var previous = gpu.ActiveMeshGeometry;
             gpu.ActiveMeshGeometry = gpu.PrepareMeshGeometry(new RenderMeshRegion([new(mesh, Vector3.Zero)]));
-            var expectedBytes = corners.Length * (5 * sizeof(uint) + TerrainAppearanceVertex.SizeInBytes)
-                + (retainIndices ? indices.Length * sizeof(uint) : 0);
-            Assert.AreEqual(expectedBytes, gpu.ActiveMeshGeometry.PackedBytes);
             previous?.Dispose();
+            var expectedBytes = corners.Length * (5 * sizeof(uint) + TerrainAppearanceVertex.SizeInBytes)
+                + (retainIndices || !preview ? indices.Length * sizeof(uint) : 0);
+            Assert.AreEqual(expectedBytes, gpu.ActiveMeshGeometry.PackedBytes);
             return Read(24, shadow, materials);
         }
 
