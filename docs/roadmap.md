@@ -38,11 +38,11 @@ WP11 deliberately replaces the radial-only fixture with a seed-dependent, sparse
 - **WP11-C:** bounded generation/meshing jobs, streaming, collision, coherent D3D12 presentation, instrumentation and budgets.
 - **WP11-D:** deterministic terrain editing, new save/recovery schema, WYU playable/flight integration and clean Windows handover.
 
-The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepted in PR #77. Groundwork generation, streaming, collision, D3D12 and NTFS checkpoints are merged, along with WYU W01–W05. The [workstation handover](wp11-handover.md) records the clean Windows integration, installer and package provenance. Q01 production budgets, Q02 reference qualification and owner acceptance remain open. The [issue map](wp11-issues.md) records the dependencies and final gates.
+The [WP11 contract](architecture/wp11-procedural-planet-contract.md) was accepted in PR #77. Groundwork generation, streaming, collision, D3D12 and NTFS checkpoints are merged, along with WYU W01–W05. The [workstation handover](wp11-handover.md) records the clean Windows integration, installer and package provenance. Q01 and Q02 have scoped acceptance. The exact-candidate G00 owner handover remains to be reconciled. The [issue map](wp11-issues.md) records the dependencies and final gates.
 
 ## WP12 – Underground geology and caves (installed route verified)
 
-The [WP12 contract](architecture/wp12-underground-geology-contract.md) covers seeded geology, cave streaming, collision and checkpoint recovery. A01, B01 and C01 are merged in Groundwork, and W01 is merged in WYU. The [G00 handover](wp12-handover.md) records the installed NVIDIA route through descent, ore mining, underground restart and the return to supported surface. WP11 reference production qualification and [Groundwork #89](https://github.com/DaveBeusing/Groundwork/issues/89) remain open.
+The [WP12 contract](architecture/wp12-underground-geology-contract.md) covers seeded geology, cave streaming, collision and checkpoint recovery. A01, B01 and C01 are merged in Groundwork, and W01 is merged in WYU. The [G00 handover](wp12-handover.md) records the installed NVIDIA route through descent, ore mining, underground restart and the return to supported surface. WP12 production qualification remains open. The [WP11 Q02 baseline](https://github.com/DaveBeusing/Groundwork/issues/89) records its accepted scope.
 
 ## WP13 – Biomes (workstation integration verified)
 
@@ -79,7 +79,7 @@ The [WP16 Windows handover](wp16-handover.md) records the merged integration and
 
 The fresh Windows 11 offline run remains a follow-up to the accepted WP10 milestone. The [handover](wp10-handover.md) records its scope and existing evidence.
 
-WP11 closes after the [reference-system measurements](https://github.com/DaveBeusing/Groundwork/issues/88), [pressure qualification](https://github.com/DaveBeusing/Groundwork/issues/89) and [owner acceptance](https://github.com/DaveBeusing/Groundwork/issues/90). Package-specific performance claims require the benchmark evidence specified in the linked issues.
+The WP11 baseline has scoped [reference measurements](https://github.com/DaveBeusing/Groundwork/issues/88) and [pressure qualification](https://github.com/DaveBeusing/Groundwork/issues/89). The [owner handover record](https://github.com/DaveBeusing/Groundwork/issues/90) tracks reconciliation and the remaining package-specific evidence. [ADR-0011](adr/ADR-0011-reference-measurement-policy.md) governs merge, unqualified preview, and release qualification. Package-specific performance claims require the benchmark evidence specified in the linked issues.
 
 ## Planning and verification
 
