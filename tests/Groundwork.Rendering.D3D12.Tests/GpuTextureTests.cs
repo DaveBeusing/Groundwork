@@ -18,6 +18,80 @@ public sealed unsafe class GpuTextureTests
         Matrix4x4.Identity, 1, 0.2f, 20);
 
     [TestMethod]
+    public void TextureCopyQualificationDisposesAnUnsubmittedTicketAndRearms()
+    {
+        var qualification = new D3D12TextureCopyQualification();
+        var ticket = new D3D12TextureTicket(1, 0, 1);
+        Assert.ThrowsExactly<ArgumentException>(() => qualification.Arm(default));
+        using var hold = qualification.Arm(ticket);
+        Assert.AreSame(hold, qualification.Find(ticket));
+        Assert.IsNull(qualification.Find(new(2, 0, 1)));
+        Assert.ThrowsExactly<InvalidOperationException>(() => qualification.Arm(ticket));
+        Assert.ThrowsExactly<InvalidOperationException>(() => hold.Release());
+        hold.Dispose();
+        Assert.IsTrue(hold.Submitted.IsCanceled);
+        using var next = qualification.Arm(new(1, 0, 2));
+        Assert.IsFalse(next.Submitted.IsCompleted);
+    }
+
+    [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public void WarpTextureCopyQualificationWaitsOnTheExactAuthorizedNativeCopy(bool watchdog) =>
+        VerifyTextureCopyQualification(warp: true, watchdog);
+
+    [TestMethod]
+    [TestCategory("WindowsDesktopSmoke")]
+    public void HardwareTextureCopyQualificationWaitsOnTheExactAuthorizedNativeCopy() =>
+        VerifyTextureCopyQualification(warp: false, watchdog: false);
+
+    private static void VerifyTextureCopyQualification(bool warp, bool watchdog)
+    {
+        var diagnostics = new ResourceDiagnostics();
+        using var gpu = new GpuDevice(warp: warp, enableDebugLayer: true, enableDred: true,
+            resourceDiagnostics: diagnostics);
+        Assert.IsTrue(gpu.DebugLayerEnabled && gpu.DredEnabled);
+        Assert.AreEqual(warp, gpu.Adapter.IsSoftware);
+        if (!warp)
+            Assert.AreEqual(0x10deU, gpu.Adapter.VendorId);
+
+        var texture = Rgba(512, 1024, TextureColorSpace.Linear, 255, 0, 0);
+        Assert.IsTrue(gpu.TryGetTextureRequirements(texture, 0, out var requirements));
+        var qualification = new D3D12TextureCopyQualification();
+        var ticket = new D3D12TextureTicket(1, 0, 1);
+        using var hold = qualification.Arm(ticket);
+        Assert.IsFalse(gpu.TrySubmitTexture(texture, 1, requirements, out _,
+            authorize: static () => false, qualification: qualification.Find(ticket)));
+        Assert.IsFalse(hold.Submitted.IsCompleted);
+
+        Assert.IsTrue(gpu.TrySubmitTexture(texture, 1, requirements, out var uploaded,
+            qualification: qualification.Find(ticket)));
+        Assert.IsFalse(hold.Submitted.IsCompleted);
+        Assert.IsFalse(hold.TryEnqueue(gpu), "The armed ticket must never overwrite its original native wait.");
+        gpu.ConfirmTextureQualificationSubmission(hold);
+        Assert.IsTrue(hold.Submitted.IsCompletedSuccessfully);
+        var submitted = hold.Submitted.GetAwaiter().GetResult();
+        Assert.AreEqual(ticket, submitted.Ticket);
+        Assert.IsTrue(submitted.WaitQueuedAt > 0 && submitted.SubmittedAt >= submitted.WaitQueuedAt);
+        Assert.IsFalse(gpu.TryRetireTextureCopy(out _));
+        Assert.IsTrue(diagnostics.TryRead(out var pending));
+        Assert.AreEqual(submitted.CopyFence, pending.TextureCopyFence);
+        Assert.IsLessThan(submitted.CopyFence, pending.CompletedFence);
+        Assert.AreEqual((ulong)requirements.TextureAllocationBytes, pending.GetBalance(D3D12ResourceOwner.Texture).RetainedBytes);
+        Assert.AreEqual((ulong)requirements.StagingAllocationBytes, pending.GetBalance(D3D12ResourceOwner.TextureStaging).RetainedBytes);
+
+        if (!watchdog)
+            Assert.IsGreaterThanOrEqualTo(submitted.SubmittedAt, hold.Release());
+        Assert.AreEqual(uploaded, AwaitTexture(gpu));
+        if (watchdog)
+            Assert.ThrowsExactly<InvalidOperationException>(() => hold.Release());
+        Assert.IsTrue(gpu.TryReleaseTexture(uploaded));
+        Assert.IsTrue(diagnostics.TryRead(out var retired));
+        Assert.AreEqual(0UL, retired.GetBalance(D3D12ResourceOwner.Texture).RetainedBytes);
+        Assert.AreEqual(0UL, retired.GetBalance(D3D12ResourceOwner.TextureStaging).RetainedBytes);
+    }
+
+    [TestMethod]
     public void WarpStaticTextureSamplesLinearSrgbAndBc1()
     {
         using var gpu = new GpuDevice(warp: true, enableDebugLayer: true, enableDred: true);

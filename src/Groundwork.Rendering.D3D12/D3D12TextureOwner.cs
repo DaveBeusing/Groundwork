@@ -123,7 +123,7 @@ public sealed partial class D3D12Renderer
             {
                 if (owner.TrySubmit(transfer, view, () => !ShouldStop(target) &&
                     !HasProtectedTextureCompetition() && CurrentTextureView() == view && watchdog.IsWithinDeadline,
-                    out spentTurn))
+                    _diagnosticsOptions.TextureCopyQualification?.Find(transfer.Ticket), out spentTurn))
                 {
                     gpu.WakeOnQueueRetirement(_wake!);
                     return true;
@@ -268,7 +268,7 @@ public sealed partial class D3D12Renderer
             stream.TryTake(view, firstUse, out transfer);
 
         internal bool TrySubmit(in D3D12TextureTransfer transfer, D3D12TextureView view, Func<bool> authorize,
-            out bool eligible)
+            D3D12TextureCopyQualification.Hold? qualification, out bool eligible)
         {
             eligible = false;
             var ticket = transfer.Ticket;
@@ -303,10 +303,12 @@ public sealed partial class D3D12Renderer
                         couldRetry = current && !authorize();
                         return current && !couldRetry;
                     }
-                }))
+                }, qualification))
             {
                 if (!stream.MarkCopySubmitted(ticket, requirements))
                     throw new InvalidOperationException("A submitted texture copy lost its custody ticket.");
+                if (qualification is not null)
+                    gpu.ConfirmTextureQualificationSubmission(qualification);
                 return true;
             }
             if (!couldRetry)

@@ -7,6 +7,9 @@ public readonly record struct D3D12DiagnosticsOptions(bool EnableDebugLayer = fa
 {
     /// <summary>Publish a bounded per-pass GPU backing and fence snapshot for host observation.</summary>
     public bool EnableResourceSnapshots { get; init; }
+
+    /// <summary>Enable the explicit optional-copy hold used by native pressure qualification.</summary>
+    public D3D12TextureCopyQualification? TextureCopyQualification { get; init; }
 }
 
 /// <summary>The DXGI adapter selected by the renderer. Driver version is optional.</summary>
