@@ -336,6 +336,14 @@ public sealed class VolumeMeshPlan : IDisposable
         return _inputs[index].Brick.ReadDensityInSession((int)local.X, (int)local.Y, (int)local.Z);
     }
 
+    internal ReadOnlySpan<long> ReadRegularDensityRow(Vector3 origin)
+    {
+        var index = BrickAt(origin);
+        var local = origin - BrickPosition(index);
+        System.Diagnostics.Debug.Assert(local.X == 0);
+        return _inputs[index].Brick.ReadRegularDensityRowInSession((int)local.Y, (int)local.Z);
+    }
+
     internal Vector3 Gradient(Vector3 point)
     {
         var gradient = Vector3.Zero;
