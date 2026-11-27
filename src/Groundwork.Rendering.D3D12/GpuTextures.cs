@@ -452,12 +452,12 @@ internal sealed unsafe partial class GpuDevice
     internal void ConfirmTextureQualificationSubmission(D3D12TextureCopyQualification.Hold hold)
     {
         if (ReferenceEquals(_textureQualificationHold, hold))
-            hold.MarkSubmitted(_textureCopyFence);
+            hold.MarkSubmitted(this, _textureCopyFence);
     }
 
     private void SettleTextureQualification()
     {
-        _textureQualificationHold?.SettleNative();
+        _textureQualificationHold?.SettleNative(this);
         _textureQualificationHold = null;
     }
 

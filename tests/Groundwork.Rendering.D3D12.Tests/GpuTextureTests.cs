@@ -67,6 +67,7 @@ public sealed unsafe class GpuTextureTests
         Assert.IsTrue(gpu.TrySubmitTexture(texture, 1, requirements, out var uploaded,
             qualification: qualification.Find(ticket)));
         Assert.IsFalse(hold.Submitted.IsCompleted);
+        Assert.IsFalse(hold.TryEnqueue(gpu), "The armed ticket must never overwrite its original native wait.");
         gpu.ConfirmTextureQualificationSubmission(hold);
         Assert.IsTrue(hold.Submitted.IsCompletedSuccessfully);
         var submitted = hold.Submitted.GetAwaiter().GetResult();

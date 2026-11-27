@@ -41,6 +41,7 @@ public sealed class D3D12TextureCopyQualification
         private readonly Lock _gate = new();
         private readonly Timer _watchdog;
         private readonly TaskCompletionSource<Submission> _submitted = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        private GpuDevice? _gpuOwner;
         private ID3D12Fence* _waitFence;
         private long _queuedAt;
         private long _releasedAt;
@@ -64,7 +65,8 @@ public sealed class D3D12TextureCopyQualification
         {
             lock (_gate)
             {
-                if (_releasedAt != 0)
+                // A contender may have obtained the same armed ticket before the first owner queued its copy.
+                if (_releasedAt != 0 || _gpuOwner is not null)
                     return false;
                 if (!gpu.DebugLayerEnabled || !gpu.DredEnabled || !gpu.HasResourceDiagnostics)
                     throw new InvalidOperationException("Qualification texture holds require native Debug Layer, DRED and resource snapshots.");
@@ -75,6 +77,7 @@ public sealed class D3D12TextureCopyQualification
                 try
                 {
                     GpuNative.Check(gpu.Queue->Wait(fence, 1), "Queue qualification texture wait");
+                    _gpuOwner = gpu;
                     _waitFence = fence;
                     _queuedAt = Stopwatch.GetTimestamp();
                     return true;
@@ -87,11 +90,11 @@ public sealed class D3D12TextureCopyQualification
             }
         }
 
-        internal void MarkSubmitted(ulong fence)
+        internal void MarkSubmitted(GpuDevice gpu, ulong fence)
         {
             lock (_gate)
             {
-                if (_releasedAt == 0)
+                if (ReferenceEquals(_gpuOwner, gpu) && _releasedAt == 0)
                     _submitted.TrySetResult(new(Ticket, fence, _queuedAt, Stopwatch.GetTimestamp()));
             }
         }
@@ -156,17 +159,18 @@ public sealed class D3D12TextureCopyQualification
 
         // The releasing CPU thread does not relinquish native custody. The owner
         // retains the wait fence to the copy's retirement or proven teardown.
-        internal void SettleNative()
+        internal void SettleNative(GpuDevice gpu)
         {
             lock (_gate)
             {
-                if (_waitFence == null)
+                if (!ReferenceEquals(_gpuOwner, gpu))
                     return;
                 // A device-removal or exceptional teardown may settle before the watchdog.
                 FinishUnderLock(finalAttempt: true);
                 _submitted.TrySetCanceled();
                 _waitFence->Release();
                 _waitFence = null;
+                _gpuOwner = null;
             }
         }
     }
