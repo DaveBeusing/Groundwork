@@ -120,6 +120,9 @@ public sealed partial class D3D12Renderer
                 session: _deviceSession, resourceDiagnostics: _resourceDiagnostics, twilightPreview: TwilightPreviewForTests);
             Volatile.Write(ref _observedGpu, gpu);
             gpu.PropStream = _props;
+            if (_fixedTextureQualificationView.IsValid &&
+                !(gpu.DebugLayerEnabled && gpu.DredEnabled && gpu.HasResourceDiagnostics))
+                throw new InvalidOperationException("The native qualification requires active Debug Layer, DRED and resource snapshots.");
             if (_textures is { } textures)
                 _textureOwner = new(textures, gpu);
             Volatile.Write(ref _diagnostics, new D3D12DiagnosticsSnapshot(gpu.Adapter, gpu.DebugLayerEnabled,
@@ -527,6 +530,8 @@ public sealed partial class D3D12Renderer
                 {
                     _admission.RecordPresented(frame.Sequence);
                     RecordSessionOrbitPresent(frame);
+                    if (_fixedTextureQualificationView.IsValid && frame.Scene.HasValue)
+                        _fixedTextureQualificationPresented = true;
                 }
                 if (frame.Scene.HasValue)
                     appearancePending = false;

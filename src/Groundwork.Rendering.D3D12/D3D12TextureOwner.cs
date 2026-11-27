@@ -14,6 +14,8 @@ public sealed partial class D3D12Renderer
     private D3D12TextureDiagnostics _textureDiagnostics;
     private D3D12TextureHandoff? _textures;
     private TextureOwner? _textureOwner;
+    private D3D12TextureView _fixedTextureQualificationView;
+    private bool _fixedTextureQualificationPresented;
     private D3D12TextureView _textureFrameView;
     private D3D12TextureTicket? _textureFrameTicket;
     private GpuTerrainMaterialSet? _textureFrameMaterials;
@@ -59,11 +61,13 @@ public sealed partial class D3D12Renderer
         var changed = owner.Refresh(CurrentTextureView(), !UsesSessionTerrainAppearance, out var released);
         if (released)
             PublishTextureDiagnostics(gpu);
-        return changed;
+        return changed && !_fixedTextureQualificationView.IsValid;
     }
 
     private D3D12TextureView CurrentTextureView()
     {
+        if (_fixedTextureQualificationView.IsValid)
+            return _fixedTextureQualificationPresented && PlanetTextureAdmissionOpen ? _fixedTextureQualificationView : default;
         if (_volume is null)
             return CurrentPlanetTextureView();
         lock (_volumeGate)
@@ -77,6 +81,8 @@ public sealed partial class D3D12Renderer
 
     private bool HasProtectedTextureCompetition()
     {
+        if (_fixedTextureQualificationView.IsValid)
+            return !_fixedTextureQualificationPresented;
         if (_volume is null)
             return HasProtectedPlanetTextureCompetition();
         lock (_volumeGate)
@@ -123,7 +129,8 @@ public sealed partial class D3D12Renderer
             {
                 if (owner.TrySubmit(transfer, view, () => !ShouldStop(target) &&
                     !HasProtectedTextureCompetition() && CurrentTextureView() == view && watchdog.IsWithinDeadline,
-                    _diagnosticsOptions.TextureCopyQualification?.Find(transfer.Ticket), out spentTurn))
+                    _diagnosticsOptions.TextureCopyQualification?.Find(transfer.Ticket), _fixedTextureQualificationView.IsValid,
+                    out spentTurn))
                 {
                     gpu.WakeOnQueueRetirement(_wake!);
                     return true;
@@ -146,7 +153,7 @@ public sealed partial class D3D12Renderer
 
     private void CaptureFrameTexture(GpuDevice gpu, in RenderFrame frame)
     {
-        if (!frame.Scene.HasValue || _textureOwner is not { } owner)
+        if (!frame.Scene.HasValue || _fixedTextureQualificationView.IsValid || _textureOwner is not { } owner)
             return;
         var view = CurrentTextureView();
         if (gpu.ActiveMeshGeometry is { HasTerrainAppearance: true } && owner.CaptureTerrainMaterials(view) is { } materials)
@@ -268,7 +275,7 @@ public sealed partial class D3D12Renderer
             stream.TryTake(view, firstUse, out transfer);
 
         internal bool TrySubmit(in D3D12TextureTransfer transfer, D3D12TextureView view, Func<bool> authorize,
-            D3D12TextureCopyQualification.Hold? qualification, out bool eligible)
+            D3D12TextureCopyQualification.Hold? qualification, bool qualificationRequired, out bool eligible)
         {
             eligible = false;
             var ticket = transfer.Ticket;
@@ -277,8 +284,8 @@ public sealed partial class D3D12Renderer
                 stream.Release(ticket);
                 return false;
             }
-            if (!gpu.TryGetTextureTierRequirements(transfer.Texture, transfer.RequestedMip,
-                transfer.Reservation, out var requirements))
+            if (qualificationRequired && qualification is null ||
+                !gpu.TryGetTextureTierRequirements(transfer.Texture, transfer.RequestedMip, transfer.Reservation, out var requirements))
             {
                 stream.RejectUnsubmitted(ticket);
                 return false;
@@ -303,7 +310,7 @@ public sealed partial class D3D12Renderer
                         couldRetry = current && !authorize();
                         return current && !couldRetry;
                     }
-                }, qualification))
+                }, qualification, qualificationRequired))
             {
                 if (!stream.MarkCopySubmitted(ticket, requirements))
                     throw new InvalidOperationException("A submitted texture copy lost its custody ticket.");

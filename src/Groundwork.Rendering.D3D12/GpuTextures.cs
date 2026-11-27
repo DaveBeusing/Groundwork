@@ -155,7 +155,7 @@ internal sealed unsafe partial class GpuDevice
 
     internal bool TrySubmitTexture(CookedTexture texture, ulong rendererEpoch, in GpuTextureRequirements reserved,
         out GpuTextureIdentity identity, Func<bool>? authorize = null,
-        D3D12TextureCopyQualification.Hold? qualification = null)
+        D3D12TextureCopyQualification.Hold? qualification = null, bool qualificationRequired = false)
     {
         identity = default;
         if (rendererEpoch == 0 || HasTextureCopy || !IsIdle ||
@@ -208,6 +208,8 @@ internal sealed unsafe partial class GpuDevice
 
             if (qualification?.TryEnqueue(this) == true)
                 _textureQualificationHold = qualification;
+            else if (qualificationRequired)
+                return false;
             var retire = BeginQueueWork();
             _resourceDiagnostics?.BeginTextureCopy(retire, (nint)staging, (nint)destination);
             slots[slot] = entry;
