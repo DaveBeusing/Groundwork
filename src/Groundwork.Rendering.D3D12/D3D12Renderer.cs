@@ -37,6 +37,31 @@ public sealed partial class D3D12Renderer : IRenderer
         return renderer;
     }
 
+    /// <summary>Creates a fixed mesh renderer with a private stream for native optional-copy pressure evidence.</summary>
+    /// <remarks>At least one mesh must contain triangles. The stream waits for the first scene Present and accepts only an armed qualification ticket.
+    /// Its copies never supply textures to the scene. This option requires the debug layer, DRED and resource snapshots.</remarks>
+    public static D3D12Renderer CreateWithSessionMeshesForTextureCopyQualification(WindowsHostModule window,
+        IRuntimeOwnership ownership, RenderMeshPair pair, D3D12DeviceSession session,
+        D3D12TextureHandoff stream, D3D12TextureView view, TimeSpan? startupTimeout = null, TimeSpan? operationTimeout = null)
+    {
+        ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(pair);
+        if (pair.First.Mesh.Indices.IsEmpty && pair.Second.Mesh.Indices.IsEmpty)
+            throw new ArgumentException("A fixed texture-copy qualification requires a drawable mesh.", nameof(pair));
+        if (!view.IsValid)
+            throw new ArgumentException("A fixed texture-copy qualification requires a valid view.", nameof(view));
+        if (session.Diagnostics is not
+            { EnableDebugLayer: true, EnableDred: true, EnableResourceSnapshots: true, TextureCopyQualification: not null })
+            throw new ArgumentException("A fixed texture-copy qualification requires the native qualification diagnostics.", nameof(session));
+
+        var renderer = CreateWithSessionMeshes(window, ownership, pair, session, startupTimeout, operationTimeout);
+        stream.BindOwner(view.World, renderer.Wake, view.View.RendererEpoch, fixedView: view);
+        renderer._textures = stream;
+        renderer._fixedTextureQualificationView = view;
+        return renderer;
+    }
+
     /// <summary>Uses the session device for a volume renderer after the preceding renderer has stopped.</summary>
     public static D3D12Renderer CreateWithSessionVolumeTerrain(WindowsHostModule window, IRuntimeOwnership ownership,
         VolumeStreamingCoordinator terrain, ulong rendererEpoch, D3D12DeviceSession session,
@@ -224,9 +249,10 @@ public sealed partial class D3D12Renderer : IRenderer
         if (!OperatingSystem.IsWindowsVersionAtLeast(10, 0, 22000) || RuntimeInformation.ProcessArchitecture != Architecture.X64)
             throw new PlatformNotSupportedException("The Direct3D 12 provider requires Windows 11 x64.");
         var meshFence = context.StopControl as IRuntimeAdmissionFence;
-        var requiresAdmissionFence = _admission.MeshRegionReplacement is not null || _sessionOrbitTextureView.IsValid;
+        var requiresAdmissionFence = _admission.MeshRegionReplacement is not null || _sessionOrbitTextureView.IsValid ||
+            _fixedTextureQualificationView.IsValid;
         if (requiresAdmissionFence && meshFence is null)
-            throw new ArgumentException("Mesh replacement and session orbital appearance require a runtime admission fence.", nameof(context));
+            throw new ArgumentException("The mesh or texture route requires a runtime admission fence.", nameof(context));
 
         var timestamp = context.Clock.GetTimestamp();
         lock (_lifecycle)
