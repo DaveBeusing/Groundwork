@@ -34,6 +34,7 @@ internal sealed unsafe partial class GpuDevice
     private int _pendingTextureSlot = -1;
     private Frame? _textureCopyContext;
     private ulong _textureCopyFence;
+    private D3D12TextureCopyQualification.Hold? _textureQualificationHold;
     private ID3D12Resource* _textureStaging;
     private ID3D12RootSignature* _textureRoot;
     private ID3D12PipelineState* _texturePipeline;
@@ -153,7 +154,8 @@ internal sealed unsafe partial class GpuDevice
         width > 0 && height > 0 && (supportsUnaligned || ((width | height) & 3) == 0);
 
     internal bool TrySubmitTexture(CookedTexture texture, ulong rendererEpoch, in GpuTextureRequirements reserved,
-        out GpuTextureIdentity identity, Func<bool>? authorize = null)
+        out GpuTextureIdentity identity, Func<bool>? authorize = null,
+        D3D12TextureCopyQualification.Hold? qualification = null)
     {
         identity = default;
         if (rendererEpoch == 0 || HasTextureCopy || !IsIdle ||
@@ -204,6 +206,8 @@ internal sealed unsafe partial class GpuDevice
             if (!TryRecordTextureCopy(context, staging, destination, footprint) || authorize?.Invoke() == false)
                 return false;
 
+            if (qualification?.TryEnqueue(this) == true)
+                _textureQualificationHold = qualification;
             var retire = BeginQueueWork();
             _resourceDiagnostics?.BeginTextureCopy(retire, (nint)staging, (nint)destination);
             slots[slot] = entry;
@@ -322,6 +326,7 @@ internal sealed unsafe partial class GpuDevice
             throw new GpuNativeException("Read texture copy fence after device removal", RemovedReason);
         if (!_retirement.CanReuse(completed, _textureCopyFence))
             return false;
+        SettleTextureQualification();
         var entry = _textureSlots![_pendingTextureSlot]!;
         identity = entry.Identity;
         entry.Ready = true;
@@ -427,6 +432,7 @@ internal sealed unsafe partial class GpuDevice
 
     private void ReleaseTextures()
     {
+        SettleTextureQualification();
         _textureCopyContext?.Dispose();
         _textureCopyContext = null;
         ReleaseObservedResource(_textureStaging);
@@ -441,6 +447,18 @@ internal sealed unsafe partial class GpuDevice
         _frameTexture = default;
         ReleaseTexturePipelines();
         TextureStatistics = TextureStatistics with { NativeBytes = 0, StagingBytes = 0 };
+    }
+
+    internal void ConfirmTextureQualificationSubmission(D3D12TextureCopyQualification.Hold hold)
+    {
+        if (ReferenceEquals(_textureQualificationHold, hold))
+            hold.MarkSubmitted(_textureCopyFence);
+    }
+
+    private void SettleTextureQualification()
+    {
+        _textureQualificationHold?.SettleNative();
+        _textureQualificationHold = null;
     }
 
     private void ReleaseTexturePipelines()
