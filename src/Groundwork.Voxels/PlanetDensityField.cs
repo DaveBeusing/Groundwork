@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Runtime.Intrinsics;
+using System.Runtime.InteropServices;
 
 namespace Groundwork.Voxels;
 
@@ -122,20 +123,8 @@ public sealed class PlanetDensityField : IPlanetBrickSource
                 valleys.Fill(cuts[..count]);
             if (detailAmplitude != 0)
                 detail.Fill(details[..count]);
-            for (var index = 0; index < count; index++)
-            {
-                var x = origin.X + offset + index;
-                var elevation = Interpolate(_recipe.LowElevation, _recipe.HighElevation,
-                    continental[index] + NoiseHalfRange, 2 * NoiseHalfRange - 1);
-                var mountain = mountainAmplitude == 0 ? 0 :
-                    RoundDivide((long)mountainAmplitude * (NoiseHalfRange - Math.Abs(ridges[index])), NoiseHalfRange);
-                var valley = valleyAmplitude == 0 ? 0 :
-                    -RoundDivide((long)valleyAmplitude * (NoiseHalfRange - Math.Abs(cuts[index])), NoiseHalfRange);
-                var fine = detailAmplitude == 0 ? 0 :
-                    RoundDivide((long)detailAmplitude * details[index], NoiseHalfRange);
-                values[offset + index] = checked(NearestSquareRoot((Square(x) + squaredYZ) << 16) -
-                    _radius - checked(elevation + mountain + valley + fine));
-            }
+            WriteDensityRow(origin.X + offset, squaredYZ, values.Slice(offset, count),
+                continental, ridges, cuts, details);
             offset += count;
         }
     }
@@ -154,6 +143,165 @@ public sealed class PlanetDensityField : IPlanetBrickSource
             for (var index = 0; index < count; index++)
                 values[offset + index] = samples[index] < 0 ? _recipe.BaseMaterial : _recipe.AlternateMaterial;
             offset += count;
+        }
+    }
+
+    private void WriteDensityRow(long x, UInt128 squaredYZ, Span<long> values,
+        ReadOnlySpan<int> continental, ReadOnlySpan<int> ridges, ReadOnlySpan<int> cuts, ReadOnlySpan<int> details)
+    {
+        var mountainAmplitude = _recipe.Mountains.Amplitude;
+        var valleyAmplitude = _recipe.Valleys.Amplitude;
+        var detailAmplitude = _recipe.Detail.Amplitude;
+        for (var index = 0; index < values.Length; index++)
+        {
+            var elevation = Interpolate(_recipe.LowElevation, _recipe.HighElevation,
+                continental[index] + NoiseHalfRange, 2 * NoiseHalfRange - 1);
+            var mountain = mountainAmplitude == 0 ? 0 :
+                RoundDivide((long)mountainAmplitude * (NoiseHalfRange - Math.Abs(ridges[index])), NoiseHalfRange);
+            var valley = valleyAmplitude == 0 ? 0 :
+                -RoundDivide((long)valleyAmplitude * (NoiseHalfRange - Math.Abs(cuts[index])), NoiseHalfRange);
+            var fine = detailAmplitude == 0 ? 0 :
+                RoundDivide((long)detailAmplitude * details[index], NoiseHalfRange);
+            values[index] = checked(NearestSquareRoot((Square(x + index) + squaredYZ) << 16) -
+                _radius - checked(elevation + mountain + valley + fine));
+        }
+    }
+
+    internal bool SupportsBrickRowReuse => Vector128.IsHardwareAccelerated &&
+        CanReuse(_recipe.ContinentScaleCells) && CanReuse(_recipe.MaterialScaleCells) &&
+        (_recipe.Mountains.Amplitude == 0 || CanReuse(_recipe.Mountains.ScaleCells)) &&
+        (_recipe.Valleys.Amplitude == 0 || CanReuse(_recipe.Valleys.ScaleCells)) &&
+        (_recipe.Detail.Amplitude == 0 || CanReuse(_recipe.Detail.ScaleCells));
+
+    private static bool CanReuse(int scale) => scale is >= 24 and <= 32768 &&
+        (scale >> (int)uint.TrailingZeroCount((uint)scale)) is 1 or 3;
+
+    // The caller supplies scratch scoped to one validated, canonical brick. None of the
+    // interpolated lines survive this generation request or contain edit-overlay data.
+    internal ref struct BrickRows
+    {
+        internal const int ScratchLength = 5 * NoiseBrick.ScratchLength;
+        private readonly PlanetDensityField _field;
+        private NoiseBrick _continent, _mountains, _valleys, _detail, _material;
+
+        internal BrickRows(PlanetDensityField field, LatticeCoordinate origin, Span<int> scratch)
+        {
+            _field = field;
+            var seed = field.Descriptor.Seed;
+            var recipe = field._recipe;
+            const int length = NoiseBrick.ScratchLength;
+            _continent = new(seed, origin, recipe.ContinentScaleCells, ContinentStream, scratch[..length]);
+            _mountains = recipe.Mountains.Amplitude == 0 ? default :
+                new(seed, origin, recipe.Mountains.ScaleCells, MountainStream, scratch.Slice(length, length));
+            _valleys = recipe.Valleys.Amplitude == 0 ? default :
+                new(seed, origin, recipe.Valleys.ScaleCells, ValleyStream, scratch.Slice(2 * length, length));
+            _detail = recipe.Detail.Amplitude == 0 ? default :
+                new(seed, origin, recipe.Detail.ScaleCells, DetailStream, scratch.Slice(3 * length, length));
+            _material = new(seed, origin, recipe.MaterialScaleCells, MaterialStream, scratch.Slice(4 * length, length));
+        }
+
+        internal void SampleDensity(LatticeCoordinate row, scoped Span<long> values)
+        {
+            Span<int> continental = stackalloc int[NoiseBrick.LineStride];
+            Span<int> ridges = stackalloc int[NoiseBrick.LineStride];
+            Span<int> cuts = stackalloc int[NoiseBrick.LineStride];
+            Span<int> details = stackalloc int[NoiseBrick.LineStride];
+            _continent.Fill(row, continental);
+            if (_field._recipe.Mountains.Amplitude != 0)
+                _mountains.Fill(row, ridges);
+            if (_field._recipe.Valleys.Amplitude != 0)
+                _valleys.Fill(row, cuts);
+            if (_field._recipe.Detail.Amplitude != 0)
+                _detail.Fill(row, details);
+            _field.WriteDensityRow(row.X, Square(row.Y) + Square(row.Z), values, continental, ridges, cuts, details);
+        }
+
+        internal void SampleMaterial(LatticeCoordinate row, scoped Span<ushort> values)
+        {
+            Span<int> samples = stackalloc int[NoiseBrick.LineStride];
+            _material.Fill(row, samples);
+            var recipe = _field._recipe;
+            for (var index = 0; index < values.Length; index++)
+                values[index] = samples[index] < 0 ? recipe.BaseMaterial : recipe.AlternateMaterial;
+        }
+    }
+
+    private ref struct NoiseBrick
+    {
+        // With scale >= 24, a span of 33 vertices intersects at most three cells per
+        // axis, whose union has at most four corners. Pad X to complete SIMD groups.
+        internal const int LineStride = (PlanetBrickStore.VertexEdge + 3) / 4 * 4;
+        internal const int ScratchLength = 4 * 4 * LineStride;
+        private readonly Span<int> _lines;
+        private readonly NoiseRow _interpolator;
+        private readonly ulong _seed;
+        private readonly int _scale, _yCorners;
+        private readonly long _baseY, _baseZ, _baseX, _firstXWeight;
+        private uint _prepared;
+
+        internal NoiseBrick(ulong seed, LatticeCoordinate origin, int scale, ulong stream, Span<int> lines)
+        {
+            _lines = lines;
+            _interpolator = new(seed, origin, scale, stream);
+            _seed = Mix(seed ^ stream);
+            _scale = scale;
+            (_baseX, _firstXWeight) = Grid(origin.X, scale);
+            (_baseY, _) = Grid(origin.Y, scale);
+            (_baseZ, _) = Grid(origin.Z, scale);
+            _yCorners = (int)(Grid(origin.Y + PlanetDescriptor.BrickEdge, scale).Index - _baseY) + 2;
+        }
+
+        internal void Fill(LatticeCoordinate row, scoped Span<int> output)
+        {
+            var (y, dy) = Grid(row.Y, _scale);
+            var (z, dz) = Grid(row.Z, _scale);
+            var line = (int)(y - _baseY) + (int)(z - _baseZ) * _yCorners;
+            ref var low0 = ref MemoryMarshal.GetReference(GetLine(line, y, z));
+            ref var low1 = ref MemoryMarshal.GetReference(GetLine(line + 1, y + 1, z));
+            ref var high0 = ref MemoryMarshal.GetReference(GetLine(line + _yCorners, y, z + 1));
+            ref var high1 = ref MemoryMarshal.GetReference(GetLine(line + _yCorners + 1, y + 1, z + 1));
+            ref var destination = ref MemoryMarshal.GetReference(output);
+            var wy = Vector128.Create((int)dy);
+            var wz = Vector128.Create((int)dz);
+            for (nuint offset = 0; offset < LineStride; offset += 4)
+            {
+                var low = _interpolator.InterpolateBlock(Vector128.LoadUnsafe(ref low0, offset),
+                    Vector128.LoadUnsafe(ref low1, offset), wy);
+                var high = _interpolator.InterpolateBlock(Vector128.LoadUnsafe(ref high0, offset),
+                    Vector128.LoadUnsafe(ref high1, offset), wy);
+                _interpolator.InterpolateBlock(low, high, wz).StoreUnsafe(ref destination, offset);
+            }
+        }
+
+        private Span<int> GetLine(int lineIndex, long y, long z)
+        {
+            var line = _lines.Slice(lineIndex * LineStride, LineStride);
+            var flag = 1u << lineIndex;
+            if ((_prepared & flag) != 0)
+                return line;
+
+            var x = _baseX;
+            var dx = _firstXWeight;
+            var left = Corner(x, y, z);
+            for (var offset = 0; offset < PlanetBrickStore.VertexEdge; x++)
+            {
+                var right = Corner(x + 1, y, z);
+                var stepper = new LinearRowStepper(left, right, dx, _scale);
+                var end = offset + Math.Min(PlanetBrickStore.VertexEdge - offset, _scale - (int)dx);
+                for (; offset < end; offset++)
+                    line[offset] = (int)stepper.Next();
+                left = right;
+                dx = 0;
+            }
+            line[PlanetBrickStore.VertexEdge..].Clear();
+            _prepared |= flag;
+            return line;
+        }
+
+        private readonly int Corner(long x, long y, long z)
+        {
+            var prefix = Mix(Mix(_seed ^ unchecked((ulong)x)) ^ unchecked((ulong)y));
+            return (int)(Mix(prefix ^ unchecked((ulong)z)) >> 48) - NoiseHalfRange;
         }
     }
 
@@ -234,7 +382,7 @@ public sealed class PlanetDensityField : IPlanetBrickSource
         }
 
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        private readonly Vector128<int> InterpolateBlock(Vector128<int> a, Vector128<int> b, Vector128<int> weight)
+        internal readonly Vector128<int> InterpolateBlock(Vector128<int> a, Vector128<int> b, Vector128<int> weight)
         {
             // Noise corners and rounded intermediate values fit Int16. Bounded scale and
             // in-cell weights keep the weighted numerators within Int32.

@@ -143,18 +143,24 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
     public ushort SampleMaterial(LatticeCoordinate cell) =>
         TryRead(_materials, _materialCount, cell, out var material) ? (ushort)(material & MaterialMask) : _baseline.SampleMaterial(cell);
 
-    internal bool SupportsRowSampling => _baseline is PlanetDensityField;
+    internal PlanetDensityField? DensityBaseline => _baseline as PlanetDensityField;
+    internal bool SupportsRowSampling => DensityBaseline is not null;
 
     internal bool TrySampleDensityRow(LatticeCoordinate origin, Span<long> values)
     {
         if (_baseline is not PlanetDensityField field)
             return false;
         field.SampleDensityRow(origin, values);
+        ApplyDensityRow(origin, values);
+        return true;
+    }
+
+    internal void ApplyDensityRow(LatticeCoordinate origin, Span<long> values)
+    {
         var (start, end) = IntersectRow(_density, _densityCount, origin.X, values.Length);
         for (var x = start; x < end; x++)
             if (TryRead(_density, _densityCount, origin with { X = origin.X + x }, out var density))
                 values[x] = density;
-        return true;
     }
 
     internal bool TrySampleMaterialRow(LatticeCoordinate origin, Span<ushort> values)
@@ -162,11 +168,16 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         if (_baseline is not PlanetDensityField field)
             return false;
         field.SampleMaterialRow(origin, values);
+        ApplyMaterialRow(origin, values);
+        return true;
+    }
+
+    internal void ApplyMaterialRow(LatticeCoordinate origin, Span<ushort> values)
+    {
         var (start, end) = IntersectRow(_materials, _materialCount, origin.X, values.Length);
         for (var x = start; x < end; x++)
             if (TryRead(_materials, _materialCount, origin with { X = origin.X + x }, out var material))
                 values[x] = (ushort)(material & MaterialMask);
-        return true;
     }
 
     private static (int Start, int End) IntersectRow(Row[] rows, int count, long rowX, int length)

@@ -209,7 +209,13 @@ public sealed class PlanetBrickStore
     private (long DensityTicks, long MaterialTicks) SampleRows(LatticeCoordinate origin, long[] density,
         ushort[] materials, bool measure, CancellationToken cancellationToken)
     {
-        long densityTicks = 0, materialTicks = 0;
+        var overlay = _source as VolumeEditOverlay;
+        var field = _source as PlanetDensityField ?? overlay?.DensityBaseline;
+        var reuseRows = field?.SupportsBrickRowReuse == true;
+        var setupStart = measure ? Stopwatch.GetTimestamp() : 0;
+        Span<int> scratch = reuseRows ? stackalloc int[PlanetDensityField.BrickRows.ScratchLength] : [];
+        var brickRows = reuseRows ? new PlanetDensityField.BrickRows(field!, origin, scratch) : default;
+        long densityTicks = measure ? Stopwatch.GetTimestamp() - setupStart : 0, materialTicks = 0;
         for (var z = 0; z < VertexEdge; z++)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -218,14 +224,27 @@ public sealed class PlanetBrickStore
                 // The source is immutable. Group each row by sample type to avoid a timer read for each value.
                 var rowStart = measure ? Stopwatch.GetTimestamp() : 0;
                 var row = new LatticeCoordinate(origin.X, origin.Y + y, origin.Z + z);
-                SampleDensityRow(row, density.AsSpan(Index(0, y, z, VertexEdge), VertexEdge));
+                var densityRow = density.AsSpan(Index(0, y, z, VertexEdge), VertexEdge);
+                if (reuseRows)
+                {
+                    brickRows.SampleDensity(row, densityRow);
+                    overlay?.ApplyDensityRow(row, densityRow);
+                }
+                else
+                    SampleDensityRow(row, densityRow);
                 var densityEnd = measure ? Stopwatch.GetTimestamp() : 0;
                 densityTicks += densityEnd - rowStart;
                 if (y == CellEdge || z == CellEdge)
                     continue;
 
                 var materialRow = materials.AsSpan(Index(0, y, z, CellEdge), CellEdge);
-                SampleMaterialRow(row, materialRow);
+                if (reuseRows)
+                {
+                    brickRows.SampleMaterial(row, materialRow);
+                    overlay?.ApplyMaterialRow(row, materialRow);
+                }
+                else
+                    SampleMaterialRow(row, materialRow);
                 foreach (var material in materialRow)
                 {
                     if (material == 0)

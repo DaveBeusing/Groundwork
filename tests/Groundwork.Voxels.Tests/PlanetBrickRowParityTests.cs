@@ -22,6 +22,24 @@ public sealed class PlanetBrickRowParityTests
     }
 
     [TestMethod]
+    public void CanonicalBrickReuseMatchesScalarAcrossNegativeAndPositiveCoarseCells()
+    {
+        var recipe = new PlanetLandformRecipe(1024, -513, 1281,
+            new TerrainReliefLayer(192, 1537), new TerrainReliefLayer(96, 1025),
+            new TerrainReliefLayer(24, 193), 48, 7, 19);
+        var field = Field(0xDEADBEEF12345678UL, recipe);
+        AssertPayloadParity(field, new LatticeBrick(-1, -1, -1), profiled: true);
+        AssertPayloadParity(field, new LatticeBrick(2, -2, 2), profiled: false);
+        var edge = PlanetDensityField.MaximumCoordinate / PlanetDescriptor.BrickEdge;
+        AssertPayloadParity(field, new LatticeBrick(edge - 1, -edge, edge - 1), profiled: false);
+
+        var overlaid = Apply(Overlay(field), new VolumeBrushIntent(1, 1, 0,
+            new LatticeCoordinate(-2, -1, -1), new LatticeCoordinate(1, 1, 1),
+            VolumeBrushOperation.Add, 23));
+        AssertPayloadParity(overlaid, new LatticeBrick(-1, -1, -1), profiled: true);
+    }
+
+    [TestMethod]
     public void RowsAtBothDensityDomainEdgesMatchScalarSampling()
     {
         var field = Field(ulong.MaxValue, 17);
@@ -133,6 +151,11 @@ public sealed class PlanetBrickRowParityTests
             new TerrainReliefLayer(Math.Max(1, scale / 2), 1537),
             new TerrainReliefLayer(Math.Max(1, scale / 3), 1025),
             new TerrainReliefLayer(Math.Max(1, scale / 5), 193), scale, 7, 19);
+        return Field(seed, recipe);
+    }
+
+    private static PlanetDensityField Field(ulong seed, PlanetLandformRecipe recipe)
+    {
         var descriptor = new PlanetDescriptor(new Guid("00112233-4455-6677-8899-aabbccddeeff"),
             new Guid("10213243-5465-7687-98a9-bacbdcedfe0f"), seed, 1, 1, 3,
             recipe.ParameterSha256, 128, cellSizeMeters: 0.5);
