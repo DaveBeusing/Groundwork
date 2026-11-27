@@ -81,6 +81,52 @@ public sealed class PlanetBrickRowParityTests
         AssertPayloadParity(genericOverlay, key, profiled: true);
     }
 
+    [TestMethod]
+    public void SparseOverlayRowIntersectionsMatchScalarAtBothEditEndpoints()
+    {
+        var field = Field(42, 13);
+        var minimum = new LatticeCoordinate(-2, -1, -1);
+        var maximum = new LatticeCoordinate(1, 1, 1);
+        var initial = Overlay(field);
+        var added = Apply(initial, new VolumeBrushIntent(1, 1, 0, minimum, maximum, VolumeBrushOperation.Add, 23));
+        var removed = Apply(initial, new VolumeBrushIntent(1, 1, 0, minimum, maximum, VolumeBrushOperation.Remove));
+        var mixed = Apply(added, new VolumeBrushIntent(2, 2, 1, minimum, maximum, VolumeBrushOperation.Remove));
+        Assert.AreEqual((ushort)23, added.SampleMaterial(new LatticeCoordinate(-3, 0, 0)));
+        Assert.AreEqual((ushort)23, added.SampleMaterial(new LatticeCoordinate(1, 0, 0)));
+        Assert.AreEqual(128L, removed.SampleDensity(new LatticeCoordinate(-2, 0, 0)));
+        Assert.AreEqual(128L, removed.SampleDensity(new LatticeCoordinate(1, 0, 0)));
+
+        Span<long> density = stackalloc long[8];
+        Span<ushort> material = stackalloc ushort[8];
+        (int X, int Length)[] intervals = [(-8, 4), (-6, 4), (-6, 5), (-6, 8), (1, 4), (2, 4), (1, 0)];
+        foreach (var overlay in new[] { initial, added, removed, mixed })
+        {
+            const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+            var densityRow = overlay.GetType().GetMethod("TrySampleDensityRow", flags);
+            var materialRow = overlay.GetType().GetMethod("TrySampleMaterialRow", flags);
+            Assert.IsNotNull(densityRow);
+            Assert.IsNotNull(materialRow);
+            var sampleDensity = densityRow.CreateDelegate<DensityRowSampler>(overlay);
+            var sampleMaterial = materialRow.CreateDelegate<MaterialRowSampler>(overlay);
+
+            foreach (var (x, length) in intervals)
+            {
+                var origin = new LatticeCoordinate(x, 0, 0);
+                Assert.IsTrue(sampleDensity(origin, density[..length]));
+                Assert.IsTrue(sampleMaterial(origin, material[..length]));
+                for (var i = 0; i < length; i++)
+                {
+                    var key = origin with { X = origin.X + i };
+                    Assert.AreEqual(overlay.SampleDensity(key), density[i]);
+                    Assert.AreEqual(overlay.SampleMaterial(key), material[i]);
+                }
+            }
+        }
+    }
+
+    private delegate bool DensityRowSampler(LatticeCoordinate origin, Span<long> values);
+    private delegate bool MaterialRowSampler(LatticeCoordinate origin, Span<ushort> values);
+
     private static PlanetDensityField Field(ulong seed, int scale)
     {
         var recipe = new PlanetLandformRecipe(scale, -513, 1281,

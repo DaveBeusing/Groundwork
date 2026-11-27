@@ -75,7 +75,8 @@ public static class PlanetVolumeMesher
         try
         {
             var region = plan.RegionIndex(minimum);
-            if (!plan.TryGetValidatedTriangleCount(region, out var count))
+            var hasValidatedCount = plan.TryGetValidatedTriangleCount(region, out var count);
+            if (!hasValidatedCount)
             {
                 count = Extract(plan, region, null, out var borrowedInverted);
                 if (borrowedInverted)
@@ -85,9 +86,13 @@ public static class PlanetVolumeMesher
                 return null;
 
             var triangles = new VolumeTriangle[count];
-            var written = Extract(plan, region, triangles, out var inverted);
-            if (written != count || inverted)
-                throw new InvalidOperationException("Input changed between mesh passes.");
+            // The leased plan already validated empty regions against the same immutable inputs.
+            if (!hasValidatedCount || count != 0)
+            {
+                var written = Extract(plan, region, triangles, out var inverted);
+                if (written != count || inverted)
+                    throw new InvalidOperationException("Input changed between mesh passes.");
+            }
 
             byte mask = 0;
             for (var slot = 0; slot < 8; slot++)

@@ -1,5 +1,6 @@
 using System.Buffers.Binary;
 using System.Numerics;
+using System.Reflection;
 using System.Security.Cryptography;
 
 namespace Groundwork.Voxels.Tests;
@@ -132,6 +133,60 @@ public sealed class VolumeMeshPlanTests
     }
 
     [TestMethod]
+    public void ValidatedEmptyRegionMatchesUncachedPlanAfterBricksAreEvicted()
+    {
+        const int brickCount = 8;
+        const ulong revision = 7;
+        var store = new PlanetBrickStore(new PlaneSource(Descriptor(128)),
+            brickCount * (long)PlanetBrickStore.BrickPayloadBytes, brickCount);
+        var minimum = new LatticeBrick(0, 2, 0);
+        var requests = new VolumeMeshRequest[brickCount];
+        for (var i = 0; i < requests.Length; i++)
+        {
+            var x = i & 1;
+            var key = new LatticeBrick(x, minimum.Y + ((i >> 1) & 1), i >> 2);
+            Assert.IsTrue(store.TryGenerate(key));
+            requests[i] = new(key, x == 0 ? 1 : 2);
+        }
+
+        var metadataBytes = typeof(VolumeMeshPlan).GetMethod("RequiredMetadataBytes", BindingFlags.Static | BindingFlags.NonPublic);
+        Assert.IsNotNull(metadataBytes);
+        var metadata = metadataBytes.CreateDelegate<Func<int, long>>()(brickCount);
+        PlanetVolumeMesh expected;
+        using (var uncached = VolumeMeshPlan.TryCreate(store, requests, revision, metadata - 1))
+        {
+            Assert.IsNotNull(uncached);
+            Assert.IsFalse(TryReadValidatedCount(uncached, minimum, out _));
+            var mesh = PlanetVolumeMesher.Build(uncached, minimum, 0);
+            Assert.IsNotNull(mesh);
+            Assert.AreEqual(0, mesh.Triangles.Length);
+            expected = mesh;
+        }
+
+        using var cached = VolumeMeshPlan.TryCreate(store, requests, revision, metadata);
+        Assert.IsNotNull(cached);
+        Assert.IsTrue(TryReadValidatedCount(cached, minimum, out var count));
+        Assert.AreEqual(0, count);
+        foreach (var request in requests)
+            Assert.IsTrue(store.Evict(request.Brick));
+
+        var actual = PlanetVolumeMesher.Build(cached, minimum, 0);
+        Assert.IsNotNull(actual);
+        Assert.AreEqual(0, actual.Triangles.Length);
+        Assert.AreEqual((byte)170, actual.LodMask);
+        Assert.AreEqual(expected.LodMask, actual.LodMask);
+        Assert.AreEqual(expected.PlanIdentity, actual.PlanIdentity);
+        Assert.AreEqual(expected.Origin, actual.Origin);
+        Assert.AreEqual(expected.TerrainRevision, actual.TerrainRevision);
+        Assert.AreEqual(expected.Descriptor, actual.Descriptor);
+        Assert.AreEqual(brickCount * (long)PlanetBrickStore.BrickPayloadBytes, store.ChargedPayloadBytes);
+
+        cached.Dispose();
+        Assert.AreEqual(0L, store.ChargedPayloadBytes);
+        Assert.ThrowsExactly<ObjectDisposedException>(() => PlanetVolumeMesher.Build(cached, minimum, 0));
+    }
+
+    [TestMethod]
     public void IncompleteCoverageLeasePressureAndDifferentRevisionsFailPredictably()
     {
         using var fixture = new Window(Descriptor(128), new LatticeCoordinate(0, 0, 0));
@@ -193,6 +248,20 @@ public sealed class VolumeMeshPlanTests
         Assert.AreEqual((byte)170, meshes[1].LodMask);
         AuditJoined(meshes);
     }
+    private delegate bool ReadValidatedCount(int region, out int count);
+
+    private static bool TryReadValidatedCount(VolumeMeshPlan plan, LatticeBrick minimum, out int count)
+    {
+        // Match the existing Voxels tests' reflection convention for internal plan contracts.
+        const BindingFlags flags = BindingFlags.Instance | BindingFlags.NonPublic;
+        var region = typeof(VolumeMeshPlan).GetMethod("RegionIndex", flags);
+        var readCount = typeof(VolumeMeshPlan).GetMethod("TryGetValidatedTriangleCount", flags);
+        Assert.IsNotNull(region);
+        Assert.IsNotNull(readCount);
+        return readCount.CreateDelegate<ReadValidatedCount>(plan)(
+            region.CreateDelegate<Func<LatticeBrick, int>>(plan)(minimum), out count);
+    }
+
     private static void Verify(PlanetDescriptor descriptor, LatticeCoordinate shared)
     {
         using var fixture = new Window(descriptor, shared);
