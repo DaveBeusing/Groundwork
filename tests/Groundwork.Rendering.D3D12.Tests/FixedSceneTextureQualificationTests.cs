@@ -8,6 +8,31 @@ namespace Groundwork.Rendering.D3D12.Tests;
 public sealed partial class PresentationSmokeTests
 {
     [TestMethod]
+    public async Task FixedSessionTextureCopyQualificationRejectsBothEmptyMeshes()
+    {
+        var timing = new RuntimeTimingLimits(TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5), TimeSpan.FromSeconds(5));
+        var runtime = CreateRuntime(timing);
+        var options = QualificationDiagnostics with
+        {
+            EnableResourceSnapshots = true,
+            TextureCopyQualification = new(),
+        };
+        using var session = new D3D12DeviceSession(options, useWarp: true);
+        var stream = new D3D12TextureHandoff(new(1, 1, 4096, 4096, 4096, 65_536, 65_536, 1));
+        var view = new D3D12TextureView(Guid.NewGuid(), new(2, 1, PlanetLocalFrame.Create(default)), 1, 1);
+        var empty = new RenderMeshInstance(RenderMesh.Create([], []), Vector3.Zero);
+        var pair = new RenderMeshPair(empty, empty);
+        await using var window = new WindowsHostModule(new WindowsHostOptions("Groundwork empty qualification scene", 360, 280, 32),
+            runtime.UiWake, runtime.RuntimeOwnership);
+
+        var error = Assert.ThrowsExactly<ArgumentException>(() => D3D12Renderer.CreateWithSessionMeshesForTextureCopyQualification(
+            window, runtime.RuntimeOwnership, pair, session, stream, view));
+        Assert.AreEqual("pair", error.ParamName);
+        await using var ordinary = D3D12Renderer.CreateWithSessionMeshes(window, runtime.RuntimeOwnership, pair, session);
+        Assert.AreEqual(RendererLifecycle.Created, ordinary.Read().Lifecycle);
+    }
+
+    [TestMethod]
     [TestCategory("WindowsDesktopSmoke")]
     public Task WarpFixedSessionTextureCopyQualificationKeepsSceneUntextured() =>
         VerifyFixedSessionTextureCopyQualification(warp: true);

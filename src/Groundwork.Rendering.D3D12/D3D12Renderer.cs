@@ -38,7 +38,7 @@ public sealed partial class D3D12Renderer : IRenderer
     }
 
     /// <summary>Creates a fixed mesh renderer with a private stream for native optional-copy pressure evidence.</summary>
-    /// <remarks>The stream waits for the first scene Present and accepts only an armed qualification ticket.
+    /// <remarks>At least one mesh must contain triangles. The stream waits for the first scene Present and accepts only an armed qualification ticket.
     /// Its copies never supply textures to the scene. This option requires the debug layer, DRED and resource snapshots.</remarks>
     public static D3D12Renderer CreateWithSessionMeshesForTextureCopyQualification(WindowsHostModule window,
         IRuntimeOwnership ownership, RenderMeshPair pair, D3D12DeviceSession session,
@@ -46,6 +46,9 @@ public sealed partial class D3D12Renderer : IRenderer
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(stream);
+        ArgumentNullException.ThrowIfNull(pair);
+        if (pair.First.Mesh.Indices.IsEmpty && pair.Second.Mesh.Indices.IsEmpty)
+            throw new ArgumentException("A fixed texture-copy qualification requires a drawable mesh.", nameof(pair));
         if (!view.IsValid)
             throw new ArgumentException("A fixed texture-copy qualification requires a valid view.", nameof(view));
         if (session.Diagnostics is not
