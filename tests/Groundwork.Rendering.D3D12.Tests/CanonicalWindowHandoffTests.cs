@@ -23,7 +23,9 @@ public sealed partial class PresentationSmokeTests
         const string lookup = "GROUNDWORK_SKY_LOOKUP_PROTOTYPE";
         var priorPreview = Environment.GetEnvironmentVariable(preview);
         var priorLookup = Environment.GetEnvironmentVariable(lookup);
-        using var session = new D3D12DeviceSession(QualificationDiagnostics, useWarp: warp, reuseDirectQueue: true);
+        var trace = new D3D12NativePresentTrace(64);
+        using var session = new D3D12DeviceSession(QualificationDiagnostics with { NativePresentTrace = trace },
+            useWarp: warp, reuseDirectQueue: true);
         try
         {
             Environment.SetEnvironmentVariable(preview, "1");
@@ -45,6 +47,24 @@ public sealed partial class PresentationSmokeTests
             AssertCleanDiagnostics(final, diagnosticsRequested: true);
             Assert.AreEqual(0, final.DebugMessages!.RetainedSessionPreviewObjects);
             Assert.IsFalse(final.DebugMessages.RetainedSessionQueue);
+            var calls = trace.Read(out var dropped);
+            Assert.AreEqual(0L, dropped);
+            var lifetimes = calls.GroupBy(call => call.SwapChainLifetime).ToArray();
+            Assert.HasCount(2, lifetimes);
+            foreach (var lifetime in lifetimes)
+            {
+                var ordinal = 0UL;
+                Assert.IsTrue(lifetime.Any(call => call.HResult == 0));
+                foreach (var call in lifetime)
+                {
+                    Assert.AreEqual(++ordinal, call.CallOrdinal);
+                    Assert.AreEqual(Environment.ProcessId, call.ProcessId);
+                    Assert.IsTrue(call.NativeThreadId != 0 && call.WindowHandle != 0 && call.SwapChainAddress != 0);
+                    Assert.IsTrue(call.QueueFence != 0 && call.BeforeQpc > 0 && call.AfterQpc >= call.BeforeQpc);
+                    Assert.AreEqual(1U, call.SyncInterval);
+                    Assert.AreEqual(0U, call.Flags);
+                }
+            }
         }
         finally
         {

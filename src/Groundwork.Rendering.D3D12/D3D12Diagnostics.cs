@@ -10,6 +10,9 @@ public readonly record struct D3D12DiagnosticsOptions(bool EnableDebugLayer = fa
 
     /// <summary>Enable the explicit optional-copy hold used by native pressure qualification.</summary>
     public D3D12TextureCopyQualification? TextureCopyQualification { get; init; }
+
+    /// <summary>Record bounded native Present call brackets for external display-trace correlation.</summary>
+    public D3D12NativePresentTrace? NativePresentTrace { get; init; }
 }
 
 /// <summary>The DXGI adapter selected by the renderer. Driver version is optional.</summary>
