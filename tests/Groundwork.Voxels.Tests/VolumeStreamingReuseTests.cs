@@ -6,6 +6,58 @@ namespace Groundwork.Voxels.Tests;
 public sealed partial class VolumeStreamingTests
 {
     [TestMethod]
+    [DataRow(false)]
+    [DataRow(true)]
+    public async Task MovementRebaseReusesPublishedGeometryWithinTheSameRendererEpoch(bool replaceRenderer)
+    {
+        using var run = new Run();
+        var sampler = new RebaseProbeSource();
+        using var initial = run.Stage(VolumeWorkClass.Movement, 0, 1, sampler);
+        Assert.IsTrue(initial.Execute());
+        await run.Publish(initial);
+        using var before = run.Coordinator.TryRead();
+        Assert.IsNotNull(before);
+        var original = run.Coordinator.View;
+        Assert.IsTrue(original.Frame.TryRebase(new(48, 0, 0), out var frame));
+        var rebased = run.Coordinator.ChangeView(frame, original.RendererEpoch + (replaceRenderer ? 1UL : 0UL));
+        Assert.IsTrue(run.Coordinator.ConfirmMask(rebased));
+
+        sampler.DensitySamples = 0;
+        using var next = run.Stage(VolumeWorkClass.Movement, 1, 1, sampler);
+        Assert.IsTrue(next.ExecuteReusingPublishedAtRebase());
+        Assert.AreEqual(replaceRenderer, sampler.DensitySamples > 0);
+        Assert.IsTrue(run.Coordinator.Statistics.MovementHeld);
+        Assert.AreEqual(initial.Generation, ((VolumeWorldRoot)run.World.Publication.Committed.Read().Root!).Terrain.Generation);
+
+        await run.Publish(next);
+        using var current = run.Coordinator.TryRead();
+        Assert.IsNotNull(current);
+        Assert.AreEqual(rebased, current.Info.View);
+        Assert.AreEqual(before.Info.TerrainRevision, current.Info.TerrainRevision);
+        foreach (var pair in before.Meshes.ToArray().Zip(current.Meshes.ToArray()))
+            CollectionAssert.AreEqual(pair.First.Triangles.ToArray(), pair.Second.Triangles.ToArray());
+
+        Assert.IsTrue(run.Coordinator.Statistics.MovementHeld);
+        await run.Open(next.Generation);
+        Assert.IsFalse(run.Coordinator.Statistics.MovementHeld);
+    }
+
+    private sealed class RebaseProbeSource : IPlanetBrickSource
+    {
+        private readonly Source _source = new();
+        internal int DensitySamples { get; set; }
+        public PlanetDescriptor Descriptor => _source.Descriptor;
+
+        public long SampleDensity(LatticeCoordinate coordinate)
+        {
+            DensitySamples++;
+            return _source.SampleDensity(coordinate);
+        }
+
+        public ushort SampleMaterial(LatticeCoordinate coordinate) => _source.SampleMaterial(coordinate);
+    }
+
+    [TestMethod]
     [DataRow(true)]
     [DataRow(false)]
     public async Task AheadWorkSurvivesViewsAndInitialCommitOnlyWithTheSameSampler(bool sameSampler)

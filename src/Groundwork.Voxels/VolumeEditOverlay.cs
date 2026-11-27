@@ -150,7 +150,8 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         if (_baseline is not PlanetDensityField field)
             return false;
         field.SampleDensityRow(origin, values);
-        for (var x = 0; x < values.Length; x++)
+        var (start, end) = IntersectRow(_density, _densityCount, origin.X, values.Length);
+        for (var x = start; x < end; x++)
             if (TryRead(_density, _densityCount, origin with { X = origin.X + x }, out var density))
                 values[x] = density;
         return true;
@@ -161,10 +162,23 @@ internal sealed class VolumeEditOverlay : IPlanetBrickSource
         if (_baseline is not PlanetDensityField field)
             return false;
         field.SampleMaterialRow(origin, values);
-        for (var x = 0; x < values.Length; x++)
+        var (start, end) = IntersectRow(_materials, _materialCount, origin.X, values.Length);
+        for (var x = start; x < end; x++)
             if (TryRead(_materials, _materialCount, origin with { X = origin.X + x }, out var material))
                 values[x] = (ushort)(material & MaterialMask);
         return true;
+    }
+
+    private static (int Start, int End) IntersectRow(Row[] rows, int count, long rowX, int length)
+    {
+        if (count == 0 || length == 0)
+            return default;
+
+        // Canonical rows sort by X first. Use the existing immutable endpoints so
+        // lookup pruning needs neither an auxiliary index nor another reservation.
+        var start = Math.Max(0, rows[0].Key.X - rowX);
+        var end = Math.Min(length, rows[count - 1].Key.X - rowX + 1);
+        return start < end ? ((int)start, (int)end) : default;
     }
 
     internal static long ReservedBytes(int limit) => 64L * limit;

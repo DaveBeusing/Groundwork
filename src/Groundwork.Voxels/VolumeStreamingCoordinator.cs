@@ -274,7 +274,7 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
         }
     }
 
-    internal VolumeStreamingLease? TryBorrowPublished(VolumeGeneration target, out VolumeArtifacts? result,
+    internal VolumeStreamingLease? TryBorrowPublished(VolumeGeneration target, bool movementRebase, out VolumeArtifacts? result,
         out VolumeStreamingSelection? selection)
     {
         lock (_gate)
@@ -282,11 +282,14 @@ public sealed partial class VolumeStreamingCoordinator : IDisposable
             Refresh();
             result = null;
             selection = null;
-            if (_stopped || !PresentationEpochOpen || !target.IsPrivate || target.AheadBaseRevision is not null ||
+            if (_stopped || !PresentationEpochOpen || target.IsPrivate == movementRebase || target.AheadBaseRevision is not null ||
                 target.Edit is not null || !target.Outstanding || target.Cancelled || target.Released || target.Retired ||
                 target.View != _view || Array.IndexOf(_entries, target) < 0 ||
                 _active is not { Outstanding: false, Cancelled: false, Released: false, Retired: false,
                     Artifacts: { } artifacts } active || !IsCurrentRoot(active) ||
+                movementRebase && (target.Kind != VolumeWorkClass.Movement ||
+                    target.View.RendererEpoch != active.View.RendererEpoch ||
+                    target.View.Frame.Revision <= active.View.Frame.Revision) ||
                 target.SourceRevision != active.TargetRevision || target.TargetRevision != active.TargetRevision ||
                 !ReferenceEquals(target.Source, active.Source) || !ReferenceEquals(target.Overlay, active.Overlay))
                 return null;

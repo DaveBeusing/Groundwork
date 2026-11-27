@@ -161,7 +161,12 @@ public sealed class VolumeStreamingWork : IDisposable
         CancellationToken cancellationToken = default) =>
         ExecuteCore(true, true, null, out profile, cancellationToken, PublishedReuse.Terrain);
 
-    private enum PublishedReuse { None, Bricks, Terrain }
+    /// <summary>Executes a movement rebase using compatible committed bricks and meshes in the same renderer epoch.</summary>
+    /// <remarks>Unavailable or incompatible data is rebuilt. Publication and the movement permit still require the new view's presentation.</remarks>
+    public bool ExecuteReusingPublishedAtRebase(CancellationToken cancellationToken = default) =>
+        ExecuteCore(false, false, null, out _, cancellationToken, PublishedReuse.Rebase);
+
+    private enum PublishedReuse { None, Bricks, Terrain, Rebase }
 
     private bool ExecuteCore(bool measure, bool captureDetails, VolumeStreamingWork? privateWork,
         out VolumeStreamingWorkDetailedProfile profile,
@@ -179,13 +184,13 @@ public sealed class VolumeStreamingWork : IDisposable
             VolumeArtifacts? published = null;
             VolumeStreamingSelection? publishedSelection = null;
             using var borrow = publishedReuse != PublishedReuse.None
-                ? _owner.TryBorrowPublished(_generation, out published, out publishedSelection)
+                ? _owner.TryBorrowPublished(_generation, publishedReuse == PublishedReuse.Rebase, out published, out publishedSelection)
                 : privateWork is not null && ReferenceEquals(_owner, privateWork._owner)
                     ? _owner.TryBorrowPrivate(_generation, privateWork._generation, out donor)
                     : null;
             var brickDonor = published?.Store ?? donor?.Store;
             // Matching canonical requests also fix the window bounds used by the shared overlay's Refine.
-            var canReusePublishedPlan = publishedReuse == PublishedReuse.Terrain && publishedSelection is not null &&
+            var canReusePublishedPlan = publishedReuse is PublishedReuse.Terrain or PublishedReuse.Rebase && publishedSelection is not null &&
                 _generation.Selection.Requests.SequenceEqual(publishedSelection.Requests);
             var overlay = _generation.Overlay;
             VolumeOreDepletion depletion = default;
