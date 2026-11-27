@@ -147,10 +147,18 @@ public static class PlanetVolumeMesher
             {
                 // Adjacent cells share a face. Carry its samples and sign bits along the row.
                 var row = origin + new Vector3(0, y, z);
-                var left = ReadRegularFace(plan, row, step, density);
+                var low = plan.ReadRegularDensityRow(row);
+                var highY = plan.ReadRegularDensityRow(row + new Vector3(0, step, 0));
+                var highZ = plan.ReadRegularDensityRow(row + new Vector3(0, 0, step));
+                var highYZ = plan.ReadRegularDensityRow(row + new Vector3(0, step, step));
+                var left = ReadRegularFace(low, highY, highZ, highYZ, 0, density);
                 for (var x = 0; x < 32; x += step)
                 {
-                    var right = ReadRegularFace(plan, row + new Vector3(x + step, 0, 0), step, density[1..]);
+                    var column = x + step;
+                    // At X=32 the neighboring brick can own the canonical endpoint.
+                    var right = column == 32
+                        ? ReadRegularFace(plan, row + new Vector3(column, 0, 0), step, density[1..])
+                        : ReadRegularFace(low, highY, highZ, highYZ, column, density[1..]);
                     var code = left | (right << 1);
                     if (code != 0 && code != 255)
                     {
@@ -224,9 +232,22 @@ public static class PlanetVolumeMesher
         density[2] = plan.Read(corner + new Vector3(0, step, 0));
         density[4] = plan.Read(corner + new Vector3(0, 0, step));
         density[6] = plan.Read(corner + new Vector3(0, step, step));
-        return (density[0] < 0 ? 1 : 0) | (density[2] < 0 ? 4 : 0) |
-            (density[4] < 0 ? 16 : 0) | (density[6] < 0 ? 64 : 0);
+        return RegularFaceMask(density);
     }
+
+    private static int ReadRegularFace(ReadOnlySpan<long> low, ReadOnlySpan<long> highY,
+        ReadOnlySpan<long> highZ, ReadOnlySpan<long> highYZ, int column, Span<long> density)
+    {
+        density[0] = low[column];
+        density[2] = highY[column];
+        density[4] = highZ[column];
+        density[6] = highYZ[column];
+        return RegularFaceMask(density);
+    }
+
+    private static int RegularFaceMask(ReadOnlySpan<long> density) =>
+        (density[0] < 0 ? 1 : 0) | (density[2] < 0 ? 4 : 0) |
+        (density[4] < 0 ? 16 : 0) | (density[6] < 0 ? 64 : 0);
 
     private static int Emit(byte[] cell, byte[] edges, ReadOnlySpan<long> density,
         ReadOnlySpan<Vector3> positions, ReadOnlySpan<Vector3> samples, bool reverse,

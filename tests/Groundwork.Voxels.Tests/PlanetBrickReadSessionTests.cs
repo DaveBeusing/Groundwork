@@ -286,6 +286,71 @@ public sealed class PlanetBrickReadSessionTests
     }
 
     [TestMethod]
+    public void RegularDensityRowsMatchCanonicalReadsAndLeaveTheUpperXEndpointToItsOwner()
+    {
+        var stores = new PlanetBrickStore[8];
+        var inputs = new VolumeMeshInput[stores.Length];
+        for (var i = 0; i < stores.Length; i++)
+        {
+            // Borrow accepts independent stores with the same descriptor. Distinct
+            // positive samples expose an accidental choice of the wrong seam owner.
+            stores[i] = new PlanetBrickStore(new UniformSource(i + 1), Bytes, 1);
+            var key = new LatticeBrick(i & 1, (i >> 1) & 1, i >> 2);
+            Assert.IsTrue(stores[i].TryGenerate(key));
+            inputs[i] = new(Acquire(stores[i], key), 2);
+        }
+
+        using var plan = Borrow(inputs, 1);
+        var enter = Bind<Action>(plan, "Enter");
+        var exit = Bind<Action>(plan, "Exit");
+        var read = Bind<Func<Vector3, long>>(plan, "Read");
+        var readRow = Bind<ReadDensityRow>(plan, "ReadRegularDensityRow");
+        enter();
+        try
+        {
+            for (var i = 0; i < stores.Length; i++)
+            {
+                Assert.IsTrue(stores[i].Evict(inputs[i].Brick.Key));
+                inputs[i].Brick.Dispose();
+                Assert.AreEqual((long)Bytes, stores[i].ChargedPayloadBytes);
+            }
+            int[] seamCoordinates = [0, 1, 31, 32, 33, 63, 64];
+            foreach (var z in seamCoordinates)
+            foreach (var y in seamCoordinates)
+            for (var x = 0; x < 64; x += PlanetDescriptor.BrickEdge)
+            {
+                var row = readRow(new Vector3(x, y, z));
+                Assert.AreEqual(PlanetDescriptor.BrickEdge, row.Length);
+                for (var column = 0; column < row.Length; column++)
+                    Assert.AreEqual(read(new Vector3(x + column, y, z)), row[column]);
+                if (x == 0)
+                    Assert.AreNotEqual(row[^1], read(new Vector3(x + row.Length, y, z)));
+            }
+        }
+        finally
+        {
+            exit();
+            plan.Dispose();
+            for (var i = 0; i < stores.Length; i++)
+            {
+                inputs[i].Brick.Dispose();
+                stores[i].Evict(inputs[i].Brick.Key);
+            }
+        }
+        foreach (var store in stores)
+            Assert.AreEqual(0L, store.ChargedPayloadBytes);
+    }
+
+    private delegate ReadOnlySpan<long> ReadDensityRow(Vector3 origin);
+
+    private sealed class UniformSource(long density) : IPlanetBrickSource
+    {
+        public PlanetDescriptor Descriptor => PlanetBrickReadSessionTests.Descriptor;
+        public long SampleDensity(LatticeCoordinate point) => density;
+        public ushort SampleMaterial(LatticeCoordinate point) => 7;
+    }
+
+    [TestMethod]
     [DataRow(false)]
     [DataRow(true)]
     public void SessionPinsTheExactImmutableEditSnapshotInsteadOfAnotherRevision(bool profiled)

@@ -451,6 +451,13 @@ public sealed class PlanetBrickStore
             return _entry!.Density![CheckedIndex(x, y, z, VertexEdge)];
         }
 
+        internal ReadOnlySpan<long> ReadRegularDensityRowInSession(int y, int z)
+        {
+            EnsureReadSession();
+            // The upper X boundary is read canonically by the plan, not from this brick.
+            return _entry!.Density!.AsSpan(CheckedIndex(0, y, z, VertexEdge), CellEdge);
+        }
+
         internal ushort ReadMaterialInSession(int x, int y, int z)
         {
             EnsureReadSession();
