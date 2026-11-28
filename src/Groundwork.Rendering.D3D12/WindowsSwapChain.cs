@@ -25,9 +25,16 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
     private IDXGISwapChain3* _chain;
     private WaitHandle? _latency;
     private readonly WaitHandle[]? _frameWaits;
+    private readonly D3D12NativePresentTrace? _presentTrace;
+    private readonly long _traceLifetime;
+    private readonly int _traceProcess;
+    private readonly uint _traceThread;
+    private readonly ulong _traceWindow;
+    private ulong _traceOrdinal;
     private bool _frameReady;
 
-    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height, WaitHandle? ownerWake)
+    internal WindowsSwapChain(GpuDevice gpu, WindowsPresentationOperation operation, int width, int height,
+        WaitHandle? ownerWake, D3D12NativePresentTrace? presentTrace = null)
     {
         _gpu = gpu;
         IDXGISwapChain1* initial = null;
@@ -62,6 +69,14 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
             if (ownerWake is not null)
                 _frameWaits = [ownerWake, _latency];
             AttachBuffers(width, height);
+            if (presentTrace is not null)
+            {
+                _presentTrace = presentTrace;
+                _traceLifetime = D3D12NativePresentTrace.NewSwapChainLifetime();
+                _traceProcess = Environment.ProcessId;
+                _traceThread = GetCurrentThreadId();
+                _traceWindow = (ulong)(nuint)operation.WindowHandle;
+            }
         }
         catch
         {
@@ -113,8 +128,16 @@ internal sealed unsafe class WindowsSwapChain : IDisposable
         if (_gpu.HasResourceDiagnostics)
             _gpu.ObservePresentStart(retirement, CurrentBuffer);
         var injectedFailure = _gpu.InjectedPresentFailure();
-        var result = injectedFailure is int failure ? new HRESULT(failure) : _chain->Present(1, 0);
-        var presentedAt = result.Value == 0 && _gpu.NeedsPresentTimestamp ? Stopwatch.GetTimestamp() : 0;
+        const uint syncInterval = 1, flags = 0;
+        var trace = injectedFailure is null ? _presentTrace : null;
+        var beforeQpc = trace is not null ? Stopwatch.GetTimestamp() : 0;
+        var result = injectedFailure is int failure ? new HRESULT(failure) : _chain->Present(syncInterval, flags);
+        var needsPresentTimestamp = result.Value == 0 && _gpu.NeedsPresentTimestamp;
+        var afterQpc = trace is not null || needsPresentTimestamp ? Stopwatch.GetTimestamp() : 0;
+        var presentedAt = needsPresentTimestamp ? afterQpc : 0;
+        if (trace is not null)
+            trace.Record(new(_traceLifetime, ++_traceOrdinal, _traceProcess, _traceThread, _traceWindow,
+                (ulong)(nuint)_chain, retirement, beforeQpc, afterQpc, syncInterval, flags, result.Value));
         if (injectedFailure is null)
             _gpu.ObserveNativePresentForTests(retirement, result.Value);
         var signal = _gpu.SignalQueueWork(retirement);

@@ -717,7 +717,7 @@ public sealed partial class D3D12Renderer
         var snapshot = operation.Snapshot;
         if (chain is null)
             chain = new WindowsSwapChain(gpu, operation, snapshot.ClientWidth, snapshot.ClientHeight,
-                gpu.TwilightPreviewEnabledForTests ? _wake : null);
+                gpu.TwilightPreviewEnabledForTests ? _wake : null, _diagnosticsOptions.NativePresentTrace);
         else if (!Matches(snapshot, chain))
         {
             if (_resize is { } resize)
