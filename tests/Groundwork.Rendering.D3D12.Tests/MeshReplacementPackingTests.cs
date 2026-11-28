@@ -5,6 +5,35 @@ namespace Groundwork.Rendering.D3D12.Tests;
 public sealed partial class PresentationSmokeTests
 {
     [TestMethod]
+    public void WarpSkipsTerrainOutsideTheCameraAndKeepsIntersectingMeshes()
+    {
+        var mesh = RenderMesh.Create([new(-30, -30, -64), new(30, -30, -64), new(0, 30, -64)], [0, 1, 2]);
+        var rightEdge = 64f * TerrainWidth / TerrainHeight;
+        var meshes = new RenderMeshPair(new(mesh, new(256, 0, 0)), new(mesh, new(256 + rightEdge - 4, 0, 0)));
+        var diagnostics = new ResourceDiagnostics();
+        using var gpu = new GpuDevice(warp: true, meshes: meshes, resourceDiagnostics: diagnostics);
+        var scene = new RenderScene(Matrix4x4.Identity, new(1, 0, 0, 1), Matrix4x4.Identity,
+            MathF.PI / 2, NearPlane, FarPlane);
+        var frame = new RenderFrame(1, new(0, 0, 0, 1), scene);
+
+        var hidden = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame);
+        AssertTerrainPixel(hidden, TerrainWidth / 2, TerrainHeight / 2, 1);
+        Assert.IsTrue(diagnostics.TryRead(out var hiddenSnapshot));
+        Assert.IsTrue(hiddenSnapshot.TryGetPass(GpuPassPlan.Terrain, out var hiddenPass));
+        Assert.AreEqual(0, hiddenPass.ResourceUses);
+
+        // One translated mesh is centered. The other crosses the right clip plane.
+        var shifted = scene with { World = Matrix4x4.CreateTranslation(-256, 0, 0) };
+        var visible = GpuDevice.RenderOffscreen(gpu, TerrainWidth, TerrainHeight, frame with { Sequence = 2, Scene = shifted });
+        var depth = ProjectTerrainDepth(64);
+        AssertTerrainPixel(visible, TerrainWidth / 2, TerrainHeight / 2, depth);
+        AssertTerrainPixel(visible, TerrainWidth - 3, TerrainHeight / 2, depth);
+        Assert.IsTrue(diagnostics.TryRead(out var visibleSnapshot));
+        Assert.IsTrue(visibleSnapshot.TryGetPass(GpuPassPlan.Terrain, out var visiblePass));
+        Assert.IsGreaterThan(0, visiblePass.ResourceUses);
+    }
+
+    [TestMethod]
     [TestCategory("D3D12MeshReplacementWarp")]
     public void WarpDrawsMixedIndexWidthsAtTheSixteenBitBoundary()
     {

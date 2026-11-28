@@ -606,7 +606,7 @@ internal sealed unsafe partial class GpuDevice
         }
         if (meshes is not null)
         {
-            if (!meshes.Draw(commands, shadows.Enabled, texture is not null, materialPipeline))
+            if (!meshes.Draw(commands, constants.WorldViewProjection, shadows.Enabled, texture is not null, materialPipeline))
                 return;
         }
         else
