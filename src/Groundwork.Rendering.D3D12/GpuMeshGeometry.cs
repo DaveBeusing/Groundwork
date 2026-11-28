@@ -64,10 +64,19 @@ internal sealed unsafe partial class GpuDevice
     }
 
     private static int MeshBytes(RenderMesh mesh, bool allowIndexFree) => checked(
-        mesh.Positions.Length * (int)GetVertexStride(mesh) + NativeIndexBytes(mesh, allowIndexFree));
+        mesh.Positions.Length * (int)GetVertexStride(mesh) +
+        AlignIndexBytes(mesh.Indices.Length * GetIndexStride(mesh, allowIndexFree)));
 
-    private static int NativeIndexBytes(RenderMesh mesh, bool allowIndexFree) =>
-        allowIndexFree && mesh.IsExpandedTriangleList ? 0 : mesh.Indices.Length * sizeof(uint);
+    private static int AlignIndexBytes(int bytes) => (bytes + sizeof(uint) - 1) & -sizeof(uint);
+
+    private static int GetIndexStride(RenderMesh mesh, bool allowIndexFree)
+    {
+        if (allowIndexFree && mesh.IsExpandedTriangleList)
+            return 0;
+
+        // RenderMesh validates that every index addresses an existing vertex.
+        return mesh.Positions.Length <= ushort.MaxValue + 1 ? sizeof(ushort) : sizeof(uint);
+    }
 
     private static uint GetVertexStride(RenderMesh mesh) => !mesh.TerrainAppearance.IsEmpty ? TerrainAppearanceVertexStride :
         mesh.PackedNormals.IsEmpty ? VertexStride : NormalVertexStride;
@@ -85,7 +94,8 @@ internal sealed unsafe partial class GpuDevice
         var appearance = instance.Mesh.TerrainAppearance;
         var stride = GetVertexStride(instance.Mesh);
         var vertexBytes = checked(positions.Length * (int)stride);
-        var indexBytes = NativeIndexBytes(instance.Mesh, allowIndexFree);
+        var indexStride = GetIndexStride(instance.Mesh, allowIndexFree);
+        var indexBytes = checked(indices.Length * indexStride);
         var indexOffset = checked(offset + vertexBytes);
 
         var minimum = new System.Numerics.Vector3(float.PositiveInfinity);
@@ -113,7 +123,13 @@ internal sealed unsafe partial class GpuDevice
                 *(uint*)(vertex + NormalVertexStride + 3 * sizeof(float)) = data.MaterialAndMapping;
             }
         }
-        if (indexBytes != 0)
+        if (indexStride == sizeof(ushort))
+        {
+            var compact = new Span<ushort>(mapped + indexOffset, indices.Length);
+            for (var index = 0; index < indices.Length; index++)
+                compact[index] = (ushort)indices[index];
+        }
+        else if (indexStride == sizeof(uint))
             indices.CopyTo(new Span<uint>(mapped + indexOffset, indices.Length));
 
         var vertexView = new D3D12_VERTEX_BUFFER_VIEW
@@ -126,9 +142,10 @@ internal sealed unsafe partial class GpuDevice
         {
             BufferLocation = checked(address + (ulong)indexOffset),
             SizeInBytes = (uint)indexBytes,
-            Format = DXGI_FORMAT.DXGI_FORMAT_R32_UINT,
+            Format = indexStride == sizeof(ushort) ? DXGI_FORMAT.DXGI_FORMAT_R16_UINT : DXGI_FORMAT.DXGI_FORMAT_R32_UINT,
         };
-        offset = checked(indexOffset + indexBytes);
+        // The next mesh's float and uint vertex fields require four-byte alignment.
+        offset = checked(indexOffset + AlignIndexBytes(indexBytes));
         return new(vertexView, indexView, (uint)indices.Length, (minimum + maximum) * 0.5f, (maximum - minimum) * 0.5f);
     }
 
