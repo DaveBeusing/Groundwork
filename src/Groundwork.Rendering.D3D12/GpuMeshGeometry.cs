@@ -1,3 +1,4 @@
+using System.Numerics;
 using TerraFX.Interop.DirectX;
 using static Groundwork.Rendering.D3D12.GpuNative;
 
@@ -146,7 +147,8 @@ internal sealed unsafe partial class GpuDevice
         };
         // The next mesh's float and uint vertex fields require four-byte alignment.
         offset = checked(indexOffset + AlignIndexBytes(indexBytes));
-        return new(vertexView, indexView, (uint)indices.Length, (minimum + maximum) * 0.5f, (maximum - minimum) * 0.5f);
+        return new(vertexView, indexView, (uint)indices.Length, (minimum + maximum) * 0.5f, (maximum - minimum) * 0.5f,
+            minimum, maximum);
     }
 
     private static void DrawMesh(ID3D12GraphicsCommandList* commands, in PackedMesh mesh)
@@ -168,7 +170,50 @@ internal sealed unsafe partial class GpuDevice
         }
     }
 
-    private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices, uint DrawCount, System.Numerics.Vector3 Center, System.Numerics.Vector3 Extent);
+    private readonly record struct PackedMesh(D3D12_VERTEX_BUFFER_VIEW Vertices, D3D12_INDEX_BUFFER_VIEW Indices,
+        uint DrawCount, Vector3 Center, Vector3 Extent, Vector3 Minimum, Vector3 Maximum);
+
+    private readonly record struct MeshClipPlane(Vector4 Coefficients, Vector4 ErrorScale);
+
+    private static void ExtractMeshClipPlanes(in Matrix4x4 matrix, Span<MeshClipPlane> planes)
+    {
+        // The vertex shader multiplies row vectors. Direct3D clips x/y to [-w, w] and z to [0, w].
+        var x = new Vector4(matrix.M11, matrix.M21, matrix.M31, matrix.M41);
+        var y = new Vector4(matrix.M12, matrix.M22, matrix.M32, matrix.M42);
+        var z = new Vector4(matrix.M13, matrix.M23, matrix.M33, matrix.M43);
+        var w = new Vector4(matrix.M14, matrix.M24, matrix.M34, matrix.M44);
+        var absW = Vector4.Abs(w);
+        var absX = absW + Vector4.Abs(x);
+        var absY = absW + Vector4.Abs(y);
+        var absZ = Vector4.Abs(z);
+        planes[0] = new(w + x, absX);
+        planes[1] = new(w - x, absX);
+        planes[2] = new(w + y, absY);
+        planes[3] = new(w - y, absY);
+        planes[4] = new(z, absZ);
+        planes[5] = new(w - z, absW + absZ);
+    }
+
+    private static bool IsOutsideMeshFrustum(in PackedMesh mesh, ReadOnlySpan<MeshClipPlane> planes)
+    {
+        var magnitude = new Vector4(Vector3.Max(Vector3.Abs(mesh.Minimum), Vector3.Abs(mesh.Maximum)), 1);
+        foreach (ref readonly var plane in planes)
+        {
+            var coefficients = plane.Coefficients;
+            var furthest = new Vector4(
+                coefficients.X >= 0 ? mesh.Maximum.X : mesh.Minimum.X,
+                coefficients.Y >= 0 ? mesh.Maximum.Y : mesh.Minimum.Y,
+                coefficients.Z >= 0 ? mesh.Maximum.Z : mesh.Minimum.Z, 1);
+            var distance = Vector4.Dot(coefficients, furthest);
+            // Allow for cancellation in the plane and rounding in the shader's clip-space dots.
+            // Nonfinite or ambiguous results keep the mesh eligible to draw.
+            var error = MathF.Max(1, Vector4.Dot(plane.ErrorScale, magnitude)) * (16f / 16_777_216f);
+            if (float.IsFinite(distance) && distance < -error)
+                return true;
+        }
+
+        return false;
+    }
     internal sealed class MeshGeometry : IDisposable
     {
         private readonly GpuDevice _owner;
@@ -223,13 +268,15 @@ internal sealed unsafe partial class GpuDevice
             }
         }
 
-        internal bool Draw(ID3D12GraphicsCommandList* commands, bool shadows, bool textured,
-            ID3D12PipelineState* materialPipeline)
+        internal bool Draw(ID3D12GraphicsCommandList* commands, in Matrix4x4 worldViewProjection,
+            bool shadows, bool textured, ID3D12PipelineState* materialPipeline)
         {
+            Span<MeshClipPlane> planes = stackalloc MeshClipPlane[6];
+            ExtractMeshClipPlanes(worldViewProjection, planes);
             uint stride = 0;
             foreach (ref readonly var mesh in _packed.AsSpan())
             {
-                if (mesh.DrawCount == 0)
+                if (mesh.DrawCount == 0 || IsOutsideMeshFrustum(mesh, planes))
                     continue;
                 if (stride != mesh.Vertices.StrideInBytes)
                 {
