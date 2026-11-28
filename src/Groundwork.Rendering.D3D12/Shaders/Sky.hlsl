@@ -66,9 +66,9 @@ float Ground(float3 eye, float3 ray)
     return Sphere(eye, ray, 1, hit) && hit.x >= 0 && hit.y > 0 ? hit.x : 1e10;
 }
 
-float2 Density(float3 samplePosition)
+float2 DensityAtRadius(float radius)
 {
-    float height = max(length(samplePosition) - 1, 0);
+    float height = max(radius - 1, 0);
     return exp(-min(height * float2(RayleighInverseHeight.w, AerosolInverseHeight.w), 80));
 }
 #else
@@ -93,17 +93,38 @@ float3 Transmission(float2 depth)
 }
 
 #if defined(TWILIGHT_PREVIEW)
-float SolarVisibility(float3 position)
+float SolarVisibility(float radius, float alongSun)
 {
-    float radius = length(position);
     float horizon = sqrt(max((radius - 1) * (radius + 1), 0));
     // Approximate a finite solar disk's penumbra instead of switching the whole
     // atmosphere sample when its centre crosses the planet's tangent.
-    float elevation = (dot(position, SunEnergy.xyz) + horizon) / radius;
+    float elevation = (alongSun + horizon) / radius;
     return smoothstep(-UpDisk.w, UpDisk.w, elevation);
 }
 
-float2 SolarDepth(float3 position, float distance)
+bool SolarExit(float3 position, float radiusSquared, float alongSun, float sunLengthSquared, out float distance)
+{
+    float outerSquared = EyeOuter.w * EyeOuter.w;
+    float c = radiusSquared - outerSquared;
+    // Interior samples have one positive root. Keep the existing root and
+    // tangent classification for samples within float roundoff of the shell.
+    if (c >= -1e-5 * outerSquared)
+    {
+        float2 roots;
+        bool intersects = Sphere(position, SunEnergy.xyz, EyeOuter.w, roots);
+        distance = roots.y;
+        return intersects;
+    }
+
+    // |position × sun|² = |position|² |sun|² - dot(position, sun)².
+    float discriminant = alongSun * alongSun - c - radiusSquared * (sunLengthSquared - 1);
+    float root = sqrt(discriminant);
+    // Use the product of the roots for outward rays to avoid cancellation.
+    distance = alongSun < 0 ? root - alongSun : -c / (root + alongSun);
+    return true;
+}
+
+float2 SolarDepth(float radiusSquared, float alongSun, float sunLengthSquared, float distance)
 {
     // Four-point Gauss-Legendre quadrature resolves the dense end of grazing
     // light paths without increasing the existing four solar density samples.
@@ -111,7 +132,13 @@ float2 SolarDepth(float3 position, float distance)
     const float4 weights = float4(0.1739274226, 0.3260725774, 0.3260725774, 0.1739274226);
     float2 depth = 0;
     [unroll] for (uint j = 0; j < 4; ++j)
-        depth += Density(position + SunEnergy.xyz * (nodes[j] * distance)) * (weights[j] * distance);
+    {
+        float travel = nodes[j] * distance;
+        // Expand the squared length along the solar ray once per node.
+        // This avoids reconstructing and re-squaring three coordinates.
+        float solarRadiusSquared = radiusSquared + travel * (2 * alongSun + travel * sunLengthSquared);
+        depth += DensityAtRadius(sqrt(max(solarRadiusSquared, 0))) * (weights[j] * distance);
+    }
     return depth;
 }
 #endif
@@ -163,15 +190,19 @@ void IntegrateAtmosphere(float3 eye, float3 ray, float mu, float ground, out flo
         {
             float rayleighPhase = 0.0596831 * (1 + mu * mu);
             float aerosolPhase = 0.0286479 * pow(max(1.64 - 1.6 * mu, 0.04), -1.5);
+            float sunLengthSquared = dot(SunEnergy.xyz, SunEnergy.xyz);
             [loop] for (uint i = 0; i < 8; ++i)
             {
                 float3 samplePosition = eye + ray * (start + (i + 0.5) * stepSize);
-                float2 density = Density(samplePosition) * stepSize;
-                float2 solar;
-                float visibility = SolarVisibility(samplePosition);
-                if (visibility > 0 && Sphere(samplePosition, SunEnergy.xyz, EyeOuter.w, solar))
+                float radiusSquared = dot(samplePosition, samplePosition);
+                float radius = sqrt(radiusSquared);
+                float alongSun = dot(samplePosition, SunEnergy.xyz);
+                float2 density = DensityAtRadius(radius) * stepSize;
+                float solarExit;
+                float visibility = SolarVisibility(radius, alongSun);
+                if (visibility > 0 && SolarExit(samplePosition, radiusSquared, alongSun, sunLengthSquared, solarExit))
                 {
-                    float2 solarDepth = SolarDepth(samplePosition, solar.y);
+                    float2 solarDepth = SolarDepth(radiusSquared, alongSun, sunLengthSquared, solarExit);
                     light += Transmission(viewDepth + density * 0.5 + solarDepth) *
                         (density.x * RayleighInverseHeight.rgb * rayleighPhase + density.y * AerosolInverseHeight.rgb * aerosolPhase) * visibility;
                 }
